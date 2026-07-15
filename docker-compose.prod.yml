@@ -27,6 +27,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       UPLOAD_DIR: /data/uploads
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      APP_ENC_KEY: ${APP_ENC_KEY:-}
+      BASE_URL: ${BASE_URL:-}
     volumes:
       - uploads:/data/uploads
     depends_on:
