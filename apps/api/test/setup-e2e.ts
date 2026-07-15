@@ -60,7 +60,24 @@ export async function createTestApp(): Promise<{
 
 export async function resetDb(prisma: PrismaService): Promise<void> {
   const tableList = TRUNCATE_TABLES.map((table) => `"${table}"`).join(', ');
-  await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`,
-  );
+  const sql = `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`;
+
+  // Фоновые fire-and-forget запросы приложения (напр. bot.notifyAdminsNewOrder)
+  // могут держать AccessShareLock и конфликтовать с AccessExclusiveLock от TRUNCATE,
+  // вызывая deadlock (40P01). Такие запросы короткие — ретраим с backoff.
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isDeadlock =
+        message.includes('deadlock detected') || message.includes('40P01');
+      if (!isDeadlock || attempt === maxAttempts) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+    }
+  }
 }
