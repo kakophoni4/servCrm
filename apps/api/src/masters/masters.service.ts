@@ -5,16 +5,30 @@ import {
 } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class MastersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  list(activeOnly = true) {
+  async list(
+    userId: string,
+    role: Role | string,
+    activeOnly = true,
+    cityId?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, cityId);
     return this.prisma.master.findMany({
-      where: activeOnly ? { status: UserStatus.ACTIVE } : undefined,
-      include: { user: true },
+      where: {
+        status: activeOnly ? UserStatus.ACTIVE : undefined,
+        cityId: this.branch.cityWhere(cityIds),
+      },
+      include: { user: true, city: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -52,8 +66,12 @@ export class MastersService {
       // Мастер без кабинета: роль на User остаётся служебной;
       // доступ в web не выдаём по masterProfile, выбор идёт из Master.
       return tx.master.create({
-        data: { userId: user.id, status: UserStatus.ACTIVE },
-        include: { user: true },
+        data: {
+          userId: user.id,
+          cityId: input.cityId?.trim() || null,
+          status: UserStatus.ACTIVE,
+        },
+        include: { user: true, city: true },
       });
     });
   }

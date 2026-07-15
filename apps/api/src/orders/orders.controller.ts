@@ -24,14 +24,21 @@ export class OrdersController {
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list() {
-    return this.orders.list();
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.orders.list(user.userId, user.role, cityId);
   }
 
   @Get('recent')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  recent(@Query('after') after?: string) {
-    return this.orders.recent(after);
+  recent(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('after') after?: string,
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.orders.recent(user.userId, user.role, after, cityId);
   }
 
   @Get(':id')

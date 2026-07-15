@@ -131,6 +131,8 @@ model City {
   adReports  AdDailyReport[]
   assets     Asset[]
   chatThreads ChatThread[]
+  masters    Master[]
+  directors  BranchDirector[]
 
   @@map("cities")
 }
@@ -202,21 +204,38 @@ model User {
   adReports         AdDailyReport[]
   chatMessages      ChatMessage[]
   dispatcherPay     DispatcherPaySettings?
+  managedBranches   BranchDirector[]
 
   @@map("users")
+}
+
+/// Директор ↔ филиал (город). Директор может вести несколько филиалов.
+model BranchDirector {
+  cityId String @map("city_id")
+  userId String @map("user_id")
+
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cityId, userId])
+  @@index([userId])
+  @@map("branch_directors")
 }
 
 model Master {
   id        String     @id @default(cuid())
   userId    String     @unique @map("user_id")
+  cityId    String?    @map("city_id")
   status    UserStatus @default(ACTIVE)
   createdAt DateTime   @default(now()) @map("created_at")
   updatedAt DateTime   @updatedAt @map("updated_at")
 
   user         User               @relation(fields: [userId], references: [id])
+  city         City?              @relation(fields: [cityId], references: [id])
   orders       Order[]
   settlements  MasterSettlement[]
 
+  @@index([cityId])
   @@map("masters")
 }
 

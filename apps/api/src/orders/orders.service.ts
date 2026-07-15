@@ -17,6 +17,7 @@ import { calcPayment, requiresDocsForDone } from '../common/utils/formulas';
 import { normalizePhone } from '../common/utils/phone';
 import { buildOrderPrefix, buildPublicId } from '../common/utils/order-id';
 import { BotService } from '../bot/bot.service';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalaryService } from '../salary/salary.service';
@@ -38,6 +39,7 @@ export class OrdersService {
     private readonly salary: SalaryService,
     private readonly documents: DocumentsService,
     private readonly bot: BotService,
+    private readonly branch: BranchScopeService,
   ) {}
 
   private orderInclude = {
@@ -51,8 +53,11 @@ export class OrdersService {
     documents: true,
   } satisfies Prisma.OrderInclude;
 
-  async list() {
+  async list(userId: string, role: Role, cityId?: string) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, cityId);
     return this.prisma.order.findMany({
+      where: { cityId: this.branch.cityWhere(cityIds) },
       include: this.orderInclude,
       orderBy: { createdAt: 'desc' },
     });
@@ -113,6 +118,16 @@ export class OrdersService {
     const isWarranty = dto.type === OrderType.WARRANTY;
     const isRepeat = dto.type === OrderType.REPEAT;
 
+    // Филиал заявки: OWNER выбирает произвольно, остальные — свой филиал.
+    let cityId = dto.cityId;
+    if (role !== Role.OWNER) {
+      const allowed = await this.branch.allowedCityIds(userId, role);
+      if (allowed && allowed.length) {
+        cityId =
+          dto.cityId && allowed.includes(dto.cityId) ? dto.cityId : allowed[0];
+      }
+    }
+
     const created = await this.prisma.$transaction(async (tx) => {
       let client = await tx.client.findUnique({
         where: {
@@ -129,7 +144,7 @@ export class OrdersService {
             phoneNormalized: phone,
             name: dto.clientName.trim(),
             ageCategoryId: dto.ageCategoryId,
-            cityId: dto.cityId,
+            cityId,
             branchComment: dto.branchComment,
           },
         });
@@ -171,7 +186,7 @@ export class OrdersService {
           isProfile: dto.isProfile ?? true,
           typeTech: dto.typeTech,
           branchComment: dto.branchComment ?? client.branchComment,
-          cityId: dto.cityId,
+          cityId,
           createdById: userId,
           payment: { create: {} },
         },
@@ -194,13 +209,18 @@ export class OrdersService {
    * Заявки, созданные после указанного момента — для всплывающих
    * уведомлений в CRM. По умолчанию последняя минута.
    */
-  async recent(after?: string) {
+  async recent(userId: string, role: Role, after?: string, cityId?: string) {
     const afterDate =
       after && !Number.isNaN(Date.parse(after))
         ? new Date(after)
         : new Date(Date.now() - 60_000);
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, cityId);
     const orders = await this.prisma.order.findMany({
-      where: { createdAt: { gt: afterDate } },
+      where: {
+        createdAt: { gt: afterDate },
+        cityId: this.branch.cityWhere(cityIds),
+      },
       orderBy: { createdAt: 'asc' },
       take: 20,
       include: { client: true, city: true },
@@ -231,6 +251,29 @@ export class OrdersService {
 
     if (dto.masterId !== undefined && !isAdmin) {
       throw new ForbiddenException('Назначать мастера может только админ');
+    }
+
+    // Мастера можно назначать только из филиала заявки (кроме OWNER).
+    if (dto.masterId && role !== Role.OWNER) {
+      const master = await this.prisma.master.findUnique({
+        where: { id: dto.masterId },
+        select: { cityId: true },
+      });
+      if (
+        master?.cityId &&
+        existing.cityId &&
+        master.cityId !== existing.cityId
+      ) {
+        throw new ForbiddenException('Мастер из другого филиала');
+      }
+      const allowed = await this.branch.allowedCityIds(userId, role);
+      if (
+        allowed &&
+        existing.cityId &&
+        !allowed.includes(existing.cityId)
+      ) {
+        throw new ForbiddenException('Заявка вне вашего филиала');
+      }
     }
 
     if (dto.status !== undefined) {

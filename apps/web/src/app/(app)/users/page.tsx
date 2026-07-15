@@ -21,6 +21,7 @@ type User = {
   hasPassport?: boolean;
   hasEmployeePhoto?: boolean;
   city?: { id: string; name: string } | null;
+  managedCityIds?: string[];
 };
 
 type City = { id: string; name: string };
@@ -37,6 +38,7 @@ const emptyForm = {
   telegramId: '',
   passportNumber: '',
   hiredAt: '',
+  managedCityIds: [] as string[],
 };
 
 export default function UsersPage() {
@@ -50,7 +52,17 @@ export default function UsersPage() {
   const [passportPhoto, setPassportPhoto] = useState<File | null>(null);
   const [contractPhoto, setContractPhoto] = useState<File | null>(null);
   const [employeePhoto, setEmployeePhoto] = useState<File | null>(null);
-  const admin = isAdminRole(getStoredUser()?.role ?? '');
+  const [branchEditId, setBranchEditId] = useState<string | null>(null);
+  const [branchSel, setBranchSel] = useState<string[]>([]);
+  const role = getStoredUser()?.role ?? '';
+  const admin = isAdminRole(role);
+  const isOwner = role === 'OWNER';
+
+  const cityName = (id: string) => cities.find((c) => c.id === id)?.name ?? id;
+
+  function toggle(list: string[], id: string): string[] {
+    return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+  }
 
   async function load(status: Tab = tab) {
     setUsers(await api<User[]>(`/users?status=${status}`));
@@ -88,6 +100,10 @@ export default function UsersPage() {
         hiredAt: form.hiredAt
           ? new Date(form.hiredAt).toISOString()
           : undefined,
+        managedCityIds:
+          form.role === 'DIRECTOR' && form.managedCityIds.length
+            ? form.managedCityIds.join(',')
+            : undefined,
       });
       if (passportPhoto) fd.append('passportPhoto', passportPhoto);
       if (contractPhoto) fd.append('contractPhoto', contractPhoto);
@@ -127,6 +143,21 @@ export default function UsersPage() {
     setError('');
     try {
       await api(`/users/${id}/restore`, { method: 'POST', body: '{}' });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  async function saveBranches(id: string) {
+    setError('');
+    try {
+      await api(`/users/${id}/branches`, {
+        method: 'POST',
+        body: JSON.stringify({ cityIds: branchSel }),
+      });
+      setBranchEditId(null);
+      setBranchSel([]);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -223,6 +254,41 @@ export default function UsersPage() {
                 onChange={(e) => setForm({ ...form, hiredAt: e.target.value })}
               />
             </div>
+            {form.role === 'DIRECTOR' ? (
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Филиалы под управлением директора</label>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                    padding: '0.4rem 0',
+                  }}
+                >
+                  {cities.map((c) => (
+                    <label
+                      key={c.id}
+                      style={{ display: 'flex', gap: 4, alignItems: 'center' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={form.managedCityIds.includes(c.id)}
+                        onChange={() =>
+                          setForm({
+                            ...form,
+                            managedCityIds: toggle(form.managedCityIds, c.id),
+                          })
+                        }
+                      />
+                      {c.name}
+                    </label>
+                  ))}
+                  {!cities.length ? (
+                    <span className="muted">Сначала добавьте города</span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <div className="field">
               <label>Фото паспорта</label>
               <input
@@ -283,6 +349,7 @@ export default function UsersPage() {
               <th>ФИО</th>
               <th>Логин</th>
               <th>Роль</th>
+              <th>Филиалы</th>
               <th>Телефон</th>
               <th>Статус</th>
               <th></th>
@@ -294,6 +361,77 @@ export default function UsersPage() {
                 <td>{u.fullName}</td>
                 <td>{u.login}</td>
                 <td>{ROLE_LABELS[u.role] ?? u.role}</td>
+                <td>
+                  {u.role !== 'DIRECTOR' ? (
+                    <span className="muted">—</span>
+                  ) : branchEditId === u.id ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {cities.map((c) => (
+                        <label
+                          key={c.id}
+                          style={{
+                            display: 'flex',
+                            gap: 4,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={branchSel.includes(c.id)}
+                            onChange={() =>
+                              setBranchSel(toggle(branchSel, c.id))
+                            }
+                          />
+                          {c.name}
+                        </label>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => saveBranches(u.id)}
+                      >
+                        Сохранить
+                      </button>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => {
+                          setBranchEditId(null);
+                          setBranchSel([]);
+                        }}
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                    >
+                      {(u.managedCityIds ?? []).length
+                        ? (u.managedCityIds ?? []).map(cityName).join(', ')
+                        : '—'}
+                      {isOwner ? (
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => {
+                            setBranchEditId(u.id);
+                            setBranchSel(u.managedCityIds ?? []);
+                          }}
+                        >
+                          ✎
+                        </button>
+                      ) : null}
+                    </span>
+                  )}
+                </td>
                 <td>{u.phone ?? '—'}</td>
                 <td>{USER_STATUS_LABELS[u.status] ?? u.status}</td>
                 <td>

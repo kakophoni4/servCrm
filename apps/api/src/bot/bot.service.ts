@@ -13,6 +13,7 @@ import {
   ChatChannel,
   DocKind,
   OrderStatus,
+  Prisma,
   Role,
 } from '@prisma/client';
 import { ChatService } from '../chat/chat.service';
@@ -327,11 +328,26 @@ export class BotService {
     });
     if (!order) return null;
 
+    // Получатели: OWNER (всегда) + админы/директора филиала заявки.
+    // Если у заявки нет города — уведомляем всех админов (fallback).
+    const branchFilter: Prisma.UserWhereInput[] = order.cityId
+      ? [
+          { role: Role.OWNER },
+          {
+            role: { in: [Role.ADMIN, Role.DIRECTOR] },
+            OR: [
+              { cityId: order.cityId },
+              { managedBranches: { some: { cityId: order.cityId } } },
+            ],
+          },
+        ]
+      : [{ role: { in: [Role.ADMIN, Role.DIRECTOR, Role.OWNER] } }];
+
     const admins = await this.prisma.user.findMany({
       where: {
-        role: { in: [Role.ADMIN, Role.DIRECTOR, Role.OWNER] },
         status: 'ACTIVE',
         telegramId: { not: null },
+        OR: branchFilter,
       },
       select: { telegramId: true },
     });

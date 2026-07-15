@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { BranchModule } from './common/branch/branch.module';
 import { StorageModule } from './common/storage/storage.module';
 import { AdsModule } from './ads/ads.module';
 import { AssetsModule } from './assets/assets.module';
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    BranchModule,
     StorageModule,
     AuthModule,
     UsersModule,

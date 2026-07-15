@@ -15,6 +15,7 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Role, UserStatus } from '@prisma/client';
 import type { Response } from 'express';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -64,6 +65,17 @@ class CreateUserDto {
   @IsOptional()
   @IsString()
   passportNumber?: string;
+
+  /** CSV id городов, которыми управляет директор. */
+  @IsOptional()
+  @IsString()
+  managedCityIds?: string;
+}
+
+class SetBranchesDto {
+  @IsArray()
+  @IsString({ each: true })
+  cityIds!: string[];
 }
 
 class FireDto {
@@ -143,6 +155,12 @@ export class UsersController {
     },
   ) {
     return this.users.create(dto, files as CreateUserFiles);
+  }
+
+  @Post(':id/branches')
+  @Roles(Role.OWNER)
+  setBranches(@Param('id') id: string, @Body() dto: SetBranchesDto) {
+    return this.users.setBranches(id, dto.cityIds);
   }
 
   @Post(':id/fire')

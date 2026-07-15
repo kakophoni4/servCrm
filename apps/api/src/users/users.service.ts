@@ -40,6 +40,7 @@ const userSelect = {
   createdAt: true,
   city: true,
   passportEnc: true,
+  managedBranches: { select: { cityId: true } },
 } as const;
 
 export type CreateUserFiles = {
@@ -80,6 +81,7 @@ export class UsersService {
       telegramId?: string;
       hiredAt?: string;
       passportNumber?: string;
+      managedCityIds?: string;
     },
     files?: CreateUserFiles,
   ) {
@@ -120,24 +122,63 @@ export class UsersService {
         .relPath;
     }
 
-    const user = await this.prisma.user.create({
-      data: {
-        login,
-        passwordHash,
-        fullName: input.fullName.trim(),
-        role: input.role,
-        phone: input.phone?.trim() || null,
-        cityId: input.cityId?.trim() || null,
-        telegramId: input.telegramId?.trim() || null,
-        hiredAt,
-        status: UserStatus.ACTIVE,
-        passportEnc,
-        contractPhotoPath,
-        employeePhotoPath,
-      },
-      select: userSelect,
+    const managedCityIds =
+      input.role === Role.DIRECTOR
+        ? this.parseCityIds(input.managedCityIds)
+        : [];
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          login,
+          passwordHash,
+          fullName: input.fullName.trim(),
+          role: input.role,
+          phone: input.phone?.trim() || null,
+          cityId: input.cityId?.trim() || null,
+          telegramId: input.telegramId?.trim() || null,
+          hiredAt,
+          status: UserStatus.ACTIVE,
+          passportEnc,
+          contractPhotoPath,
+          employeePhotoPath,
+        },
+        select: userSelect,
+      });
+      if (managedCityIds.length) {
+        await tx.branchDirector.createMany({
+          data: managedCityIds.map((cityId) => ({ cityId, userId: created.id })),
+          skipDuplicates: true,
+        });
+        return tx.user.findUniqueOrThrow({
+          where: { id: created.id },
+          select: userSelect,
+        });
+      }
+      return created;
     });
     return this.toPublic(user);
+  }
+
+  /** Заменить набор филиалов, которыми управляет директор. */
+  async setBranches(id: string, cityIds: string[]) {
+    await this.getRaw(id);
+    const ids = [...new Set(cityIds.map((c) => c.trim()).filter(Boolean))];
+    await this.prisma.$transaction(async (tx) => {
+      await tx.branchDirector.deleteMany({ where: { userId: id } });
+      if (ids.length) {
+        await tx.branchDirector.createMany({
+          data: ids.map((cityId) => ({ cityId, userId: id })),
+          skipDuplicates: true,
+        });
+      }
+    });
+    return this.get(id);
+  }
+
+  private parseCityIds(csv?: string): string[] {
+    if (!csv) return [];
+    return [...new Set(csv.split(',').map((s) => s.trim()).filter(Boolean))];
   }
 
   async get(id: string) {
@@ -277,12 +318,14 @@ export class UsersService {
       passportEnc: string | null;
       contractPhotoPath: string | null;
       employeePhotoPath: string | null;
+      managedBranches?: { cityId: string }[];
     },
   >(user: T) {
-    const { passportEnc, ...rest } = user;
+    const { passportEnc, managedBranches, ...rest } = user;
     const meta = this.parsePassportEnc(passportEnc);
     return {
       ...rest,
+      managedCityIds: (managedBranches ?? []).map((b) => b.cityId),
       hasPassport: Boolean(meta?.photoPath || meta?.number),
       hasPassportPhoto: Boolean(meta?.photoPath),
       hasPassportNumber: Boolean(meta?.number),
