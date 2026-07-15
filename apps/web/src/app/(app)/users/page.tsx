@@ -1,7 +1,12 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { api, getStoredUser } from '@/lib/api';
+import {
+  api,
+  appendFormFields,
+  getStoredUser,
+  uploadFiles,
+} from '@/lib/api';
 import { ROLE_LABELS, USER_STATUS_LABELS, isAdminRole } from '@/lib/labels';
 
 type User = {
@@ -11,23 +16,44 @@ type User = {
   role: string;
   status: string;
   phone?: string | null;
+  telegramId?: string | null;
+  hiredAt?: string | null;
+  hasPassport?: boolean;
+  hasEmployeePhoto?: boolean;
+  city?: { id: string; name: string } | null;
+};
+
+type City = { id: string; name: string };
+
+type Tab = 'ACTIVE' | 'FIRED';
+
+const emptyForm = {
+  login: '',
+  password: '',
+  fullName: '',
+  role: 'DISPATCHER',
+  phone: '',
+  cityId: '',
+  telegramId: '',
+  passportNumber: '',
+  hiredAt: '',
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [tab, setTab] = useState<Tab>('ACTIVE');
   const [error, setError] = useState('');
   const [fireId, setFireId] = useState<string | null>(null);
   const [fireForm, setFireForm] = useState({ reason: '', recommendedHire: true });
-  const [form, setForm] = useState({
-    login: '',
-    password: '',
-    fullName: '',
-    role: 'DISPATCHER',
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [passportPhoto, setPassportPhoto] = useState<File | null>(null);
+  const [contractPhoto, setContractPhoto] = useState<File | null>(null);
+  const [employeePhoto, setEmployeePhoto] = useState<File | null>(null);
   const admin = isAdminRole(getStoredUser()?.role ?? '');
 
-  async function load() {
-    setUsers(await api<User[]>('/users'));
+  async function load(status: Tab = tab) {
+    setUsers(await api<User[]>(`/users?status=${status}`));
   }
 
   useEffect(() => {
@@ -35,16 +61,45 @@ export default function UsersPage() {
       setError('Доступно администратору');
       return;
     }
-    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    api<City[]>('/cities')
+      .then(setCities)
+      .catch(() => setCities([]));
   }, [admin]);
+
+  useEffect(() => {
+    if (!admin) return;
+    load(tab).catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, tab]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setError('');
     try {
-      await api('/users', { method: 'POST', body: JSON.stringify(form) });
-      setForm({ login: '', password: '', fullName: '', role: 'DISPATCHER' });
-      await load();
+      const fd = appendFormFields(new FormData(), {
+        login: form.login,
+        password: form.password,
+        fullName: form.fullName,
+        role: form.role,
+        phone: form.phone,
+        cityId: form.cityId,
+        telegramId: form.telegramId,
+        passportNumber: form.passportNumber,
+        hiredAt: form.hiredAt
+          ? new Date(form.hiredAt).toISOString()
+          : undefined,
+      });
+      if (passportPhoto) fd.append('passportPhoto', passportPhoto);
+      if (contractPhoto) fd.append('contractPhoto', contractPhoto);
+      if (employeePhoto) fd.append('employeePhoto', employeePhoto);
+
+      await uploadFiles('/users', fd);
+      setForm(emptyForm);
+      setPassportPhoto(null);
+      setContractPhoto(null);
+      setEmployeePhoto(null);
+      setTab('ACTIVE');
+      await load('ACTIVE');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     }
@@ -121,6 +176,83 @@ export default function UsersPage() {
                 <option value="OWNER">Владелец</option>
               </select>
             </div>
+            <div className="field">
+              <label>Телефон</label>
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label>Город</label>
+              <select
+                value={form.cityId}
+                onChange={(e) => setForm({ ...form, cityId: e.target.value })}
+              >
+                <option value="">—</option>
+                {cities.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Telegram ID</label>
+              <input
+                value={form.telegramId}
+                onChange={(e) =>
+                  setForm({ ...form, telegramId: e.target.value })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Номер паспорта</label>
+              <input
+                value={form.passportNumber}
+                onChange={(e) =>
+                  setForm({ ...form, passportNumber: e.target.value })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Дата начала работы</label>
+              <input
+                type="date"
+                value={form.hiredAt}
+                onChange={(e) => setForm({ ...form, hiredAt: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label>Фото паспорта</label>
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) =>
+                  setPassportPhoto(e.target.files?.[0] ?? null)
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Фото договора</label>
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) =>
+                  setContractPhoto(e.target.files?.[0] ?? null)
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Фото сотрудника</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setEmployeePhoto(e.target.files?.[0] ?? null)
+                }
+              />
+            </div>
           </div>
           <button className="btn" type="submit">
             Создать сотрудника
@@ -128,6 +260,22 @@ export default function UsersPage() {
         </form>
       ) : null}
       <div className="panel">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button
+            type="button"
+            className={tab === 'ACTIVE' ? 'btn' : 'btn secondary'}
+            onClick={() => setTab('ACTIVE')}
+          >
+            Активные
+          </button>
+          <button
+            type="button"
+            className={tab === 'FIRED' ? 'btn' : 'btn secondary'}
+            onClick={() => setTab('FIRED')}
+          >
+            Уволенные
+          </button>
+        </div>
         {error ? <p className="error">{error}</p> : null}
         <table className="table">
           <thead>
@@ -135,6 +283,7 @@ export default function UsersPage() {
               <th>ФИО</th>
               <th>Логин</th>
               <th>Роль</th>
+              <th>Телефон</th>
               <th>Статус</th>
               <th></th>
             </tr>
@@ -145,11 +294,19 @@ export default function UsersPage() {
                 <td>{u.fullName}</td>
                 <td>{u.login}</td>
                 <td>{ROLE_LABELS[u.role] ?? u.role}</td>
+                <td>{u.phone ?? '—'}</td>
                 <td>{USER_STATUS_LABELS[u.status] ?? u.status}</td>
                 <td>
                   {admin && u.status === 'ACTIVE' ? (
                     fireId === u.id ? (
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 4,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
                         <input
                           placeholder="Причина увольнения"
                           value={fireForm.reason}
@@ -157,12 +314,21 @@ export default function UsersPage() {
                             setFireForm({ ...fireForm, reason: e.target.value })
                           }
                         />
-                        <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <label
+                          style={{
+                            display: 'flex',
+                            gap: 4,
+                            alignItems: 'center',
+                          }}
+                        >
                           <input
                             type="checkbox"
                             checked={fireForm.recommendedHire}
                             onChange={(e) =>
-                              setFireForm({ ...fireForm, recommendedHire: e.target.checked })
+                              setFireForm({
+                                ...fireForm,
+                                recommendedHire: e.target.checked,
+                              })
                             }
                           />
                           Рекомендовать

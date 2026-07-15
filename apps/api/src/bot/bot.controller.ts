@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { OrderStatus, Role } from '@prisma/client';
 import {
   IsBoolean,
@@ -35,23 +43,34 @@ class IncomingDto {
 }
 
 @Controller('bot')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class BotController {
   constructor(private readonly bot: BotService) {}
 
+  /** Публичный webhook Telegram (без JWT). Secret = bot.telegram.webhookSecret. */
+  @Post('webhook/:secret')
+  webhook(
+    @Param('secret') secret: string,
+    @Body() update: Record<string, unknown>,
+  ) {
+    return this.bot.handleWebhook(secret, update);
+  }
+
   @Get('me')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER, Role.MASTER)
   about(@Query('telegramId') telegramId: string) {
     return this.bot.aboutMe(telegramId);
   }
 
   @Get('orders')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER, Role.MASTER)
   orders(@Query('telegramId') telegramId: string) {
     return this.bot.myOrders(telegramId);
   }
 
   @Post('orders/:id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER, Role.MASTER)
   status(
     @Param('id') id: string,
@@ -62,6 +81,7 @@ export class BotController {
   }
 
   @Post('incoming')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   incoming(@Body() dto: IncomingDto) {
     return this.bot.incomingMessage(dto.externalId, dto.text, dto.title);

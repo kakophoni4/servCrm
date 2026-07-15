@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -25,6 +25,7 @@ class CreateMasterDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(4)
   password?: string;
 
   @IsOptional()
@@ -34,6 +35,10 @@ class CreateMasterDto {
   @IsOptional()
   @IsString()
   cityId?: string;
+
+  @IsOptional()
+  @IsString()
+  telegramId?: string;
 }
 
 @Controller('masters')
@@ -57,5 +62,11 @@ export class MastersController {
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   deactivate(@Param('id') id: string) {
     return this.masters.deactivate(id);
+  }
+
+  @Post(':id/restore')
+  @Roles(Role.OWNER, Role.DIRECTOR)
+  restore(@Param('id') id: string) {
+    return this.masters.restore(id);
   }
 }

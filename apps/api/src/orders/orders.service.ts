@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CashDirection,
+  CashIncomeBasis,
   OrderStatus,
   OrderType,
   Prisma,
@@ -14,6 +16,7 @@ import {
 import { calcPayment, requiresDocsForDone } from '../common/utils/formulas';
 import { normalizePhone } from '../common/utils/phone';
 import { buildOrderPrefix, buildPublicId } from '../common/utils/order-id';
+import { BotService } from '../bot/bot.service';
 import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalaryService } from '../salary/salary.service';
@@ -34,6 +37,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly salary: SalaryService,
     private readonly documents: DocumentsService,
+    private readonly bot: BotService,
   ) {}
 
   private orderInclude = {
@@ -182,7 +186,7 @@ export class OrdersService {
   async update(
     id: string,
     dto: UpdateOrderDto,
-    _userId: string,
+    userId: string,
     role: Role,
   ) {
     const existing = await this.prisma.order.findUnique({ where: { id } });
@@ -210,6 +214,10 @@ export class OrdersService {
       !isAdmin
     ) {
       throw new ForbiddenException('Оплаты редактирует администратор');
+    }
+
+    if (dto.cancelFault !== undefined && !isAdmin) {
+      throw new ForbiddenException('Виновника отмены указывает администратор');
     }
 
     let status = dto.status;
@@ -258,6 +266,8 @@ export class OrdersService {
       isProfile: dto.isProfile,
       typeTech: dto.typeTech,
       branchComment: dto.branchComment,
+      cancelFault:
+        dto.cancelFault === undefined ? undefined : dto.cancelFault,
     };
 
     if (dto.type === OrderType.WARRANTY) {
@@ -284,11 +294,14 @@ export class OrdersService {
       }
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id },
         data,
       });
+
+      let paidForCash =
+        dto.paid ?? Number(existingPayment?.paid ?? 0);
 
       if (
         dto.paid !== undefined ||
@@ -299,6 +312,7 @@ export class OrdersService {
       ) {
         const paid =
           dto.paid ?? Number(existingPayment?.paid ?? 0);
+        paidForCash = paid;
         const partsCost =
           dto.partsCost ?? Number(existingPayment?.partsCost ?? 0);
         const masterPct = await this.salary.percentFor(paid - partsCost);
@@ -324,11 +338,44 @@ export class OrdersService {
         });
       }
 
+      const nextStatus = status ?? existing.status;
+      if (nextStatus === OrderStatus.DONE) {
+        const exists = await tx.cashTx.findFirst({
+          where: {
+            orderId: id,
+            incomeBasis: CashIncomeBasis.ORDER,
+          },
+          select: { id: true },
+        });
+        if (!exists) {
+          await tx.cashTx.create({
+            data: {
+              direction: CashDirection.INCOME,
+              incomeBasis: CashIncomeBasis.ORDER,
+              amount: paidForCash,
+              orderId: id,
+              cityId: existing.cityId ?? undefined,
+              createdById: userId,
+              description: `Приход по заявке`,
+            },
+          });
+        }
+      }
+
       return tx.order.findUniqueOrThrow({
         where: { id },
         include: this.orderInclude,
       });
     });
+
+    if (
+      dto.masterId &&
+      dto.masterId !== existing.masterId
+    ) {
+      await this.bot.notifyMasterOrder(dto.masterId, id);
+    }
+
+    return result;
   }
 
   /** Повтор = новая заявка на того же клиента. */

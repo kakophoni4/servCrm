@@ -68,6 +68,8 @@ export default function ClientCardPage() {
               <th>Тип</th>
               <th>Статус</th>
               <th>Адрес</th>
+              <th>Оплачено</th>
+              <th>Сумма работ</th>
               <th>Дата</th>
             </tr>
           </thead>
@@ -81,6 +83,8 @@ export default function ClientCardPage() {
                 <td>{TYPE_LABELS[o.type]}</td>
                 <td>{STATUS_LABELS[o.status]}</td>
                 <td>{o.address}</td>
+                <td>{o.payment ? `${String(o.payment.paid)} ₽` : '—'}</td>
+                <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '—'}</td>
                 <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
               </tr>
             ))}

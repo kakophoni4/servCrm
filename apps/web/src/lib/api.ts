@@ -96,6 +96,19 @@ export async function uploadFiles<T>(
   return res.json() as Promise<T>;
 }
 
+/** Добавляет в FormData только непустые строковые/файловые поля. */
+export function appendFormFields(
+  formData: FormData,
+  fields: Record<string, string | Blob | File | null | undefined>,
+): FormData {
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    formData.append(key, value);
+  }
+  return formData;
+}
+
 /** Скачивание защищённого файла с авторизацией и сохранением на диск. */
 export async function downloadFile(
   path: string,
@@ -115,4 +128,45 @@ export async function downloadFile(
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Расчёт ЗП одного диспетчера за период. */
+export type DispatcherPayCalc = {
+  userId: string;
+  fullName: string;
+  period: { from: string; to: string };
+  salaryBase: number;
+  dailyTurnoverPay: number;
+  leafletsPay: number;
+  closedOrdersBonus: number;
+  total: number;
+  meta?: {
+    turnover: number;
+    leaflets: number;
+    ownClosedNet: number;
+    settings: {
+      salaryBase: number;
+      dailyTurnoverPct: number;
+      leafletBonus: number;
+      closedOrdersBonusPct: number;
+    };
+  };
+};
+
+export function getDispatcherPayCalc(
+  userId: string,
+  from: string,
+  to: string,
+) {
+  const q = new URLSearchParams({ from, to });
+  return api<DispatcherPayCalc>(
+    `/settings/dispatcher-pay/${userId}/calc?${q}`,
+  );
+}
+
+export function getDispatcherPaySummary(from: string, to: string) {
+  const q = new URLSearchParams({ from, to });
+  return api<DispatcherPayCalc[]>(
+    `/settings/dispatcher-pay/summary?${q}`,
+  );
 }

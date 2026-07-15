@@ -12,6 +12,7 @@ import {
 } from '@/lib/labels';
 
 type Master = { id: string; user: { fullName: string } };
+type City = { id: string; name: string };
 
 type OrderDocument = {
   id: string;
@@ -34,6 +35,8 @@ type Order = {
   isProfile: boolean;
   scheduledAt?: string | null;
   masterId?: string | null;
+  cityId?: string | null;
+  cancelFault?: 'master' | 'admin' | null;
   client: {
     id: string;
     name: string;
@@ -56,6 +59,7 @@ type Order = {
     partsYesNo: boolean;
     workSum: string | number;
     masterPct: string | number;
+    masterSalary: string | number;
     toCompany: string | number;
   } | null;
   documents?: OrderDocument[];
@@ -65,11 +69,26 @@ type Order = {
 const STATUSES = Object.keys(STATUS_LABELS);
 const DOC_KINDS = Object.keys(DOC_KIND_LABELS);
 
+const CLAIM_TYPES: Record<string, string> = {
+  POLICE: 'Полиция',
+  MASTER_BROKE: 'Мастер сломал технику',
+  PRICE_DISSATISFIED: 'Недоволен ценой',
+};
+
+function toLocalInput(iso?: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
   const [masters, setMasters] = useState<Master[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const user = useMemo(() => getStoredUser(), []);
@@ -77,11 +96,24 @@ export default function OrderDetailPage() {
 
   const [status, setStatus] = useState('');
   const [masterId, setMasterId] = useState('');
+  const [address, setAddress] = useState('');
+  const [comment, setComment] = useState('');
+  const [typeTech, setTypeTech] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
   const [paid, setPaid] = useState('0');
   const [prepay, setPrepay] = useState('0');
   const [partsCost, setPartsCost] = useState('0');
   const [partsYesNo, setPartsYesNo] = useState(false);
   const [isClaim, setIsClaim] = useState(false);
+  const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
+
+  const [showClaimForm, setShowClaimForm] = useState(false);
+  const [claimForm, setClaimForm] = useState({
+    type: 'PRICE_DISSATISFIED',
+    refundSum: '0',
+    orderSum: '0',
+    cityId: '',
+  });
 
   const [docKind, setDocKind] = useState('RECEIPT_SERVICE');
   const [docFiles, setDocFiles] = useState<FileList | null>(null);
@@ -92,17 +124,39 @@ export default function OrderDetailPage() {
     setOrder(data);
     setStatus(data.status);
     setMasterId(data.masterId ?? '');
+    setAddress(data.address ?? '');
+    setComment(data.comment ?? '');
+    setTypeTech(data.typeTech ?? '');
+    setScheduledAt(toLocalInput(data.scheduledAt));
     setPaid(String(data.payment?.paid ?? 0));
     setPrepay(String(data.payment?.prepay ?? 0));
     setPartsCost(String(data.payment?.partsCost ?? 0));
     setPartsYesNo(Boolean(data.payment?.partsYesNo));
     setIsClaim(data.isClaim);
+    setCancelFault(
+      data.cancelFault === 'master' || data.cancelFault === 'admin'
+        ? data.cancelFault
+        : '',
+    );
+    setClaimForm((f) => ({
+      ...f,
+      orderSum: String(data.payment?.paid ?? data.payment?.workSum ?? f.orderSum),
+      cityId: f.cityId || data.cityId || '',
+    }));
   }
 
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
     api<Master[]>('/masters')
       .then(setMasters)
+      .catch(() => undefined);
+    api<City[]>('/cities')
+      .then((list) => {
+        setCities(list);
+        if (list[0]) {
+          setClaimForm((f) => ({ ...f, cityId: f.cityId || list[0].id }));
+        }
+      })
       .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -125,16 +179,48 @@ export default function OrderDetailPage() {
       if (admin) {
         body.status = status;
         body.masterId = masterId || null;
+        body.address = address;
+        body.comment = comment || null;
+        body.typeTech = typeTech || null;
+        body.scheduledAt = scheduledAt
+          ? new Date(scheduledAt).toISOString()
+          : null;
         body.paid = Number(paid);
         body.prepay = Number(prepay);
         body.partsCost = Number(partsCost);
         body.partsYesNo = partsYesNo;
+        if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
+          body.cancelFault = cancelFault || null;
+        }
       }
       await api(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
       setMsg('Сохранено');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
+    }
+  }
+
+  async function createClaim(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      await api('/claims', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: id,
+          type: claimForm.type,
+          refundSum: Number(claimForm.refundSum),
+          orderSum: Number(claimForm.orderSum),
+          cityId: claimForm.cityId || undefined,
+        }),
+      });
+      setShowClaimForm(false);
+      setMsg('Претензия создана');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка создания претензии');
     }
   }
 
@@ -215,11 +301,53 @@ export default function OrderDetailPage() {
             <br />
             <Link href={`/clients/${order.client.id}`}>Карточка клиента →</Link>
           </p>
-          <p className="muted">
-            {TYPE_LABELS[order.type]} · {order.address}
-            {order.typeTech ? ` · ${order.typeTech}` : ''}
-          </p>
-          {order.comment ? <p>{order.comment}</p> : null}
+          <p className="muted">{TYPE_LABELS[order.type]}</p>
+
+          {admin ? (
+            <div className="grid-2" style={{ marginBottom: 12 }}>
+              <div className="field">
+                <label>Адрес</label>
+                <input
+                  required
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Тип техники</label>
+                <input
+                  value={typeTech}
+                  onChange={(e) => setTypeTech(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Дата назначения</label>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Комментарий</label>
+                <input
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="muted">
+                {order.address}
+                {order.typeTech ? ` · ${order.typeTech}` : ''}
+                {order.scheduledAt
+                  ? ` · ${new Date(order.scheduledAt).toLocaleString('ru-RU')}`
+                  : ''}
+              </p>
+              {order.comment ? <p>{order.comment}</p> : null}
+            </>
+          )}
 
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
             <input
@@ -242,6 +370,25 @@ export default function OrderDetailPage() {
                   ))}
                 </select>
               </div>
+              {status === 'CANCELLED_CC' || status === 'REFUSAL' ? (
+                <div className="field">
+                  <label>Виновник отмены</label>
+                  <select
+                    value={cancelFault}
+                    onChange={(e) =>
+                      setCancelFault(
+                        e.target.value === 'master' || e.target.value === 'admin'
+                          ? e.target.value
+                          : '',
+                      )
+                    }
+                  >
+                    <option value="">—</option>
+                    <option value="master">Мастер</option>
+                    <option value="admin">Администратор</option>
+                  </select>
+                </div>
+              ) : null}
               <div className="field">
                 <label>Мастер</label>
                 <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
@@ -294,7 +441,12 @@ export default function OrderDetailPage() {
                       <strong>{(Number(order.payment.masterPct) * 100).toFixed(1)}</strong>%
                     </p>
                     <p className="muted" style={{ margin: 0 }}>
-                      В компанию: <strong>{String(order.payment.toCompany)}</strong> ₽
+                      ЗП мастера:{' '}
+                      <strong>{String(order.payment.masterSalary)}</strong> ₽
+                    </p>
+                    <p className="muted" style={{ margin: 0 }}>
+                      Сумма к сдаче:{' '}
+                      <strong>{String(order.payment.toCompany)}</strong> ₽
                     </p>
                   </div>
                 </div>
@@ -321,6 +473,15 @@ export default function OrderDetailPage() {
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
+            {admin ? (
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => setShowClaimForm((v) => !v)}
+              >
+                Создать претензию
+              </button>
+            ) : null}
             <button className="btn secondary" type="button" onClick={makeRepeat}>
               На повтор (новая заявка)
             </button>
@@ -331,6 +492,75 @@ export default function OrderDetailPage() {
         </form>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {showClaimForm && admin ? (
+            <form className="panel" onSubmit={createClaim}>
+              <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Новая претензия</h2>
+              <div className="grid-2">
+                <div className="field">
+                  <label>Тип</label>
+                  <select
+                    value={claimForm.type}
+                    onChange={(e) =>
+                      setClaimForm({ ...claimForm, type: e.target.value })
+                    }
+                  >
+                    {Object.entries(CLAIM_TYPES).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Город</label>
+                  <select
+                    value={claimForm.cityId}
+                    onChange={(e) =>
+                      setClaimForm({ ...claimForm, cityId: e.target.value })
+                    }
+                  >
+                    <option value="">—</option>
+                    {cities.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Сумма возврата</label>
+                  <input
+                    value={claimForm.refundSum}
+                    onChange={(e) =>
+                      setClaimForm({ ...claimForm, refundSum: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label>Сумма заявки</label>
+                  <input
+                    value={claimForm.orderSum}
+                    onChange={(e) =>
+                      setClaimForm({ ...claimForm, orderSum: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn" type="submit">
+                  Создать
+                </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => setShowClaimForm(false)}
+                >
+                  Отмена
+                </button>
+              </div>
+            </form>
+          ) : null}
+
           <div className="panel">
             <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Документы</h2>
             <table className="table">

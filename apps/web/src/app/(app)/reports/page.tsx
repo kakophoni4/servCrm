@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { currentMonthRange } from '@/lib/labels';
+import {
+  CASH_DIRECTION_LABELS,
+  CASH_EXPENSE_BASIS_LABELS,
+  currentMonthRange,
+} from '@/lib/labels';
 
 type ReportTab =
   | 'closed'
@@ -20,6 +24,112 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: 'claims', label: 'Претензии' },
   { id: 'ads', label: 'Реклама' },
 ];
+
+const FIELD_LABELS: Record<string, string> = {
+  period: 'Период',
+  closed: 'Закрыто',
+  ours: 'Наши',
+  partner: 'Партнёрские',
+  claimsPercent: '% претензий',
+  netSum: 'Чистая сумма',
+  avgCheckHandover: 'Ср. чек сдачи',
+  avgCheckSalary: 'Ср. чек ЗП',
+  avgCheckTotal: 'Ср. чек общий',
+  avgWorkSum: 'Ср. сумма работы',
+  forecastTurnover: 'Прогноз оборота',
+  orderPrice: 'Цена заявки',
+  adsExpenseSum: 'Расход на рекламу',
+  ordersInPeriod: 'Заявок за период',
+  total: 'Всего',
+  byMasterFault: 'По вине мастера',
+  byAdminFault: 'По вине администратора',
+  our: 'Наши',
+  leafletsStock: 'Остаток листовок',
+  cardsStock: 'Остаток визиток',
+  avitoAds: 'Объявлений Авито',
+  promoters: 'Промоутеров',
+  leafletOrders: 'Заявок с листовок',
+  avitoOrders: 'Заявок с Авито',
+  kpiLeaflets: 'KPI листовки',
+  kpiAvito: 'KPI Авито',
+  masterId: 'ID мастера',
+  master: 'Мастер',
+  turnover: 'Оборот',
+  salary: 'Зарплата',
+  net: 'Чистыми',
+  work: 'Работы',
+  parts: 'Запчасти',
+  count: 'Заявок',
+  micro: 'Микра (<4к)',
+  pct4: '4% от оборота',
+  openSd: 'Открытых СД',
+  avgNet: 'Ср. чистый чек',
+  avgWork: 'Ср. чек работы',
+  id: 'ID',
+  publicId: 'Номер',
+  createdAt: 'Дата',
+  status: 'Статус',
+  cityId: 'ID города',
+  cityName: 'Город',
+  incomeTotal: 'Приход общий',
+  incomeOrders: 'Приход с заявок',
+  incomeOther: 'Прочий приход',
+  expensePromo: 'Расход промоутеров',
+  expenseCollection: 'Расход инкасс',
+  masterSalary: 'ЗП мастерам',
+  expenseAds: 'Расход по объявлениям',
+  expenseTotal: 'Общий расход',
+  balance: 'Остаток',
+  date: 'Дата',
+  direction: 'Тип',
+  expenseBasis: 'Статья',
+  amount: 'Сумма',
+  description: 'Комментарий',
+  orderPublicId: 'Заявка',
+  createdBy: 'Кто',
+  documentPath: 'Документ',
+  name: 'Название',
+  phone: 'Телефон',
+  client: 'Клиент',
+  city: 'Город',
+  order: 'Заявка',
+  reason: 'Причина',
+  reportDate: 'Дата отчёта',
+  promotersCount: 'Промоутеров',
+  leafletsIssued: 'Листовок выдано',
+  leafletsSpread: 'Листовок разнесено',
+  cardsIssued: 'Визиток выдано',
+  cardsSpread: 'Визиток разнесено',
+  stickersIssued: 'Стикеров выдано',
+  stickersSpread: 'Стикеров разнесено',
+  avitoAdsCount: 'Объявлений Авито',
+};
+
+const CASH_CITY_COLUMNS: { key: string; label: string }[] = [
+  { key: 'cityName', label: 'Город' },
+  { key: 'incomeTotal', label: 'Приход общий' },
+  { key: 'incomeOrders', label: 'Приход с заявок' },
+  { key: 'incomeOther', label: 'Прочий приход' },
+  { key: 'expensePromo', label: 'Расход промоутеров' },
+  { key: 'expenseCollection', label: 'Расход инкасс' },
+  { key: 'masterSalary', label: 'ЗП мастерам' },
+  { key: 'expenseAds', label: 'Расход по объявлениям' },
+  { key: 'expenseTotal', label: 'Общий расход' },
+  { key: 'balance', label: 'Остаток' },
+];
+
+function labelOf(key: string): string {
+  return FIELD_LABELS[key] ?? key;
+}
+
+function formatMoney(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v ?? '—');
+  return n.toLocaleString('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
 
 export default function ReportsPage() {
   const defaultRange = currentMonthRange();
@@ -56,15 +166,75 @@ export default function ReportsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  function renderTable(rows: Record<string, unknown>[]) {
+  function formatCell(v: unknown, key?: string): string {
+    if (v == null) return '—';
+    if (key === 'direction') {
+      return CASH_DIRECTION_LABELS[String(v)] ?? String(v);
+    }
+    if (key === 'expenseBasis') {
+      return CASH_EXPENSE_BASIS_LABELS[String(v)] ?? String(v);
+    }
+    if (
+      key &&
+      (key.includes('Percent') ||
+        key.startsWith('avg') ||
+        key.includes('Sum') ||
+        key.includes('Price') ||
+        key.includes('income') ||
+        key.includes('expense') ||
+        key.includes('balance') ||
+        key.includes('Salary') ||
+        key === 'amount' ||
+        key === 'turnover' ||
+        key === 'salary' ||
+        key === 'net' ||
+        key === 'work' ||
+        key === 'parts' ||
+        key === 'pct4' ||
+        key === 'forecastTurnover' ||
+        key === 'kpiLeaflets' ||
+        key === 'kpiAvito')
+    ) {
+      return formatMoney(v);
+    }
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+      return new Date(v).toLocaleString('ru-RU');
+    }
+    if (typeof v === 'object') {
+      if (
+        v &&
+        typeof v === 'object' &&
+        'from' in v &&
+        'to' in v &&
+        (v as { from: unknown }).from &&
+        (v as { to: unknown }).to
+      ) {
+        const p = v as { from: string; to: string };
+        return `${new Date(p.from).toLocaleDateString('ru-RU')} — ${new Date(p.to).toLocaleDateString('ru-RU')}`;
+      }
+      if (v && typeof v === 'object' && 'name' in v) {
+        return String((v as { name: unknown }).name);
+      }
+      if (v && typeof v === 'object' && 'publicId' in v) {
+        return String((v as { publicId: unknown }).publicId);
+      }
+      if (v && typeof v === 'object' && 'fullName' in v) {
+        return String((v as { fullName: unknown }).fullName);
+      }
+      return JSON.stringify(v);
+    }
+    return String(v);
+  }
+
+  function renderTable(rows: Record<string, unknown>[], skipKeys: string[] = []) {
     if (!rows.length) return <p className="muted">Нет данных за период.</p>;
-    const keys = Object.keys(rows[0]);
+    const keys = Object.keys(rows[0]).filter((k) => !skipKeys.includes(k));
     return (
       <table className="table">
         <thead>
           <tr>
             {keys.map((k) => (
-              <th key={k}>{k}</th>
+              <th key={k}>{labelOf(k)}</th>
             ))}
           </tr>
         </thead>
@@ -72,7 +242,7 @@ export default function ReportsPage() {
           {rows.map((row, i) => (
             <tr key={i}>
               {keys.map((k) => (
-                <td key={k}>{formatCell(row[k])}</td>
+                <td key={k}>{formatCell(row[k], k)}</td>
               ))}
             </tr>
           ))}
@@ -81,15 +251,95 @@ export default function ReportsPage() {
     );
   }
 
-  function formatCell(v: unknown): string {
-    if (v == null) return '—';
-    if (typeof v === 'object') return JSON.stringify(v);
-    return String(v);
+  function renderKeyValue(obj: Record<string, unknown>, skipKeys: string[] = []) {
+    return (
+      <table className="table">
+        <tbody>
+          {Object.entries(obj)
+            .filter(([k]) => !skipKeys.includes(k))
+            .map(([k, v]) => (
+              <tr key={k}>
+                <th>{labelOf(k)}</th>
+                <td>{formatCell(v, k)}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderCash(obj: Record<string, unknown>) {
+    const byCity = Array.isArray(obj.byCity)
+      ? (obj.byCity as Record<string, unknown>[])
+      : [];
+    const totals = (obj.totals as Record<string, unknown>) ?? null;
+    const notes = Array.isArray(obj.expenseNotes)
+      ? (obj.expenseNotes as Record<string, unknown>[])
+      : [];
+    const rows = totals ? [...byCity, totals] : byCity;
+
+    return (
+      <div>
+        {obj.period ? (
+          <p className="muted" style={{ marginBottom: 12 }}>
+            Период: {formatCell(obj.period, 'period')}
+          </p>
+        ) : null}
+        <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>По городам</h3>
+        {!rows.length ? (
+          <p className="muted">Нет данных за период.</p>
+        ) : (
+          <>
+            <table className="table">
+              <thead>
+                <tr>
+                  {CASH_CITY_COLUMNS.map((c) => (
+                    <th key={c.key}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr
+                    key={i}
+                    style={
+                      row.cityName === 'Итого'
+                        ? { fontWeight: 600 }
+                        : undefined
+                    }
+                  >
+                    {CASH_CITY_COLUMNS.map((c) => (
+                      <td key={c.key}>
+                        {c.key === 'cityName'
+                          ? String(row[c.key] ?? '—')
+                          : formatMoney(row[c.key])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="muted" style={{ marginTop: 8 }}>
+              Остаток = приход − расход − ЗП мастерам (доля мастера уходит
+              мастеру).
+            </p>
+          </>
+        )}
+        <h3 style={{ margin: '20px 0 8px', fontSize: 16 }}>
+          Пояснения по расходам
+        </h3>
+        {renderTable(notes, ['documentPath'])}
+      </div>
+    );
   }
 
   function renderData() {
     if (loading) return <p className="muted">Загрузка…</p>;
     if (data == null) return null;
+
+    if (tab === 'cash' && typeof data === 'object' && !Array.isArray(data)) {
+      return renderCash(data as Record<string, unknown>);
+    }
 
     if (Array.isArray(data)) {
       if (data.length === 0) return <p className="muted">Нет данных за период.</p>;
@@ -104,18 +354,16 @@ export default function ReportsPage() {
       if (Array.isArray(obj.items)) {
         return renderTable(obj.items as Record<string, unknown>[]);
       }
-      return (
-        <table className="table">
-          <tbody>
-            {Object.entries(obj).map(([k, v]) => (
-              <tr key={k}>
-                <th>{k}</th>
-                <td>{formatCell(v)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
+      if (Array.isArray(obj.rows) && tab === 'ads') {
+        return (
+          <div>
+            {renderKeyValue(obj, ['rows'])}
+            <h3 style={{ margin: '16px 0 8px', fontSize: 16 }}>Детализация</h3>
+            {renderTable(obj.rows as Record<string, unknown>[])}
+          </div>
+        );
+      }
+      return renderKeyValue(obj, ['rows']);
     }
 
     return <pre>{String(data)}</pre>;

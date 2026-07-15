@@ -1,17 +1,32 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { ChatChannel, ChatStatus } from '@prisma/client';
+import { BotService } from '../bot/bot.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+const orderInclude = {
+  client: true,
+} as const;
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => BotService))
+    private readonly bot: BotService,
+  ) {}
 
   threads() {
     return this.prisma.chatThread.findMany({
       where: { status: ChatStatus.OPEN },
       include: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-        order: true,
+        order: { include: orderInclude },
         city: true,
       },
       orderBy: { updatedAt: 'desc' },
@@ -23,7 +38,7 @@ export class ChatService {
       where: { id },
       include: {
         messages: { orderBy: { createdAt: 'asc' }, include: { author: true } },
-        order: true,
+        order: { include: orderInclude },
       },
     });
     if (!thread) throw new NotFoundException('Чат не найден');
@@ -80,10 +95,37 @@ export class ChatService {
 
   async linkOrder(threadId: string, orderId: string) {
     await this.get(threadId);
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Заявка не найдена');
     return this.prisma.chatThread.update({
       where: { id: threadId },
       data: { linkedOrderId: orderId },
-      include: { order: true, messages: true },
+      include: {
+        order: { include: orderInclude },
+        messages: true,
+      },
     });
+  }
+
+  /** Привязать заявку треда к мастеру и отправить карточку в Telegram. */
+  async sendToMaster(threadId: string, masterId: string) {
+    const thread = await this.get(threadId);
+    if (!thread.linkedOrderId) {
+      throw new BadRequestException(
+        'К чату не привязана заявка. Сначала выберите и привяжите заявку.',
+      );
+    }
+    const master = await this.prisma.master.findUnique({
+      where: { id: masterId },
+    });
+    if (!master) throw new NotFoundException('Мастер не найден');
+
+    await this.prisma.order.update({
+      where: { id: thread.linkedOrderId },
+      data: { masterId },
+    });
+
+    await this.bot.notifyMasterOrder(masterId, thread.linkedOrderId);
+    return this.get(threadId);
   }
 }

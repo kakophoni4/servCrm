@@ -16,11 +16,14 @@ type Asset = {
   city?: { name: string } | null;
 };
 
+type City = { id: string; name: string };
+
 export default function AssetsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
   const [status, setStatus] = useState<'ACTIVE' | 'WRITTEN_OFF'>('ACTIVE');
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ title: '', name: '', condition: '' });
+  const [form, setForm] = useState({ title: '', name: '', condition: '', cityId: '' });
   const [writeOffId, setWriteOffId] = useState<string | null>(null);
   const [writeOffNote, setWriteOffNote] = useState('');
 
@@ -33,6 +36,15 @@ export default function AssetsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
+  useEffect(() => {
+    api<City[]>('/cities')
+      .then((list) => {
+        setCities(list);
+        if (list[0]) setForm((f) => ({ ...f, cityId: f.cityId || list[0].id }));
+      })
+      .catch(() => undefined);
+  }, []);
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setError('');
@@ -43,9 +55,10 @@ export default function AssetsPage() {
           title: form.title,
           name: form.name,
           condition: form.condition || undefined,
+          cityId: form.cityId || undefined,
         }),
       });
-      setForm({ title: '', name: '', condition: '' });
+      setForm((f) => ({ title: '', name: '', condition: '', cityId: f.cityId }));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -109,6 +122,20 @@ export default function AssetsPage() {
                 value={form.condition}
                 onChange={(e) => setForm({ ...form, condition: e.target.value })}
               />
+            </div>
+            <div className="field">
+              <label>Город</label>
+              <select
+                value={form.cityId}
+                onChange={(e) => setForm({ ...form, cityId: e.target.value })}
+              >
+                <option value="">—</option>
+                {cities.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <button className="btn" type="submit">

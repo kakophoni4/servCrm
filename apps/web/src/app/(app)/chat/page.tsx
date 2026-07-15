@@ -12,7 +12,11 @@ type Thread = {
   status: string;
   linkedOrderId?: string | null;
   updatedAt: string;
-  order?: { id: string; publicId: string } | null;
+  order?: {
+    id: string;
+    publicId: string;
+    client?: { name: string; phoneNormalized?: string } | null;
+  } | null;
   _count?: { messages: number };
 };
 
@@ -26,13 +30,24 @@ type Message = {
 
 type ThreadDetail = Thread & { messages: Message[] };
 
+type Master = { id: string; user: { fullName: string } };
+type OrderOpt = {
+  id: string;
+  publicId: string;
+  client?: { name: string } | null;
+};
+
 export default function ChatPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [message, setMessage] = useState('');
   const [linkOrderId, setLinkOrderId] = useState('');
+  const [masterId, setMasterId] = useState('');
+  const [masters, setMasters] = useState<Master[]>([]);
+  const [orders, setOrders] = useState<OrderOpt[]>([]);
   const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
 
   async function loadThreads() {
     const list = await api<Thread[]>('/chat/threads');
@@ -46,11 +61,22 @@ export default function ChatPage() {
 
   useEffect(() => {
     loadThreads().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    Promise.all([
+      api<Master[]>('/masters'),
+      api<OrderOpt[]>('/orders'),
+    ])
+      .then(([m, o]) => {
+        setMasters(m);
+        setOrders(o);
+        if (m[0]) setMasterId(m[0].id);
+      })
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedId) return;
+    setMsg('');
     loadThread(selectedId).catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
   }, [selectedId]);
 
@@ -75,12 +101,31 @@ export default function ChatPage() {
     e.preventDefault();
     if (!selectedId || !linkOrderId.trim()) return;
     setError('');
+    setMsg('');
     try {
       await api(`/chat/threads/${selectedId}/link-order`, {
         method: 'POST',
         body: JSON.stringify({ orderId: linkOrderId.trim() }),
       });
       setLinkOrderId('');
+      await loadThread(selectedId);
+      await loadThreads();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  async function sendToMaster(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedId || !masterId) return;
+    setError('');
+    setMsg('');
+    try {
+      await api(`/chat/threads/${selectedId}/send-to-master`, {
+        method: 'POST',
+        body: JSON.stringify({ masterId }),
+      });
+      setMsg('Заявка отправлена мастеру');
       await loadThread(selectedId);
       await loadThreads();
     } catch (err) {
@@ -129,22 +174,62 @@ export default function ChatPage() {
                 {thread.title ?? 'Диалог'}{' '}
                 <span className="badge">{CHAT_STATUS_LABELS[thread.status]}</span>
               </h2>
+
               {thread.order ? (
-                <p>
-                  Заявка:{' '}
-                  <Link href={`/orders/${thread.order.id}`}>{thread.order.publicId}</Link>
+                <p style={{ marginTop: 0 }}>
+                  Привязанная заявка:{' '}
+                  <Link href={`/orders/${thread.order.id}`}>
+                    {thread.order.publicId}
+                  </Link>
+                  {thread.order.client?.name
+                    ? ` · ${thread.order.client.name}`
+                    : ''}
                 </p>
-              ) : null}
+              ) : (
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Заявка не привязана
+                </p>
+              )}
 
               <form onSubmit={linkOrder} style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
-                <input
-                  placeholder="UUID заявки для привязки"
+                <select
                   value={linkOrderId}
                   onChange={(e) => setLinkOrderId(e.target.value)}
                   style={{ flex: 1 }}
-                />
+                  required
+                >
+                  <option value="">Выберите заявку…</option>
+                  {orders.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.publicId}
+                      {o.client?.name ? ` — ${o.client.name}` : ''}
+                    </option>
+                  ))}
+                </select>
                 <button type="submit" className="btn secondary">
                   Привязать
+                </button>
+              </form>
+
+              <form
+                onSubmit={sendToMaster}
+                style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}
+              >
+                <select
+                  value={masterId}
+                  onChange={(e) => setMasterId(e.target.value)}
+                  style={{ flex: 1, minWidth: 160 }}
+                  required
+                >
+                  <option value="">Мастер…</option>
+                  {masters.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.user.fullName}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="btn">
+                  Отправить заявку мастеру
                 </button>
               </form>
 
@@ -205,6 +290,7 @@ export default function ChatPage() {
               </form>
             </>
           )}
+          {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
           {error ? <p className="error">{error}</p> : null}
         </div>
       </div>

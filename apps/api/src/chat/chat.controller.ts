@@ -26,6 +26,12 @@ class LinkOrderDto {
   orderId!: string;
 }
 
+class SendToMasterDto {
+  @IsString()
+  @IsNotEmpty()
+  masterId!: string;
+}
+
 class IngestDto {
   @IsEnum(ChatChannel)
   channel!: ChatChannel;
@@ -74,6 +80,12 @@ export class ChatController {
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   link(@Param('id') id: string, @Body() dto: LinkOrderDto) {
     return this.chat.linkOrder(id, dto.orderId);
+  }
+
+  @Post('threads/:id/send-to-master')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  sendToMaster(@Param('id') id: string, @Body() dto: SendToMasterDto) {
+    return this.chat.sendToMaster(id, dto.masterId);
   }
 
   /** Для бота / интеграций (MVP: тот же JWT админа). */

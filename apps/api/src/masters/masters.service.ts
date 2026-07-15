@@ -25,6 +25,7 @@ export class MastersService {
     password?: string;
     phone?: string;
     cityId?: string;
+    telegramId?: string;
   }) {
     const login =
       input.login?.trim().toLowerCase() ||
@@ -41,8 +42,9 @@ export class MastersService {
           passwordHash,
           fullName: input.fullName.trim(),
           role: Role.MASTER,
-          phone: input.phone,
-          cityId: input.cityId,
+          phone: input.phone?.trim() || null,
+          cityId: input.cityId?.trim() || null,
+          telegramId: input.telegramId?.trim() || null,
           status: UserStatus.ACTIVE,
           hiredAt: new Date(),
         },
@@ -82,6 +84,30 @@ export class MastersService {
       return tx.master.update({
         where: { id },
         data: { status: UserStatus.FIRED },
+        include: { user: true },
+      });
+    });
+  }
+
+  /** Восстановление мастера (аналог users.restore). */
+  async restore(id: string) {
+    const master = await this.prisma.master.findUnique({ where: { id } });
+    if (!master) throw new NotFoundException('Мастер не найден');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: master.userId },
+        data: {
+          status: UserStatus.ACTIVE,
+          firedAt: null,
+          fireReason: null,
+          recommendedHire: null,
+        },
+      });
+
+      return tx.master.update({
+        where: { id },
+        data: { status: UserStatus.ACTIVE },
         include: { user: true },
       });
     });

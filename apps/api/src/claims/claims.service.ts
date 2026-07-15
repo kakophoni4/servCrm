@@ -55,4 +55,31 @@ export class ClaimsService {
       include: { order: true, city: true },
     });
   }
+
+  async update(
+    id: string,
+    input: {
+      type?: ClaimType;
+      refundSum?: number;
+      orderSum?: number;
+      cityId?: string | null;
+    },
+  ) {
+    const existing = await this.prisma.claim.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Претензия не найдена');
+
+    return this.prisma.claim.update({
+      where: { id },
+      data: {
+        type: input.type,
+        refundSum: input.refundSum,
+        orderSum: input.orderSum,
+        cityId: input.cityId === undefined ? undefined : input.cityId,
+      },
+      include: {
+        order: { include: { client: true } },
+        city: true,
+      },
+    });
+  }
 }

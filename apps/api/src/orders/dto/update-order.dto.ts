@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -92,4 +93,8 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsBoolean()
   partsYesNo?: boolean;
+
+  @IsOptional()
+  @IsIn(['master', 'admin'])
+  cancelFault?: 'master' | 'admin' | null;
 }

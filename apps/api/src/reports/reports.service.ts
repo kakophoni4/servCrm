@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import {
   CashDirection,
+  CashExpenseBasis,
+  CashIncomeBasis,
   OrderStatus,
   SourceKind,
 } from '@prisma/client';
@@ -17,6 +19,43 @@ function range(from?: string, to?: string) {
       ? new Date(to)
       : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   return { start, end };
+}
+
+const ADS_EXPENSE_BASES: CashExpenseBasis[] = [
+  CashExpenseBasis.AVITO_ADS,
+  CashExpenseBasis.LEAFLETS,
+  CashExpenseBasis.CARDS,
+  CashExpenseBasis.HIRE_ADS,
+];
+
+type CityAgg = {
+  cityId: string | null;
+  cityName: string;
+  incomeTotal: number;
+  incomeOrders: number;
+  incomeOther: number;
+  expensePromo: number;
+  expenseCollection: number;
+  masterSalary: number;
+  expenseAds: number;
+  expenseTotal: number;
+  balance: number;
+};
+
+function emptyAgg(cityId: string | null, cityName: string): CityAgg {
+  return {
+    cityId,
+    cityName,
+    incomeTotal: 0,
+    incomeOrders: 0,
+    incomeOther: 0,
+    expensePromo: 0,
+    expenseCollection: 0,
+    masterSalary: 0,
+    expenseAds: 0,
+    expenseTotal: 0,
+    balance: 0,
+  };
 }
 
 @Injectable()
@@ -62,6 +101,23 @@ export class ReportsService {
       end.getMonth() + 1,
       0,
     ).getDate();
+
+    const adsTxs = await this.prisma.cashTx.findMany({
+      where: {
+        direction: CashDirection.EXPENSE,
+        expenseBasis: { in: ADS_EXPENSE_BASES },
+        createdAt: { gte: start, lte: end },
+      },
+      select: { amount: true },
+    });
+    const adsExpenseSum = adsTxs.reduce((s, t) => s + Number(t.amount), 0);
+    const ordersInPeriod = await this.prisma.order.count({
+      where: { createdAt: { gte: start, lte: end } },
+    });
+    const orderPrice = ordersInPeriod
+      ? adsExpenseSum / ordersInPeriod
+      : 0;
+
     return {
       period: { from: start, to: end },
       closed,
@@ -74,6 +130,9 @@ export class ReportsService {
       avgCheckTotal: avgCheck,
       avgWorkSum: closed ? work / closed : 0,
       forecastTurnover: avgCheck * avgClosedPerDay * daysInMonth,
+      orderPrice,
+      adsExpenseSum,
+      ordersInPeriod,
     };
   }
 
@@ -97,26 +156,117 @@ export class ReportsService {
 
   async cash(from?: string, to?: string) {
     const { start, end } = range(from, to);
-    const txs = await this.prisma.cashTx.findMany({
-      where: { createdAt: { gte: start, lte: end } },
-      include: { city: true },
-    });
-    const income = txs
-      .filter((t) => t.direction === CashDirection.INCOME)
-      .reduce((s, t) => s + Number(t.amount), 0);
-    const expense = txs
-      .filter((t) => t.direction === CashDirection.EXPENSE)
-      .reduce((s, t) => s + Number(t.amount), 0);
-    const collection = txs
-      .filter((t) => t.direction === CashDirection.COLLECTION)
-      .reduce((s, t) => s + Number(t.amount), 0);
+    const [txs, doneOrders] = await Promise.all([
+      this.prisma.cashTx.findMany({
+        where: { createdAt: { gte: start, lte: end } },
+        include: { city: true, order: true, createdBy: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          status: OrderStatus.DONE,
+          updatedAt: { gte: start, lte: end },
+        },
+        include: { payment: true, city: true },
+      }),
+    ]);
+
+    const byCity = new Map<string, CityAgg>();
+
+    const ensure = (cityId: string | null, cityName: string) => {
+      const key = cityId ?? '__none__';
+      let row = byCity.get(key);
+      if (!row) {
+        row = emptyAgg(cityId, cityName);
+        byCity.set(key, row);
+      }
+      return row;
+    };
+
+    for (const t of txs) {
+      const row = ensure(t.cityId, t.city?.name ?? 'Без города');
+      const amount = Number(t.amount);
+
+      if (t.direction === CashDirection.INCOME) {
+        row.incomeTotal += amount;
+        if (t.incomeBasis === CashIncomeBasis.ORDER) {
+          row.incomeOrders += amount;
+        } else {
+          row.incomeOther += amount;
+        }
+      } else if (t.direction === CashDirection.EXPENSE) {
+        row.expenseTotal += amount;
+        if (t.expenseBasis === CashExpenseBasis.SALARY_PROMO) {
+          row.expensePromo += amount;
+        }
+        if (t.expenseBasis === CashExpenseBasis.COLLECTION_FEE) {
+          row.expenseCollection += amount;
+        }
+        if (
+          t.expenseBasis === CashExpenseBasis.AVITO_ADS ||
+          t.expenseBasis === CashExpenseBasis.HIRE_ADS
+        ) {
+          row.expenseAds += amount;
+        }
+      } else if (t.direction === CashDirection.COLLECTION) {
+        row.expenseTotal += amount;
+        row.expenseCollection += amount;
+      }
+    }
+
+    for (const o of doneOrders) {
+      const row = ensure(o.cityId, o.city?.name ?? 'Без города');
+      row.masterSalary += Number(o.payment?.masterSalary ?? 0);
+    }
+
+    for (const row of byCity.values()) {
+      row.balance = row.incomeTotal - row.expenseTotal - row.masterSalary;
+    }
+
+    const cities = [...byCity.values()].sort((a, b) =>
+      a.cityName.localeCompare(b.cityName, 'ru'),
+    );
+
+    const totals = cities.reduce<CityAgg>(
+      (acc, c) => ({
+        cityId: null,
+        cityName: 'Итого',
+        incomeTotal: acc.incomeTotal + c.incomeTotal,
+        incomeOrders: acc.incomeOrders + c.incomeOrders,
+        incomeOther: acc.incomeOther + c.incomeOther,
+        expensePromo: acc.expensePromo + c.expensePromo,
+        expenseCollection: acc.expenseCollection + c.expenseCollection,
+        masterSalary: acc.masterSalary + c.masterSalary,
+        expenseAds: acc.expenseAds + c.expenseAds,
+        expenseTotal: acc.expenseTotal + c.expenseTotal,
+        balance: acc.balance + c.balance,
+      }),
+      emptyAgg(null, 'Итого'),
+    );
+
+    const expenseNotes = txs
+      .filter(
+        (t) =>
+          t.direction === CashDirection.EXPENSE ||
+          t.direction === CashDirection.COLLECTION,
+      )
+      .map((t) => ({
+        date: t.createdAt,
+        cityName: t.city?.name ?? 'Без города',
+        direction: t.direction,
+        expenseBasis: t.expenseBasis,
+        amount: Number(t.amount),
+        description: t.description,
+        orderPublicId: t.order?.publicId ?? null,
+        createdBy: t.createdBy?.fullName ?? null,
+        documentPath: t.documentPath,
+      }));
+
     return {
       period: { from: start, to: end },
-      income,
-      expense,
-      collection,
-      balance: income - expense - collection,
-      rows: txs,
+      byCity: cities,
+      totals,
+      expenseNotes,
     };
   }
 

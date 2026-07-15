@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'fs';
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'fs';
 import { extname, join, normalize, resolve, sep } from 'path';
 import { randomBytes } from 'crypto';
 
@@ -65,5 +71,30 @@ export class StorageService {
     const abs = this.absolute(relPath);
     if (!existsSync(abs)) throw new NotFoundException('Файл не найден');
     return createReadStream(abs);
+  }
+
+  /** Сохраняет произвольный буфер (например .enc) без проверки расширения. */
+  saveBuffer(
+    subdir: string,
+    buffer: Buffer,
+    extension = '.bin',
+  ): { relPath: string } {
+    if (!buffer?.length) {
+      throw new BadRequestException('Пустой файл');
+    }
+    const cleanSub = normalize(subdir).replace(/^(\.\.(\/|\\|$))+/, '');
+    const ext = extension.startsWith('.') ? extension : `.${extension}`;
+    const dir = join(this.root, cleanSub);
+    mkdirSync(dir, { recursive: true });
+    const name = `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`;
+    const abs = join(dir, name);
+    writeFileSync(abs, buffer);
+    return { relPath: join(cleanSub, name).split(sep).join('/') };
+  }
+
+  readBuffer(relPath: string): Buffer {
+    const abs = this.absolute(relPath);
+    if (!existsSync(abs)) throw new NotFoundException('Файл не найден');
+    return readFileSync(abs);
   }
 }

@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
   { href: '/settlements', label: 'Расчёт мастеров', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
   { href: '/settings/salary', label: 'Настройки ЗП', roles: ['DIRECTOR', 'OWNER'] },
   { href: '/settings/dispatcher-pay', label: 'ЗП диспетчеров', roles: ['DIRECTOR', 'OWNER'] },
+  { href: '/settings/dispatcher-payroll', label: 'Расчёт диспетчеров', roles: ['DIRECTOR', 'OWNER'] },
   { href: '/settings/bot', label: 'Бот Telegram', roles: ['OWNER'] },
   { href: '/masters', label: 'Мастера', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
   { href: '/users', label: 'Сотрудники', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },

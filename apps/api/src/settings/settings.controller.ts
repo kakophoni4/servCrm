@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
@@ -76,7 +77,32 @@ export class SettingsController {
     return this.settings.testBot();
   }
 
+  @Post('bot/set-webhook')
+  @Roles(Role.OWNER)
+  setWebhook() {
+    return this.settings.setWebhook();
+  }
+
   // ---- ЗП диспетчеров ----
+  @Get('dispatcher-pay/summary')
+  @Roles(Role.OWNER, Role.DIRECTOR)
+  summary(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.settings.summaryDispatcherPay(from, to);
+  }
+
+  @Get('dispatcher-pay/:userId/calc')
+  @Roles(Role.OWNER, Role.DIRECTOR)
+  calc(
+    @Param('userId') userId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.settings.calcDispatcherPay(userId, from, to);
+  }
+
   @Get('dispatcher-pay/:userId')
   @Roles(Role.OWNER, Role.DIRECTOR)
   get(@Param('userId') userId: string) {

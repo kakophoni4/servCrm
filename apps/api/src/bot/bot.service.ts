@@ -1,15 +1,62 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
-import { ChatChannel, OrderStatus } from '@prisma/client';
+import {
+  CashDirection,
+  CashIncomeBasis,
+  ChatChannel,
+  DocKind,
+  OrderStatus,
+} from '@prisma/client';
 import { ChatService } from '../chat/chat.service';
-import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { requiresDocsForDone } from '../common/utils/formulas';
+
+const STATUS_BUTTONS: { status: OrderStatus; label: string }[] = [
+  { status: OrderStatus.ON_THE_WAY, label: 'В пути' },
+  { status: OrderStatus.IN_PROGRESS, label: 'В работе' },
+  { status: OrderStatus.DONE, label: 'Готов' },
+  { status: OrderStatus.IN_PROGRESS_SD, label: 'В работе СД' },
+];
+
+const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
+  [OrderStatus.ON_THE_WAY]: 'В пути',
+  [OrderStatus.IN_PROGRESS]: 'В работе',
+  [OrderStatus.DONE]: 'Готов',
+  [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
+};
+
+type TgFrom = {
+  id?: number;
+  username?: string;
+  first_name?: string;
+};
+
+type TgChat = { id?: number | string };
+
+type TgMessage = {
+  text?: string;
+  chat?: TgChat;
+  from?: TgFrom;
+};
+
+type TgCallbackQuery = {
+  id: string;
+  data?: string;
+  from?: TgFrom;
+  message?: { chat?: TgChat };
+};
+
+type TgUpdate = {
+  message?: TgMessage;
+  callback_query?: TgCallbackQuery;
+};
 
 /**
  * Слой для Telegram-бота. Токен берётся из настроек (админка) с fallback на env.
@@ -20,8 +67,8 @@ export class BotService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => ChatService))
     private readonly chat: ChatService,
-    private readonly documents: DocumentsService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -49,8 +96,16 @@ export class BotService {
   }
 
   /** Отправить текст в чат Telegram (chatId = telegramId). */
-  sendMessage(chatId: string, text: string) {
-    return this.telegram('sendMessage', { chat_id: chatId, text });
+  sendMessage(
+    chatId: string,
+    text: string,
+    extra?: Record<string, unknown>,
+  ) {
+    return this.telegram('sendMessage', {
+      chat_id: chatId,
+      text,
+      ...extra,
+    });
   }
 
   async masterByTelegram(telegramId: string) {
@@ -91,12 +146,26 @@ export class BotService {
       (s, o) => s + Number(o.payment?.masterSalary ?? 0),
       0,
     );
+
+    // Штрафы: приходы кассы с основанием FINE, привязанные к заявкам мастера.
+    const fineRows = await this.prisma.cashTx.findMany({
+      where: {
+        incomeBasis: CashIncomeBasis.FINE,
+        createdAt: { gte: from },
+        order: { masterId },
+      },
+      select: { amount: true },
+    });
+    const fines = fineRows.reduce((s, r) => s + Number(r.amount), 0);
+
     return {
       fullName: user.fullName,
       ordersCount: orders.length,
       salaryMonth: salary,
-      fines: 0,
+      fines,
       bonus: 0,
+      description:
+        'bonus: TODO — в CashTx нет привязки расхода BONUS к мастеру, значение всегда 0',
     };
   }
 
@@ -119,31 +188,66 @@ export class BotService {
     }
 
     if (status === OrderStatus.DONE) {
-      const paid = Number(order.payment?.paid ?? 0);
-      if (requiresDocsForDone(paid)) {
-        const ok = await this.documents.hasRequiredReceipts(orderId);
-        if (!ok) {
-          throw new BadRequestException(
-            'Для статуса Готов при сумме >500 нужны чеки/договор',
-          );
-        }
+      const docs = await this.prisma.orderDocument.findMany({
+        where: { orderId },
+        select: { kind: true },
+      });
+      const kinds = new Set(docs.map((d) => d.kind));
+      const missing: string[] = [];
+      if (!kinds.has(DocKind.CONTRACT)) missing.push('договор');
+      if (!kinds.has(DocKind.RECEIPT_SERVICE)) missing.push('чек услуги');
+      if (order.payment?.partsYesNo) {
+        if (!kinds.has(DocKind.RECEIPT_PARTS)) missing.push('чек комплектующих');
+        if (!kinds.has(DocKind.PARTS_PHOTO)) missing.push('фото комплектующих');
+      }
+      if (missing.length) {
+        throw new BadRequestException(
+          `Для статуса «Готов» недостаёт документов: ${missing.join(', ')}`,
+        );
       }
     }
 
     if (status === OrderStatus.IN_PROGRESS_SD) {
       const sdDocs = await this.prisma.orderDocument.count({
-        where: { orderId, kind: 'RECEIPT_SD' },
+        where: { orderId, kind: DocKind.RECEIPT_SD },
       });
       if (!sdDocs) {
         throw new BadRequestException(
-          'Для статуса В работе СД нужна сохранённая расписка',
+          'Для статуса «В работе СД» нужна сохранённая расписка СД',
         );
       }
     }
 
-    return this.prisma.order.update({
-      where: { id: orderId },
-      data: { status },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status },
+      });
+
+      if (status === OrderStatus.DONE) {
+        const exists = await tx.cashTx.findFirst({
+          where: {
+            orderId,
+            incomeBasis: CashIncomeBasis.ORDER,
+          },
+          select: { id: true },
+        });
+        if (!exists) {
+          await tx.cashTx.create({
+            data: {
+              direction: CashDirection.INCOME,
+              incomeBasis: CashIncomeBasis.ORDER,
+              amount: Number(order.payment?.paid ?? 0),
+              orderId,
+              cityId: order.cityId ?? undefined,
+              createdById: user.id,
+              description: 'Приход по заявке',
+            },
+          });
+        }
+      }
+
+      return updated;
     });
   }
 
@@ -154,5 +258,154 @@ export class BotService {
       title,
       body: text,
     });
+  }
+
+  /** Карточка заявки мастеру с inline-кнопками статусов. */
+  async notifyMasterOrder(masterId: string, orderId: string) {
+    const master = await this.prisma.master.findUnique({
+      where: { id: masterId },
+      include: { user: true },
+    });
+    if (!master) {
+      throw new NotFoundException('Мастер не найден');
+    }
+    const telegramId = master.user.telegramId;
+    if (!telegramId) {
+      this.logger.warn(
+        `notifyMasterOrder: у мастера ${masterId} нет telegramId`,
+      );
+      return null;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { client: true, payment: true, city: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Заявка не найдена');
+    }
+
+    const lines = [
+      `Заявка ${order.publicId}`,
+      `Клиент: ${order.client.name}`,
+      `Тел: ${order.client.phoneNormalized}`,
+      `Адрес: ${order.address}`,
+    ];
+    if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
+    if (order.comment) lines.push(`Комментарий: ${order.comment}`);
+    if (order.scheduledAt) {
+      lines.push(
+        `Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`,
+      );
+    }
+    lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
+
+    const row1 = STATUS_BUTTONS.slice(0, 2).map((b) => ({
+      text: b.label,
+      callback_data: `s:${order.id}:${b.status}`,
+    }));
+    const row2 = STATUS_BUTTONS.slice(2).map((b) => ({
+      text: b.label,
+      callback_data: `s:${order.id}:${b.status}`,
+    }));
+
+    this.logger.log(
+      `notifyMasterOrder → telegramId=${telegramId} order=${order.publicId}`,
+    );
+
+    return this.sendMessage(telegramId, lines.join('\n'), {
+      reply_markup: { inline_keyboard: [row1, row2] },
+    });
+  }
+
+  /** Публичный webhook Telegram: проверка секрета + разбор Update. */
+  async handleWebhook(secret: string, update: TgUpdate) {
+    const expected = await this.settings.getWebhookSecret();
+    if (!expected || secret !== expected) {
+      throw new UnauthorizedException('Неверный webhook secret');
+    }
+
+    if (update.callback_query) {
+      await this.handleCallbackQuery(update.callback_query);
+      return { ok: true };
+    }
+
+    const msg = update.message;
+    if (msg?.text && msg.chat?.id != null) {
+      const from = msg.from;
+      const title =
+        from?.username || from?.first_name || String(msg.chat.id);
+      await this.incomingMessage(String(msg.chat.id), msg.text, title);
+    }
+
+    return { ok: true };
+  }
+
+  private async handleCallbackQuery(cq: TgCallbackQuery) {
+    const chatId = cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
+    const telegramId = cq.from?.id != null ? String(cq.from.id) : null;
+    const data = cq.data ?? '';
+
+    await this.telegram('answerCallbackQuery', {
+      callback_query_id: cq.id,
+    });
+
+    if (!chatId || !telegramId) return;
+
+    if (data === 'n') {
+      await this.sendMessage(chatId, 'Отменено');
+      return;
+    }
+
+    if (data.startsWith('s:')) {
+      const rest = data.slice(2);
+      const sep = rest.lastIndexOf(':');
+      if (sep <= 0) return;
+      const orderId = rest.slice(0, sep);
+      const status = rest.slice(sep + 1) as OrderStatus;
+      const label = STATUS_LABELS[status] ?? status;
+      await this.sendMessage(
+        chatId,
+        `Подтвердите смену статуса на «${label}»?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Подтвердить',
+                  callback_data: `c:${orderId}:${status}`,
+                },
+                { text: 'Отмена', callback_data: 'n' },
+              ],
+            ],
+          },
+        },
+      );
+      return;
+    }
+
+    if (data.startsWith('c:')) {
+      const rest = data.slice(2);
+      const sep = rest.lastIndexOf(':');
+      if (sep <= 0) return;
+      const orderId = rest.slice(0, sep);
+      const status = rest.slice(sep + 1) as OrderStatus;
+      try {
+        await this.setStatus(telegramId, orderId, status, true);
+        await this.sendMessage(
+          chatId,
+          `Статус обновлён: ${STATUS_LABELS[status] ?? status}`,
+        );
+      } catch (e) {
+        const text =
+          e instanceof BadRequestException || e instanceof NotFoundException
+            ? String(
+                (e.getResponse() as { message?: string | string[] })?.message ??
+                  e.message,
+              )
+            : 'Не удалось сменить статус';
+        await this.sendMessage(chatId, Array.isArray(text) ? text.join('; ') : text);
+      }
+    }
   }
 }

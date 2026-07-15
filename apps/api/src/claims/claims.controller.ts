@@ -43,6 +43,26 @@ class CloseClaimDto {
   closedAt?: string;
 }
 
+class UpdateClaimDto {
+  @IsOptional()
+  @IsEnum(ClaimType)
+  type?: ClaimType;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  refundSum?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  orderSum?: number;
+
+  @IsOptional()
+  @IsString()
+  cityId?: string | null;
+}
+
 @Controller('claims')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClaimsController {
@@ -64,5 +84,11 @@ export class ClaimsController {
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   close(@Param('id') id: string, @Body() dto: CloseClaimDto) {
     return this.claims.close(id, dto.closedAt);
+  }
+
+  @Patch(':id')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  update(@Param('id') id: string, @Body() dto: UpdateClaimDto) {
+    return this.claims.update(id, dto);
   }
 }
