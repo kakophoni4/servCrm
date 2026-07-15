@@ -1,0 +1,8 @@
+{
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "rootDir": ".",
+  "testRegex": ".e2e-spec.ts$",
+  "setupFilesAfterEnv": ["./setup-e2e.ts"],
+  "testTimeout": 30000
+}

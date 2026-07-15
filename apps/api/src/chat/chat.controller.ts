@@ -56,14 +56,17 @@ export class ChatController {
 
   @Get('threads')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  threads() {
-    return this.chat.threads();
+  threads(@CurrentUser() user: { userId: string; role: string }) {
+    return this.chat.threads(user.userId, user.role);
   }
 
   @Get('threads/:id')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  get(@Param('id') id: string) {
-    return this.chat.get(id);
+  get(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.chat.get(id, user.userId, user.role);
   }
 
   @Post('threads/:id/messages')
@@ -71,21 +74,29 @@ export class ChatController {
   reply(
     @Param('id') id: string,
     @Body() dto: ReplyDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.chat.reply(id, dto.body, user.userId);
+    return this.chat.reply(id, dto.body, user.userId, user.userId, user.role);
   }
 
   @Post('threads/:id/link-order')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  link(@Param('id') id: string, @Body() dto: LinkOrderDto) {
-    return this.chat.linkOrder(id, dto.orderId);
+  link(
+    @Param('id') id: string,
+    @Body() dto: LinkOrderDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.chat.linkOrder(id, dto.orderId, user.userId, user.role);
   }
 
   @Post('threads/:id/send-to-master')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  sendToMaster(@Param('id') id: string, @Body() dto: SendToMasterDto) {
-    return this.chat.sendToMaster(id, dto.masterId);
+  sendToMaster(
+    @Param('id') id: string,
+    @Body() dto: SendToMasterDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.chat.sendToMaster(id, dto.masterId, user.userId, user.role);
   }
 
   /** Для бота / интеграций (MVP: тот же JWT админа). */

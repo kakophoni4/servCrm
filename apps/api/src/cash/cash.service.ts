@@ -9,6 +9,7 @@ import {
   CashIncomeBasis,
   Role,
 } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const ADMIN_EXPENSE: CashExpenseBasis[] = [
@@ -18,22 +19,34 @@ const ADMIN_EXPENSE: CashExpenseBasis[] = [
 
 @Injectable()
 export class CashService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  list(from?: string, to?: string) {
+  async list(
+    userId: string,
+    role: Role | string,
+    requestedCityId?: string,
+    from?: string,
+    to?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     return this.prisma.cashTx.findMany({
       where: {
         createdAt: {
           gte: from ? new Date(from) : undefined,
           lte: to ? new Date(to) : undefined,
         },
+        cityId: this.branch.cityWhere(cityIds),
       },
       include: { city: true, order: true, createdBy: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  income(
+  async income(
     input: {
       amount: number;
       incomeBasis: CashIncomeBasis;
@@ -51,13 +64,14 @@ export class CashService {
     if (role !== Role.ADMIN && role !== Role.OWNER) {
       throw new ForbiddenException('Недостаточно прав');
     }
+    const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
     return this.prisma.cashTx.create({
       data: {
         direction: CashDirection.INCOME,
         amount: input.amount,
         incomeBasis: input.incomeBasis,
         description: input.description,
-        cityId: input.cityId,
+        cityId,
         orderId: input.orderId,
         documentPath: input.documentPath,
         createdById: userId,
@@ -65,7 +79,7 @@ export class CashService {
     });
   }
 
-  expense(
+  async expense(
     input: {
       amount: number;
       expenseBasis: CashExpenseBasis;
@@ -92,6 +106,7 @@ export class CashService {
     ) {
       throw new ForbiddenException('Недостаточно прав');
     }
+    const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
     return this.prisma.cashTx.create({
       data: {
         direction: CashDirection.EXPENSE,
@@ -99,14 +114,14 @@ export class CashService {
         expenseBasis: input.expenseBasis,
         expenseSubtype: input.expenseSubtype,
         description: input.description,
-        cityId: input.cityId,
+        cityId,
         documentPath: input.documentPath,
         createdById: userId,
       },
     });
   }
 
-  collection(
+  async collection(
     input: {
       amount: number;
       description?: string;
@@ -119,15 +134,42 @@ export class CashService {
     if (role !== Role.ADMIN && role !== Role.DIRECTOR && role !== Role.OWNER) {
       throw new ForbiddenException('Недостаточно прав');
     }
+    const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
     return this.prisma.cashTx.create({
       data: {
         direction: CashDirection.COLLECTION,
         amount: input.amount,
         description: input.description ?? 'Инкассация',
-        cityId: input.cityId,
+        cityId,
         documentPath: input.documentPath,
         createdById: userId,
       },
     });
+  }
+
+  /**
+   * OWNER: cityId без ограничений (можно null).
+   * Остальные: чужой cityId запрещён; без cityId — свой филиал (allowed[0]).
+   */
+  private async resolveWriteCityId(
+    userId: string,
+    role: Role,
+    requestedCityId?: string,
+  ): Promise<string | undefined> {
+    if (role === Role.OWNER) {
+      return requestedCityId;
+    }
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (!allowed?.length) {
+      throw new BadRequestException('Филиал не назначен');
+    }
+    if (requestedCityId) {
+      if (!allowed.includes(requestedCityId)) {
+        throw new ForbiddenException('Филиал вне доступа');
+      }
+      return requestedCityId;
+    }
+    return allowed[0];
   }
 }

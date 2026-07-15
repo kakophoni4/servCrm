@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Res,
   StreamableFile,
   UploadedFile,
@@ -103,17 +104,20 @@ export class AdsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list() {
-    return this.ads.list();
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.ads.list(user.userId, user.role, cityId);
   }
 
   @Post()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   create(
     @Body() dto: CreateAdDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: Role },
   ) {
-    return this.ads.create(dto, user.userId);
+    return this.ads.create(dto, user.userId, user.role);
   }
 
   @Post(':id/screenshot')
@@ -122,17 +126,19 @@ export class AdsController {
   attach(
     @Param('id') id: string,
     @UploadedFile() file: UploadedMemoryFile,
+    @CurrentUser() user: { userId: string; role: Role },
   ) {
-    return this.ads.attachScreenshot(id, file);
+    return this.ads.attachScreenshot(id, file, user.userId, user.role);
   }
 
   @Get(':id/screenshot')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   async screenshot(
     @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const relPath = await this.ads.getScreenshot(id);
+    const relPath = await this.ads.getScreenshot(id, user.userId, user.role);
     res.set({ 'Content-Type': 'application/octet-stream' });
     return new StreamableFile(this.storage.stream(relPath));
   }

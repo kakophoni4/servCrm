@@ -113,8 +113,13 @@ export class CashController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.cash.list(from, to);
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.cash.list(user.userId, user.role, cityId, from, to);
   }
 
   @Post('income')
@@ -124,9 +129,14 @@ export class CashController {
     @Body() dto: IncomeDto,
     @UploadedFile() file: UploadedMemoryFile | undefined,
     @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
   ) {
     return this.cash.income(
-      { ...dto, documentPath: this.resolveDocumentPath(dto.documentPath, file) },
+      {
+        ...dto,
+        cityId: cityId ?? dto.cityId,
+        documentPath: this.resolveDocumentPath(dto.documentPath, file),
+      },
       user.userId,
       user.role,
     );
@@ -139,9 +149,14 @@ export class CashController {
     @Body() dto: ExpenseDto,
     @UploadedFile() file: UploadedMemoryFile | undefined,
     @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
   ) {
     return this.cash.expense(
-      { ...dto, documentPath: this.resolveDocumentPath(dto.documentPath, file) },
+      {
+        ...dto,
+        cityId: cityId ?? dto.cityId,
+        documentPath: this.resolveDocumentPath(dto.documentPath, file),
+      },
       user.userId,
       user.role,
     );
@@ -154,9 +169,14 @@ export class CashController {
     @Body() dto: CollectionDto,
     @UploadedFile() file: UploadedMemoryFile | undefined,
     @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
   ) {
     return this.cash.collection(
-      { ...dto, documentPath: this.resolveDocumentPath(dto.documentPath, file) },
+      {
+        ...dto,
+        cityId: cityId ?? dto.cityId,
+        documentPath: this.resolveDocumentPath(dto.documentPath, file),
+      },
       user.userId,
       user.role,
     );

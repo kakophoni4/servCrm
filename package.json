@@ -11,7 +11,11 @@
     "build": "npm run build -w @field-crm/api && npm run build -w @field-crm/web",
     "db:migrate": "npm run prisma:migrate -w @field-crm/api",
     "db:seed": "npm run prisma:seed -w @field-crm/api",
-    "db:generate": "npm run prisma:generate -w @field-crm/api"
+    "db:generate": "npm run prisma:generate -w @field-crm/api",
+    "test:api": "npm run test -w @field-crm/api",
+    "test:api:e2e": "npm run test:e2e -w @field-crm/api",
+    "test:web": "npm run test -w @field-crm/web",
+    "test:web:e2e": "npm run test:e2e -w @field-crm/web"
   },
   "engines": {
     "node": ">=20"

@@ -25,6 +25,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UploadedMemoryFile } from '../common/storage/storage.service';
@@ -94,17 +95,22 @@ export class UsersController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list(@Query('status') status?: UserStatus) {
-    return this.users.list(status);
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('status') status?: UserStatus,
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.users.list(user.userId, user.role, cityId, status);
   }
 
   @Get(':id/passport')
   @Roles(Role.OWNER, Role.DIRECTOR)
   async downloadPassport(
     @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const file = await this.users.getPassportPhoto(id);
+    const file = await this.users.getPassportPhoto(id, user.userId, user.role);
     res.set({
       'Content-Type': file.mime,
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
@@ -118,9 +124,10 @@ export class UsersController {
   @Roles(Role.OWNER, Role.DIRECTOR)
   async downloadEmployeePhoto(
     @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const file = await this.users.getEmployeePhoto(id);
+    const file = await this.users.getEmployeePhoto(id, user.userId, user.role);
     res.set({
       'Content-Type': file.mime,
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
@@ -132,8 +139,11 @@ export class UsersController {
 
   @Get(':id')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  get(@Param('id') id: string) {
-    return this.users.get(id);
+  get(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.users.get(id, user.userId, user.role);
   }
 
   @Post()
@@ -165,13 +175,20 @@ export class UsersController {
 
   @Post(':id/fire')
   @Roles(Role.OWNER, Role.DIRECTOR)
-  fire(@Param('id') id: string, @Body() dto: FireDto) {
-    return this.users.fire(id, dto);
+  fire(
+    @Param('id') id: string,
+    @Body() dto: FireDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.users.fire(id, dto, user.userId, user.role);
   }
 
   @Post(':id/restore')
   @Roles(Role.OWNER, Role.DIRECTOR)
-  restore(@Param('id') id: string) {
-    return this.users.restore(id);
+  restore(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.users.restore(id, user.userId, user.role);
   }
 }

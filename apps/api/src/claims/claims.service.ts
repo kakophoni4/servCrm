@@ -1,13 +1,24 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ClaimType } from '@prisma/client';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ClaimType, Role } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ClaimsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  list() {
+  async list(userId: string, role: Role, requestedCityId?: string) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     return this.prisma.claim.findMany({
+      where: { cityId: this.branch.cityWhere(cityIds) },
       include: {
         order: { include: { client: true } },
         city: true,
@@ -16,17 +27,30 @@ export class ClaimsService {
     });
   }
 
-  async create(input: {
-    orderId: string;
-    type: ClaimType;
-    refundSum?: number;
-    orderSum?: number;
-    cityId?: string;
-  }) {
+  async create(
+    input: {
+      orderId: string;
+      type: ClaimType;
+      refundSum?: number;
+      orderSum?: number;
+      cityId?: string;
+    },
+    userId: string,
+    role: Role,
+  ) {
     const order = await this.prisma.order.findUnique({
       where: { id: input.orderId },
     });
     if (!order) throw new NotFoundException('Заявка не найдена');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      order.cityId &&
+      !allowed.includes(order.cityId)
+    ) {
+      throw new ForbiddenException('Заявка вне вашего филиала');
+    }
 
     const [claim] = await this.prisma.$transaction([
       this.prisma.claim.create({
@@ -48,7 +72,24 @@ export class ClaimsService {
     return claim;
   }
 
-  async close(id: string, closedAt?: string) {
+  async close(
+    id: string,
+    closedAt: string | undefined,
+    userId: string,
+    role: Role,
+  ) {
+    const existing = await this.prisma.claim.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Претензия не найдена');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      existing.cityId &&
+      !allowed.includes(existing.cityId)
+    ) {
+      throw new ForbiddenException('Заявка вне вашего филиала');
+    }
+
     return this.prisma.claim.update({
       where: { id },
       data: { closedAt: closedAt ? new Date(closedAt) : new Date() },
@@ -64,9 +105,20 @@ export class ClaimsService {
       orderSum?: number;
       cityId?: string | null;
     },
+    userId: string,
+    role: Role,
   ) {
     const existing = await this.prisma.claim.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Претензия не найдена');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      existing.cityId &&
+      !allowed.includes(existing.cityId)
+    ) {
+      throw new ForbiddenException('Заявка вне вашего филиала');
+    }
 
     return this.prisma.claim.update({
       where: { id },

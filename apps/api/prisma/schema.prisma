@@ -131,8 +131,9 @@ model City {
   adReports  AdDailyReport[]
   assets     Asset[]
   chatThreads ChatThread[]
-  masters    Master[]
-  directors  BranchDirector[]
+  masters           Master[]
+  directors         BranchDirector[]
+  masterSettlements MasterSettlement[]
 
   @@map("cities")
 }
@@ -383,6 +384,7 @@ model CashTx {
 model MasterSettlement {
   id              String    @id @default(cuid())
   masterId        String    @map("master_id")
+  cityId          String?   @map("city_id")
   amount          Decimal   @db.Decimal(12, 2)
   periodFrom      DateTime  @map("period_from")
   periodTo        DateTime  @map("period_to")
@@ -393,8 +395,10 @@ model MasterSettlement {
   createdAt       DateTime  @default(now()) @map("created_at")
 
   master      Master @relation(fields: [masterId], references: [id])
+  city        City?  @relation(fields: [cityId], references: [id])
   confirmedBy User?  @relation(fields: [confirmedById], references: [id])
 
+  @@index([cityId])
   @@map("master_settlements")
 }
 

@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ClaimType, Role } from '@prisma/client';
 import {
   IsDateString,
@@ -9,6 +18,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -70,25 +80,39 @@ export class ClaimsController {
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list() {
-    return this.claims.list();
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.claims.list(user.userId, user.role, cityId);
   }
 
   @Post()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  create(@Body() dto: CreateClaimDto) {
-    return this.claims.create(dto);
+  create(
+    @Body() dto: CreateClaimDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.claims.create(dto, user.userId, user.role);
   }
 
   @Patch(':id/close')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  close(@Param('id') id: string, @Body() dto: CloseClaimDto) {
-    return this.claims.close(id, dto.closedAt);
+  close(
+    @Param('id') id: string,
+    @Body() dto: CloseClaimDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.claims.close(id, dto.closedAt, user.userId, user.role);
   }
 
   @Patch(':id')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  update(@Param('id') id: string, @Body() dto: UpdateClaimDto) {
-    return this.claims.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateClaimDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.claims.update(id, dto, user.userId, user.role);
   }
 }

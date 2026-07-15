@@ -1,12 +1,14 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { ChatChannel, ChatStatus } from '@prisma/client';
+import { ChatChannel, ChatStatus, Role } from '@prisma/client';
 import { BotService } from '../bot/bot.service';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const orderInclude = {
@@ -17,13 +19,22 @@ const orderInclude = {
 export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
     @Inject(forwardRef(() => BotService))
     private readonly bot: BotService,
   ) {}
 
-  threads() {
+  async threads(userId: string, role: Role | string) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const where =
+      allowed === null
+        ? { status: ChatStatus.OPEN }
+        : {
+            status: ChatStatus.OPEN,
+            OR: [{ cityId: { in: allowed } }, { cityId: null }],
+          };
     return this.prisma.chatThread.findMany({
-      where: { status: ChatStatus.OPEN },
+      where,
       include: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
         order: { include: orderInclude },
@@ -33,7 +44,7 @@ export class ChatService {
     });
   }
 
-  async get(id: string) {
+  async get(id: string, userId?: string, role?: Role | string) {
     const thread = await this.prisma.chatThread.findUnique({
       where: { id },
       include: {
@@ -42,7 +53,25 @@ export class ChatService {
       },
     });
     if (!thread) throw new NotFoundException('Чат не найден');
+    if (userId !== undefined && role !== undefined) {
+      await this.assertThreadAccess(thread, userId, role);
+    }
     return thread;
+  }
+
+  private async assertThreadAccess(
+    thread: { cityId: string | null },
+    userId: string,
+    role: Role | string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      thread.cityId !== null &&
+      !allowed.includes(thread.cityId)
+    ) {
+      throw new ForbiddenException('Чат вне вашего филиала');
+    }
   }
 
   /** Входящее из бота / веб. */
@@ -80,8 +109,17 @@ export class ChatService {
     });
   }
 
-  async reply(threadId: string, body: string, authorId: string) {
-    await this.get(threadId);
+  async reply(
+    threadId: string,
+    body: string,
+    authorId: string,
+    userId?: string,
+    role?: Role | string,
+  ) {
+    const thread = await this.get(threadId);
+    if (userId !== undefined && role !== undefined) {
+      await this.assertThreadAccess(thread, userId, role);
+    }
     await this.prisma.chatMessage.create({
       data: {
         threadId,
@@ -93,13 +131,21 @@ export class ChatService {
     return this.get(threadId);
   }
 
-  async linkOrder(threadId: string, orderId: string) {
-    await this.get(threadId);
+  async linkOrder(
+    threadId: string,
+    orderId: string,
+    userId?: string,
+    role?: Role | string,
+  ) {
+    const thread = await this.get(threadId);
+    if (userId !== undefined && role !== undefined) {
+      await this.assertThreadAccess(thread, userId, role);
+    }
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Заявка не найдена');
     return this.prisma.chatThread.update({
       where: { id: threadId },
-      data: { linkedOrderId: orderId },
+      data: { linkedOrderId: orderId, cityId: order.cityId },
       include: {
         order: { include: orderInclude },
         messages: true,
@@ -108,8 +154,16 @@ export class ChatService {
   }
 
   /** Привязать заявку треда к мастеру и отправить карточку в Telegram. */
-  async sendToMaster(threadId: string, masterId: string) {
+  async sendToMaster(
+    threadId: string,
+    masterId: string,
+    userId?: string,
+    role?: Role | string,
+  ) {
     const thread = await this.get(threadId);
+    if (userId !== undefined && role !== undefined) {
+      await this.assertThreadAccess(thread, userId, role);
+    }
     if (!thread.linkedOrderId) {
       throw new BadRequestException(
         'К чату не привязана заявка. Сначала выберите и привяжите заявку.',

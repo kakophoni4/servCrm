@@ -224,7 +224,7 @@ export class SettingsService {
   async calcDispatcherPay(userId: string, from?: string, to?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, fullName: true, role: true },
+      select: { id: true, fullName: true, role: true, cityId: true },
     });
     if (!user || user.role !== Role.DISPATCHER) {
       throw new NotFoundException('Диспетчер не найден');
@@ -236,7 +236,7 @@ export class SettingsService {
   async summaryDispatcherPay(from?: string, to?: string) {
     const dispatchers = await this.prisma.user.findMany({
       where: { role: Role.DISPATCHER, status: UserStatus.ACTIVE },
-      select: { id: true, fullName: true, role: true },
+      select: { id: true, fullName: true, role: true, cityId: true },
       orderBy: { fullName: 'asc' },
     });
     const rows = [];
@@ -247,7 +247,7 @@ export class SettingsService {
   }
 
   private async calcDispatcherPayForUser(
-    user: { id: string; fullName: string },
+    user: { id: string; fullName: string; cityId?: string | null },
     from?: string,
     to?: string,
   ) {
@@ -265,6 +265,7 @@ export class SettingsService {
       where: {
         status: OrderStatus.DONE,
         updatedAt: { gte: start, lte: end },
+        ...(user.cityId != null ? { cityId: user.cityId } : {}),
       },
       include: { payment: true },
     });

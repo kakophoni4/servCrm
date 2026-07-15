@@ -1,29 +1,46 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Role } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SettlementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  list() {
+  async list(userId: string, role: Role, requestedCityId?: string) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     return this.prisma.masterSettlement.findMany({
+      where: { cityId: this.branch.cityWhere(cityIds) },
       include: { master: { include: { user: true } }, confirmedBy: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   /** Суммы к сдаче по мастерам за период (непроведённые DONE). */
-  async preview(from: string, to: string) {
+  async preview(
+    from: string,
+    to: string,
+    userId: string,
+    role: Role,
+    requestedCityId?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     const orders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
         createdAt: { gte: new Date(from), lte: new Date(to) },
         masterId: { not: null },
+        cityId: this.branch.cityWhere(cityIds),
       },
       include: { payment: true, master: { include: { user: true } } },
     });
@@ -46,15 +63,34 @@ export class SettlementsService {
     return [...map.values()];
   }
 
-  create(input: {
-    masterId: string;
-    amount: number;
-    periodFrom: string;
-    periodTo: string;
-  }) {
+  async create(
+    input: {
+      masterId: string;
+      amount: number;
+      periodFrom: string;
+      periodTo: string;
+    },
+    userId: string,
+    role: Role,
+  ) {
+    const master = await this.prisma.master.findUnique({
+      where: { id: input.masterId },
+    });
+    if (!master) throw new NotFoundException('Мастер не найден');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      master.cityId &&
+      !allowed.includes(master.cityId)
+    ) {
+      throw new ForbiddenException('Мастер вне вашего филиала');
+    }
+
     return this.prisma.masterSettlement.create({
       data: {
         masterId: input.masterId,
+        cityId: master.cityId,
         amount: input.amount,
         periodFrom: new Date(input.periodFrom),
         periodTo: new Date(input.periodTo),
@@ -63,9 +99,18 @@ export class SettlementsService {
     });
   }
 
-  async confirm(id: string, userId: string) {
+  async confirm(id: string, userId: string, role: Role) {
     const row = await this.prisma.masterSettlement.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Расчёт не найден');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      (!row.cityId || !allowed.includes(row.cityId))
+    ) {
+      throw new ForbiddenException('Расчёт вне вашего филиала');
+    }
+
     if (row.confirmedTwice) {
       throw new BadRequestException('Уже подтверждено дважды');
     }

@@ -1,0 +1,541 @@
+import {
+  CashDirection,
+  CashExpenseBasis,
+  CashIncomeBasis,
+  OrderStatus,
+  Role,
+  SourceKind,
+} from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { ReportsService } from './reports.service';
+
+describe('ReportsService', () => {
+  let service: ReportsService;
+  let prisma: {
+    order: {
+      findMany: jest.Mock;
+      count: jest.Mock;
+      groupBy: jest.Mock;
+    };
+    cashTx: { findMany: jest.Mock };
+    claim: { findMany: jest.Mock };
+    adDailyReport: { findMany: jest.Mock };
+  };
+  let branch: {
+    allowedCityIds: jest.Mock;
+    resolveCityIds: jest.Mock;
+    cityWhere: jest.Mock;
+  };
+
+  const FROM = '2026-06-01';
+  const TO = '2026-06-10';
+  const USER = 'user-1';
+
+  beforeEach(() => {
+    prisma = {
+      order: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        groupBy: jest.fn(),
+      },
+      cashTx: { findMany: jest.fn() },
+      claim: { findMany: jest.fn() },
+      adDailyReport: { findMany: jest.fn() },
+    };
+    branch = {
+      allowedCityIds: jest.fn(),
+      resolveCityIds: jest.fn(),
+      cityWhere: jest.fn(),
+    };
+    service = new ReportsService(
+      prisma as unknown as PrismaService,
+      branch as unknown as BranchScopeService,
+    );
+  });
+
+  function mockBranchScope(
+    allowed: string[] | null,
+    resolved: string[] | null = allowed,
+  ) {
+    branch.allowedCityIds.mockResolvedValue(allowed);
+    branch.resolveCityIds.mockReturnValue(resolved);
+    branch.cityWhere.mockImplementation((ids: string[] | null) =>
+      ids ? { in: ids } : undefined,
+    );
+  }
+
+  describe('closed', () => {
+    const orders = [
+      {
+        sourceKind: SourceKind.OUR,
+        isClaim: false,
+        claims: [],
+        payment: {
+          toCompany: 1000,
+          workSum: 3000,
+          masterSalary: 200,
+          paid: 5000,
+        },
+      },
+      {
+        sourceKind: SourceKind.OUR,
+        isClaim: true,
+        claims: [],
+        payment: {
+          toCompany: 2000,
+          workSum: 5000,
+          masterSalary: 300,
+          paid: 7000,
+        },
+      },
+      {
+        sourceKind: SourceKind.PARTNER,
+        isClaim: false,
+        claims: [{ id: 'c1' }],
+        payment: {
+          toCompany: 1500,
+          workSum: 4500,
+          masterSalary: 250,
+          paid: 6000,
+        },
+      },
+      {
+        sourceKind: SourceKind.PARTNER,
+        isClaim: false,
+        claims: [],
+        payment: {
+          toCompany: 500,
+          workSum: 3500,
+          masterSalary: 100,
+          paid: 4000,
+        },
+      },
+    ];
+
+    beforeEach(() => {
+      mockBranchScope(['A']);
+      prisma.order.findMany.mockResolvedValue(orders);
+      prisma.cashTx.findMany.mockResolvedValue([
+        { amount: 300 },
+        { amount: 200 },
+      ]);
+    });
+
+    it('aggregates closed metrics on DONE orders', async () => {
+      prisma.order.count.mockResolvedValue(10);
+
+      const result = await service.closed(USER, Role.ADMIN, undefined, FROM, TO);
+
+      expect(result.closed).toBe(4);
+      expect(result.ours).toBe(2);
+      expect(result.partner).toBe(2);
+      expect(result.netSum).toBe(5000);
+      expect(result.avgCheckHandover).toBe(1250);
+      expect(result.avgWorkSum).toBe(4000);
+      expect(result.claimsPercent).toBe(50);
+      expect(result.orderPrice).toBe(50);
+      expect(result.adsExpenseSum).toBe(500);
+      expect(result.ordersInPeriod).toBe(10);
+      expect(Number.isFinite(result.forecastTurnover)).toBe(true);
+      expect(Number.isNaN(result.forecastTurnover)).toBe(false);
+    });
+
+    it('returns orderPrice 0 when ordersInPeriod is 0', async () => {
+      prisma.order.count.mockResolvedValue(0);
+
+      const result = await service.closed(USER, Role.ADMIN, undefined, FROM, TO);
+
+      expect(result.orderPrice).toBe(0);
+      expect(result.ordersInPeriod).toBe(0);
+    });
+  });
+
+  describe('cancels', () => {
+    it('counts cancels by fault and source kind', async () => {
+      mockBranchScope(['A']);
+      prisma.order.findMany.mockResolvedValue([
+        { cancelFault: 'master', sourceKind: SourceKind.OUR },
+        { cancelFault: 'master', sourceKind: SourceKind.PARTNER },
+        { cancelFault: 'admin', sourceKind: SourceKind.OUR },
+        { cancelFault: null, sourceKind: SourceKind.PARTNER },
+      ]);
+
+      const result = await service.cancels(
+        USER,
+        Role.ADMIN,
+        undefined,
+        FROM,
+        TO,
+      );
+
+      expect(result.total).toBe(4);
+      expect(result.byMasterFault).toBe(2);
+      expect(result.byAdminFault).toBe(1);
+      expect(result.our).toBe(2);
+      expect(result.partner).toBe(2);
+    });
+  });
+
+  describe('cash', () => {
+    it('aggregates by city, totals and expense notes', async () => {
+      mockBranchScope(['A', 'B']);
+      const createdAt = new Date('2026-06-05T12:00:00.000Z');
+
+      prisma.cashTx.findMany.mockResolvedValue([
+        {
+          cityId: 'B',
+          city: { name: 'Бета' },
+          direction: CashDirection.INCOME,
+          incomeBasis: CashIncomeBasis.ORDER,
+          expenseBasis: null,
+          amount: 10000,
+          createdAt,
+          description: 'order income',
+          order: { publicId: 'ORD-1' },
+          createdBy: { fullName: 'Кассир' },
+          documentPath: null,
+        },
+        {
+          cityId: 'A',
+          city: { name: 'Альфа' },
+          direction: CashDirection.INCOME,
+          incomeBasis: CashIncomeBasis.OTHER,
+          expenseBasis: null,
+          amount: 2000,
+          createdAt,
+          description: 'other income',
+          order: null,
+          createdBy: { fullName: 'Кассир' },
+          documentPath: null,
+        },
+        {
+          cityId: 'A',
+          city: { name: 'Альфа' },
+          direction: CashDirection.EXPENSE,
+          incomeBasis: null,
+          expenseBasis: CashExpenseBasis.SALARY_PROMO,
+          amount: 500,
+          createdAt,
+          description: 'promo',
+          order: null,
+          createdBy: { fullName: 'Кассир' },
+          documentPath: '/doc.pdf',
+        },
+        {
+          cityId: 'B',
+          city: { name: 'Бета' },
+          direction: CashDirection.EXPENSE,
+          incomeBasis: null,
+          expenseBasis: CashExpenseBasis.AVITO_ADS,
+          amount: 300,
+          createdAt,
+          description: 'avito',
+          order: null,
+          createdBy: null,
+          documentPath: null,
+        },
+        {
+          cityId: 'A',
+          city: { name: 'Альфа' },
+          direction: CashDirection.COLLECTION,
+          incomeBasis: null,
+          expenseBasis: null,
+          amount: 100,
+          createdAt,
+          description: 'collection',
+          order: null,
+          createdBy: null,
+          documentPath: null,
+        },
+      ]);
+
+      prisma.order.findMany.mockResolvedValue([
+        {
+          cityId: 'A',
+          city: { name: 'Альфа' },
+          payment: { masterSalary: 800 },
+        },
+        {
+          cityId: 'B',
+          city: { name: 'Бета' },
+          payment: { masterSalary: 1200 },
+        },
+      ]);
+
+      const result = await service.cash(USER, Role.DIRECTOR, undefined, FROM, TO);
+
+      expect(result.byCity).toHaveLength(2);
+      expect(result.byCity[0].cityName).toBe('Альфа');
+      expect(result.byCity[1].cityName).toBe('Бета');
+
+      const alpha = result.byCity[0];
+      expect(alpha.incomeTotal).toBe(2000);
+      expect(alpha.incomeOrders).toBe(0);
+      expect(alpha.incomeOther).toBe(2000);
+      expect(alpha.expenseTotal).toBe(600);
+      expect(alpha.expensePromo).toBe(500);
+      expect(alpha.expenseCollection).toBe(100);
+      expect(alpha.expenseAds).toBe(0);
+      expect(alpha.masterSalary).toBe(800);
+      expect(alpha.balance).toBe(600);
+
+      const beta = result.byCity[1];
+      expect(beta.incomeTotal).toBe(10000);
+      expect(beta.incomeOrders).toBe(10000);
+      expect(beta.expenseTotal).toBe(300);
+      expect(beta.expenseAds).toBe(300);
+      expect(beta.masterSalary).toBe(1200);
+      expect(beta.balance).toBe(8500);
+
+      expect(result.totals.cityName).toBe('Итого');
+      expect(result.totals.incomeTotal).toBe(12000);
+      expect(result.totals.expenseTotal).toBe(900);
+      expect(result.totals.masterSalary).toBe(2000);
+      expect(result.totals.balance).toBe(9100);
+
+      expect(result.expenseNotes).toHaveLength(3);
+      expect(result.expenseNotes[0]).toMatchObject({
+        cityName: 'Альфа',
+        direction: CashDirection.EXPENSE,
+        expenseBasis: CashExpenseBasis.SALARY_PROMO,
+        amount: 500,
+        description: 'promo',
+        createdBy: 'Кассир',
+        documentPath: '/doc.pdf',
+      });
+    });
+  });
+
+  describe('masters', () => {
+    it('aggregates per master with micro, pct4, openSd and averages', async () => {
+      mockBranchScope(null);
+      prisma.order.findMany.mockResolvedValue([
+        {
+          masterId: 'm1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: {
+            toCompany: 10000,
+            masterSalary: 2000,
+            workSum: 3000,
+            partsCost: 500,
+          },
+        },
+        {
+          masterId: 'm1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: {
+            toCompany: 8000,
+            masterSalary: 1500,
+            workSum: 5000,
+            partsCost: 300,
+          },
+        },
+        {
+          masterId: 'm2',
+          master: { user: { fullName: 'Петров' } },
+          payment: {
+            toCompany: 6000,
+            masterSalary: 1000,
+            workSum: 2000,
+            partsCost: 100,
+          },
+        },
+      ]);
+      prisma.order.groupBy.mockResolvedValue([
+        { masterId: 'm1', _count: 2 },
+        { masterId: 'm2', _count: 1 },
+      ]);
+
+      const result = await service.masters(
+        USER,
+        Role.OWNER,
+        undefined,
+        FROM,
+        TO,
+      );
+
+      expect(result).toHaveLength(2);
+
+      const ivanov = result.find((r) => r.masterId === 'm1');
+      expect(ivanov).toMatchObject({
+        master: 'Иванов',
+        turnover: 18000,
+        salary: 3500,
+        net: 18000,
+        work: 8000,
+        parts: 800,
+        count: 2,
+        micro: 1,
+        pct4: 720,
+        openSd: 2,
+        avgNet: 9000,
+        avgWork: 4000,
+      });
+
+      const petrov = result.find((r) => r.masterId === 'm2');
+      expect(petrov).toMatchObject({
+        master: 'Петров',
+        turnover: 6000,
+        salary: 1000,
+        work: 2000,
+        parts: 100,
+        count: 1,
+        micro: 1,
+        pct4: 240,
+        openSd: 1,
+        avgNet: 6000,
+        avgWork: 2000,
+      });
+    });
+  });
+
+  describe('ads', () => {
+    it('returns kpiLeaflets and kpiAvito as 0 when denominators are zero', async () => {
+      mockBranchScope(['A']);
+      prisma.adDailyReport.findMany.mockResolvedValue([
+        {
+          reportDate: new Date('2026-06-05'),
+          leafletsSpread: 100,
+          cardsSpread: 50,
+          avitoAdsCount: 0,
+          promotersCount: 2,
+          leafletsStock: 500,
+          cardsStock: 200,
+        },
+      ]);
+      prisma.order.count.mockResolvedValue(0);
+
+      const result = await service.ads(USER, Role.ADMIN, undefined, FROM, TO);
+
+      expect(result.kpiLeaflets).toBe(0);
+      expect(result.kpiAvito).toBe(0);
+      expect(result.leafletOrders).toBe(0);
+      expect(result.avitoOrders).toBe(0);
+    });
+
+    it('computes kpi ratios when denominators are non-zero', async () => {
+      mockBranchScope(['A']);
+      prisma.adDailyReport.findMany.mockResolvedValue([
+        {
+          reportDate: new Date('2026-06-05'),
+          leafletsSpread: 100,
+          cardsSpread: 50,
+          avitoAdsCount: 10,
+          promotersCount: 2,
+          leafletsStock: 500,
+          cardsStock: 200,
+        },
+      ]);
+      prisma.order.count
+        .mockResolvedValueOnce(5)
+        .mockResolvedValueOnce(20);
+
+      const result = await service.ads(USER, Role.ADMIN, undefined, FROM, TO);
+
+      expect(result.kpiLeaflets).toBe(30);
+      expect(result.kpiAvito).toBe(2);
+    });
+  });
+
+  describe('branch isolation', () => {
+    it('passes cityId { in: [A] } to prisma when role is scoped to A', async () => {
+      mockBranchScope(['A'], ['A']);
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.cashTx.findMany.mockResolvedValue([]);
+      prisma.order.count.mockResolvedValue(0);
+
+      await service.closed(USER, Role.ADMIN, undefined, FROM, TO);
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            cityId: { in: ['A'] },
+          }),
+        }),
+      );
+      expect(prisma.cashTx.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            cityId: { in: ['A'] },
+          }),
+        }),
+      );
+      expect(prisma.order.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            cityId: { in: ['A'] },
+          }),
+        }),
+      );
+    });
+
+    it('passes cityId undefined to prisma for OWNER (no branch filter)', async () => {
+      mockBranchScope(null, null);
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.cashTx.findMany.mockResolvedValue([]);
+      prisma.order.count.mockResolvedValue(0);
+
+      await service.closed(USER, Role.OWNER, undefined, FROM, TO);
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            cityId: undefined,
+          }),
+        }),
+      );
+      expect(prisma.cashTx.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            cityId: undefined,
+          }),
+        }),
+      );
+    });
+
+    it('applies branch filter in cancels, cash, masters, claims and ads', async () => {
+      mockBranchScope(['A'], ['A']);
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.order.groupBy.mockResolvedValue([]);
+      prisma.cashTx.findMany.mockResolvedValue([]);
+      prisma.claim.findMany.mockResolvedValue([]);
+      prisma.adDailyReport.findMany.mockResolvedValue([]);
+      prisma.order.count.mockResolvedValue(0);
+
+      await service.cancels(USER, Role.ADMIN, undefined, FROM, TO);
+      await service.cash(USER, Role.ADMIN, undefined, FROM, TO);
+      await service.masters(USER, Role.ADMIN, undefined, FROM, TO);
+      await service.claims(USER, Role.ADMIN, undefined, FROM, TO);
+      await service.ads(USER, Role.ADMIN, undefined, FROM, TO);
+
+      const cityFilter = { in: ['A'] };
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cityId: cityFilter }),
+        }),
+      );
+      expect(prisma.cashTx.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cityId: cityFilter }),
+        }),
+      );
+      expect(prisma.order.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cityId: cityFilter }),
+        }),
+      );
+      expect(prisma.claim.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cityId: cityFilter }),
+        }),
+      );
+      expect(prisma.adDailyReport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cityId: cityFilter }),
+        }),
+      );
+    });
+  });
+});

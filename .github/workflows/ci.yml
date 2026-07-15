@@ -1,0 +1,234 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-unit:
+    name: API unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate
+
+      - name: Run API unit tests
+        run: npm run test:api
+
+      - name: Upload API coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-unit-coverage
+          path: apps/api/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  api-e2e:
+    name: API e2e tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: crm
+          POSTGRES_DB: crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm -d crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://crm:crm@localhost:5432/crm?schema=public
+      JWT_SECRET: ci-test-jwt-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate
+
+      # db push вместо migrate deploy: в репозитории нет базовой init-миграции,
+      # история prisma/migrations неполная — migrate deploy падает на чистой БД.
+      - name: Apply Prisma schema (db push)
+        working-directory: apps/api
+        run: npx prisma db push --skip-generate
+
+      - name: Run API e2e tests
+        run: npm run test:api:e2e
+
+      - name: Upload API e2e coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-e2e-coverage
+          path: apps/api/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web-unit:
+    name: Web unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run web unit tests
+        run: npm run test:web
+
+      - name: Upload web coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-unit-coverage
+          path: apps/web/coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web-e2e:
+    name: Web e2e tests (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: crm
+          POSTGRES_DB: crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm -d crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://crm:crm@localhost:5432/crm?schema=public
+      JWT_SECRET: ci-test-jwt-secret
+      PORT: 3001
+      CORS_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      E2E_BASE_URL: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: npx prisma generate
+
+      # Та же причина, что и в api-e2e: migrate deploy не подходит для чистой CI-БД.
+      - name: Apply Prisma schema (db push)
+        working-directory: apps/api
+        run: npx prisma db push --skip-generate
+
+      - name: Build API
+        run: npm run build -w @field-crm/api
+
+      - name: Start API
+        run: |
+          npm run start:prod -w @field-crm/api &
+          echo $! > /tmp/api.pid
+
+      - name: Wait for API
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/api/health > /dev/null; then
+              echo "API is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API failed to start"
+          exit 1
+
+      - name: Build web
+        run: npm run build -w @field-crm/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+
+      - name: Start web
+        run: |
+          npm run start -w @field-crm/web &
+          echo $! > /tmp/web.pid
+
+      - name: Wait for web
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000 > /dev/null; then
+              echo "Web is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Web failed to start"
+          exit 1
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      # TODO: добавить сценарии в apps/web/e2e — сейчас testDir пуст, playwright завершится
+      # с ошибкой «No tests found». Альтернатива: docker-compose.prod.yml (нужен Caddy/прокси).
+      - name: Run web e2e tests
+        run: npm run test:web:e2e
+        env:
+          E2E_BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

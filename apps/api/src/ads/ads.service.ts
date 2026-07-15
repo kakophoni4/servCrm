@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   StorageService,
@@ -10,19 +17,42 @@ export class AdsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly branch: BranchScopeService,
   ) {}
 
-  list() {
+  async list(
+    userId: string,
+    role: Role | string,
+    requestedCityId?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     return this.prisma.adDailyReport.findMany({
+      where: { cityId: this.branch.cityWhere(cityIds) },
       include: { city: true, createdBy: true },
       orderBy: { reportDate: 'desc' },
       take: 90,
     });
   }
 
-  async attachScreenshot(id: string, file: UploadedMemoryFile) {
+  async attachScreenshot(
+    id: string,
+    file: UploadedMemoryFile,
+    userId: string,
+    role: Role | string,
+  ) {
     const report = await this.prisma.adDailyReport.findUnique({ where: { id } });
     if (!report) throw new NotFoundException('Отчёт не найден');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      report.cityId &&
+      !allowed.includes(report.cityId)
+    ) {
+      throw new ForbiddenException('Отчёт вне вашего филиала');
+    }
+
     const { relPath } = this.storage.save('ads', file);
     return this.prisma.adDailyReport.update({
       where: { id },
@@ -30,15 +60,29 @@ export class AdsService {
     });
   }
 
-  async getScreenshot(id: string) {
+  async getScreenshot(
+    id: string,
+    userId: string,
+    role: Role | string,
+  ) {
     const report = await this.prisma.adDailyReport.findUnique({ where: { id } });
     if (!report?.documentPath) {
       throw new NotFoundException('Скриншот не прикреплён');
     }
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      report.cityId &&
+      !allowed.includes(report.cityId)
+    ) {
+      throw new ForbiddenException('Отчёт вне вашего филиала');
+    }
+
     return report.documentPath;
   }
 
-  create(
+  async create(
     input: {
       reportDate: string;
       cityId?: string;
@@ -55,7 +99,21 @@ export class AdsService {
       documentPath?: string;
     },
     userId: string,
+    role: Role | string,
   ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (allowed !== null) {
+      if (!allowed.length) {
+        throw new BadRequestException('Филиал не назначен');
+      }
+      if (input.cityId && !allowed.includes(input.cityId)) {
+        throw new ForbiddenException('Филиал вне доступа');
+      }
+      if (!input.cityId) {
+        input.cityId = allowed[0];
+      }
+    }
+
     return this.prisma.adDailyReport.create({
       data: {
         reportDate: new Date(input.reportDate),

@@ -1,13 +1,31 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/phone';
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  list() {
+  async list(
+    userId: string,
+    role: Role | string,
+    requestedCityId?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     return this.prisma.client.findMany({
+      where: {
+        cityId: this.branch.cityWhere(cityIds),
+      },
       include: {
         ageCategory: true,
         city: true,
@@ -17,7 +35,7 @@ export class ClientsService {
     });
   }
 
-  async get(id: string) {
+  async get(id: string, userId: string, role: Role | string) {
     const client = await this.prisma.client.findUnique({
       where: { id },
       include: {
@@ -30,6 +48,16 @@ export class ClientsService {
       },
     });
     if (!client) throw new NotFoundException('Клиент не найден');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      client.cityId &&
+      !allowed.includes(client.cityId)
+    ) {
+      throw new ForbiddenException('Клиент вне вашего филиала');
+    }
+
     return client;
   }
 

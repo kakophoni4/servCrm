@@ -37,28 +37,39 @@ export class SettlementsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list() {
-    return this.settlements.list();
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.settlements.list(user.userId, user.role, cityId);
   }
 
   @Get('preview')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  preview(@Query('from') from: string, @Query('to') to: string) {
-    return this.settlements.preview(from, to);
+  preview(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.settlements.preview(from, to, user.userId, user.role, cityId);
   }
 
   @Post()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  create(@Body() dto: CreateSettlementDto) {
-    return this.settlements.create(dto);
+  create(
+    @Body() dto: CreateSettlementDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.settlements.create(dto, user.userId, user.role);
   }
 
   @Post(':id/confirm')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   confirm(
     @Param('id') id: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: Role },
   ) {
-    return this.settlements.confirm(id, user.userId);
+    return this.settlements.confirm(id, user.userId, user.role);
   }
 }

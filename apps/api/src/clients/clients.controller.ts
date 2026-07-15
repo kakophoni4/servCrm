@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -20,15 +21,22 @@ export class ClientsController {
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  list(@Query('phone') phone?: string) {
+  list(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('phone') phone?: string,
+    @Query('cityId') cityId?: string,
+  ) {
     if (phone) return this.clients.search(phone);
-    return this.clients.list();
+    return this.clients.list(user.userId, user.role, cityId);
   }
 
   @Get(':id')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  get(@Param('id') id: string) {
-    return this.clients.get(id);
+  get(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.clients.get(id, user.userId, user.role);
   }
 
   @Patch(':id/comment')

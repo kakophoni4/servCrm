@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { CryptoService } from '../common/storage/crypto.service';
 import {
   StorageService,
@@ -55,19 +57,27 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly crypto: CryptoService,
+    private readonly branch: BranchScopeService,
   ) {}
 
-  list(status?: UserStatus) {
-    return this.prisma.user
-      .findMany({
-        where: {
-          role: { not: Role.MASTER },
-          ...(status ? { status } : {}),
-        },
-        select: userSelect,
-        orderBy: { createdAt: 'desc' },
-      })
-      .then((rows) => rows.map((u) => this.toPublic(u)));
+  async list(
+    userId: string,
+    role: Role,
+    requestedCityId?: string,
+    status?: UserStatus,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
+    const rows = await this.prisma.user.findMany({
+      where: {
+        role: { not: Role.MASTER },
+        ...(status ? { status } : {}),
+        cityId: this.branch.cityWhere(cityIds),
+      },
+      select: userSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((u) => this.toPublic(u));
   }
 
   async create(
@@ -173,7 +183,11 @@ export class UsersService {
         });
       }
     });
-    return this.get(id);
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id },
+      select: userSelect,
+    });
+    return this.toPublic(user);
   }
 
   private parseCityIds(csv?: string): string[] {
@@ -181,23 +195,27 @@ export class UsersService {
     return [...new Set(csv.split(',').map((s) => s.trim()).filter(Boolean))];
   }
 
-  async get(id: string) {
+  async get(id: string, userId: string, role: Role) {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: userSelect,
     });
     if (!user) throw new NotFoundException('Пользователь не найден');
+    await this.assertEmployeeBranchAccess(user.cityId, userId, role);
     return this.toPublic(user);
   }
 
   async fire(
     id: string,
     input: { reason: string; recommendedHire: boolean },
+    userId: string,
+    role: Role,
   ) {
     if (!input.reason?.trim()) {
       throw new BadRequestException('Укажите причину увольнения');
     }
-    await this.getRaw(id);
+    const target = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(target.cityId, userId, role);
     const user = await this.prisma.user.update({
       where: { id },
       data: {
@@ -211,8 +229,9 @@ export class UsersService {
     return this.toPublic(user);
   }
 
-  async restore(id: string) {
-    await this.getRaw(id);
+  async restore(id: string, userId: string, role: Role) {
+    const target = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(target.cityId, userId, role);
     const user = await this.prisma.user.update({
       where: { id },
       data: {
@@ -227,12 +246,17 @@ export class UsersService {
   }
 
   /** Расшифровка фото паспорта на лету (OWNER/DIRECTOR). */
-  async getPassportPhoto(id: string): Promise<{
+  async getPassportPhoto(
+    id: string,
+    userId: string,
+    role: Role,
+  ): Promise<{
     buffer: Buffer;
     mime: string;
     fileName: string;
   }> {
     const user = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(user.cityId, userId, role);
     const meta = this.parsePassportEnc(user.passportEnc);
     if (!meta?.photoPath) {
       throw new NotFoundException('Фото паспорта не загружено');
@@ -246,13 +270,18 @@ export class UsersService {
     };
   }
 
-  async getEmployeePhoto(id: string): Promise<{
+  async getEmployeePhoto(
+    id: string,
+    userId: string,
+    role: Role,
+  ): Promise<{
     buffer: Buffer;
     mime: string;
     fileName: string;
     streamPath: string;
   }> {
     const user = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(user.cityId, userId, role);
     if (!user.employeePhotoPath) {
       throw new NotFoundException('Фото сотрудника не загружено');
     }
@@ -271,6 +300,21 @@ export class UsersService {
       fileName: `employee-${id}.${ext || 'jpg'}`,
       streamPath: user.employeePhotoPath,
     };
+  }
+
+  private async assertEmployeeBranchAccess(
+    targetCityId: string | null,
+    userId: string,
+    role: Role,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      targetCityId &&
+      !allowed.includes(targetCityId)
+    ) {
+      throw new ForbiddenException('Сотрудник вне вашего филиала');
+    }
   }
 
   private async getRaw(id: string) {

@@ -4,8 +4,10 @@ import {
   CashExpenseBasis,
   CashIncomeBasis,
   OrderStatus,
+  Role,
   SourceKind,
 } from '@prisma/client';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 function range(from?: string, to?: string) {
@@ -60,14 +62,29 @@ function emptyAgg(cityId: string | null, cityName: string): CityAgg {
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
-  async closed(from?: string, to?: string) {
+  async closed(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     const orders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
         updatedAt: { gte: start, lte: end },
+        cityId: cityFilter,
       },
       include: { payment: true, claims: true },
     });
@@ -107,12 +124,13 @@ export class ReportsService {
         direction: CashDirection.EXPENSE,
         expenseBasis: { in: ADS_EXPENSE_BASES },
         createdAt: { gte: start, lte: end },
+        cityId: cityFilter,
       },
       select: { amount: true },
     });
     const adsExpenseSum = adsTxs.reduce((s, t) => s + Number(t.amount), 0);
     const ordersInPeriod = await this.prisma.order.count({
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
     });
     const orderPrice = ordersInPeriod
       ? adsExpenseSum / ordersInPeriod
@@ -136,12 +154,24 @@ export class ReportsService {
     };
   }
 
-  async cancels(from?: string, to?: string) {
+  async cancels(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     const orders = await this.prisma.order.findMany({
       where: {
         status: { in: [OrderStatus.CANCELLED_CC, OrderStatus.REFUSAL] },
         updatedAt: { gte: start, lte: end },
+        cityId: cityFilter,
       },
     });
     return {
@@ -154,11 +184,22 @@ export class ReportsService {
     };
   }
 
-  async cash(from?: string, to?: string) {
+  async cash(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     const [txs, doneOrders] = await Promise.all([
       this.prisma.cashTx.findMany({
-        where: { createdAt: { gte: start, lte: end } },
+        where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
         include: { city: true, order: true, createdBy: true },
         orderBy: { createdAt: 'desc' },
       }),
@@ -166,6 +207,7 @@ export class ReportsService {
         where: {
           status: OrderStatus.DONE,
           updatedAt: { gte: start, lte: end },
+          cityId: cityFilter,
         },
         include: { payment: true, city: true },
       }),
@@ -173,11 +215,11 @@ export class ReportsService {
 
     const byCity = new Map<string, CityAgg>();
 
-    const ensure = (cityId: string | null, cityName: string) => {
-      const key = cityId ?? '__none__';
+    const ensure = (id: string | null, cityName: string) => {
+      const key = id ?? '__none__';
       let row = byCity.get(key);
       if (!row) {
-        row = emptyAgg(cityId, cityName);
+        row = emptyAgg(id, cityName);
         byCity.set(key, row);
       }
       return row;
@@ -270,19 +312,35 @@ export class ReportsService {
     };
   }
 
-  async masters(from?: string, to?: string) {
+  async masters(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     const orders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
         updatedAt: { gte: start, lte: end },
         masterId: { not: null },
+        cityId: cityFilter,
       },
       include: { payment: true, master: { include: { user: true } } },
     });
     const openSd = await this.prisma.order.groupBy({
       by: ['masterId'],
-      where: { status: OrderStatus.IN_PROGRESS_SD, masterId: { not: null } },
+      where: {
+        status: OrderStatus.IN_PROGRESS_SD,
+        masterId: { not: null },
+        cityId: cityFilter,
+      },
       _count: true,
     });
     const sdMap = new Map(
@@ -332,10 +390,21 @@ export class ReportsService {
     }));
   }
 
-  async claims(from?: string, to?: string) {
+  async claims(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     return this.prisma.claim.findMany({
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
       include: {
         order: { include: { client: true } },
         city: true,
@@ -344,22 +413,35 @@ export class ReportsService {
     });
   }
 
-  async ads(from?: string, to?: string) {
+  async ads(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
     const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
     const reports = await this.prisma.adDailyReport.findMany({
-      where: { reportDate: { gte: start, lte: end } },
+      where: { reportDate: { gte: start, lte: end }, cityId: cityFilter },
       orderBy: { reportDate: 'desc' },
     });
     const leafletOrders = await this.prisma.order.count({
       where: {
         sourceOur: 'LEAFLET',
         createdAt: { gte: start, lte: end },
+        cityId: cityFilter,
       },
     });
     const avitoOrders = await this.prisma.order.count({
       where: {
         sourceOur: 'AVITO',
         createdAt: { gte: start, lte: end },
+        cityId: cityFilter,
       },
     });
     const leaflets =
