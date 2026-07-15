@@ -1,0 +1,19 @@
+{
+  "name": "field-crm",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w @field-crm/api",
+    "dev:web": "npm run dev -w @field-crm/web",
+    "build": "npm run build -w @field-crm/api && npm run build -w @field-crm/web",
+    "db:migrate": "npm run prisma:migrate -w @field-crm/api",
+    "db:seed": "npm run prisma:seed -w @field-crm/api",
+    "db:generate": "npm run prisma:generate -w @field-crm/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

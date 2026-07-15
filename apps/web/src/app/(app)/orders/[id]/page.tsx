@@ -1,0 +1,424 @@
+'use client';
+
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { api, getStoredUser } from '@/lib/api';
+import {
+  DOC_KIND_LABELS,
+  STATUS_LABELS,
+  TYPE_LABELS,
+  isAdminRole,
+} from '@/lib/labels';
+
+type Master = { id: string; user: { fullName: string } };
+
+type OrderDocument = {
+  id: string;
+  kind: string;
+  fileName: string;
+  filePath: string;
+  createdAt: string;
+};
+
+type Order = {
+  id: string;
+  publicId: string;
+  status: string;
+  type: string;
+  address: string;
+  comment?: string | null;
+  typeTech?: string | null;
+  isClaim: boolean;
+  isWarranty: boolean;
+  isProfile: boolean;
+  scheduledAt?: string | null;
+  masterId?: string | null;
+  client: {
+    id: string;
+    name: string;
+    phoneNormalized: string;
+    branchComment?: string | null;
+    orders: Array<{
+      id: string;
+      publicId: string;
+      status: string;
+      type: string;
+      createdAt: string;
+      address: string;
+      isClaim: boolean;
+    }>;
+  };
+  payment?: {
+    paid: string | number;
+    prepay: string | number;
+    partsCost: string | number;
+    partsYesNo: boolean;
+    workSum: string | number;
+    masterPct: string | number;
+    toCompany: string | number;
+  } | null;
+  documents?: OrderDocument[];
+  master?: Master | null;
+};
+
+const STATUSES = Object.keys(STATUS_LABELS);
+const DOC_KINDS = Object.keys(DOC_KIND_LABELS);
+
+export default function OrderDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const [order, setOrder] = useState<Order | null>(null);
+  const [masters, setMasters] = useState<Master[]>([]);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+  const user = useMemo(() => getStoredUser(), []);
+  const admin = user ? isAdminRole(user.role) : false;
+
+  const [status, setStatus] = useState('');
+  const [masterId, setMasterId] = useState('');
+  const [paid, setPaid] = useState('0');
+  const [prepay, setPrepay] = useState('0');
+  const [partsCost, setPartsCost] = useState('0');
+  const [partsYesNo, setPartsYesNo] = useState(false);
+  const [isClaim, setIsClaim] = useState(false);
+
+  const [docKind, setDocKind] = useState('RECEIPT_SERVICE');
+  const [docFileName, setDocFileName] = useState('');
+  const [docFilePath, setDocFilePath] = useState('');
+
+  async function load() {
+    const data = await api<Order>(`/orders/${id}`);
+    setOrder(data);
+    setStatus(data.status);
+    setMasterId(data.masterId ?? '');
+    setPaid(String(data.payment?.paid ?? 0));
+    setPrepay(String(data.payment?.prepay ?? 0));
+    setPartsCost(String(data.payment?.partsCost ?? 0));
+    setPartsYesNo(Boolean(data.payment?.partsYesNo));
+    setIsClaim(data.isClaim);
+  }
+
+  useEffect(() => {
+    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    api<Master[]>('/masters')
+      .then(setMasters)
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const paidNum = Number(paid);
+  const needsDocs = paidNum > 500;
+  const hasDocs = (order?.documents?.length ?? 0) > 0;
+  const doneBlocked = status === 'DONE' && needsDocs && !hasDocs;
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (doneBlocked) {
+      setError('Для статуса «Готов» при сумме > 500 ₽ нужны документы (чеки).');
+      return;
+    }
+    setError('');
+    setMsg('');
+    try {
+      const body: Record<string, unknown> = { isClaim };
+      if (admin) {
+        body.status = status;
+        body.masterId = masterId || null;
+        body.paid = Number(paid);
+        body.prepay = Number(prepay);
+        body.partsCost = Number(partsCost);
+        body.partsYesNo = partsYesNo;
+      }
+      await api(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setMsg('Сохранено');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка сохранения');
+    }
+  }
+
+  async function uploadDoc(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      await api(`/orders/${id}/documents`, {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: docKind,
+          fileName: docFileName,
+          filePath: docFilePath,
+        }),
+      });
+      setDocFileName('');
+      setDocFilePath('');
+      setMsg('Документ добавлен');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки');
+    }
+  }
+
+  async function makeRepeat() {
+    setError('');
+    try {
+      const created = await api<{ id: string }>(`/orders/${id}/repeat`, {
+        method: 'POST',
+      });
+      router.push(`/orders/${created.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  async function makeWarranty() {
+    setError('');
+    try {
+      await api(`/orders/${id}/warranty`, { method: 'POST' });
+      setMsg('Отмечено как гарантия');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  if (!order) {
+    return (
+      <div className="panel">
+        {error ? <p className="error">{error}</p> : <p className="muted">Загрузка…</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="page-title">
+        Заявка {order.publicId}{' '}
+        <span className="badge">{STATUS_LABELS[order.status]}</span>
+      </h1>
+
+      <div className="grid-2" style={{ alignItems: 'start' }}>
+        <form className="panel" onSubmit={save}>
+          <p>
+            <strong>{order.client.name}</strong> · {order.client.phoneNormalized}
+            <br />
+            <Link href={`/clients/${order.client.id}`}>Карточка клиента →</Link>
+          </p>
+          <p className="muted">
+            {TYPE_LABELS[order.type]} · {order.address}
+            {order.typeTech ? ` · ${order.typeTech}` : ''}
+          </p>
+          {order.comment ? <p>{order.comment}</p> : null}
+
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+            <input
+              type="checkbox"
+              checked={isClaim}
+              onChange={(e) => setIsClaim(e.target.checked)}
+            />
+            Претензия
+          </label>
+
+          {admin ? (
+            <>
+              <div className="field">
+                <label>Статус</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Мастер</label>
+                <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+                  <option value="">Не назначен</option>
+                  {masters.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.user.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid-2">
+                <div className="field">
+                  <label>Оплачено клиентом</label>
+                  <input value={paid} onChange={(e) => setPaid(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>Предоплата</label>
+                  <input value={prepay} onChange={(e) => setPrepay(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>Комплектующие, ₽</label>
+                  <input
+                    value={partsCost}
+                    onChange={(e) => setPartsCost(e.target.value)}
+                  />
+                </div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={partsYesNo}
+                    onChange={(e) => setPartsYesNo(e.target.checked)}
+                  />
+                  Комплектующие есть
+                </label>
+              </div>
+
+              {order.payment ? (
+                <div
+                  className="panel"
+                  style={{ marginBottom: 12, background: '#f9fafb', padding: '0.75rem 1rem' }}
+                >
+                  <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>Расчёт выплат</p>
+                  <div className="grid-2">
+                    <p className="muted" style={{ margin: 0 }}>
+                      Сумма работ: <strong>{String(order.payment.workSum)}</strong> ₽
+                    </p>
+                    <p className="muted" style={{ margin: 0 }}>
+                      % мастера:{' '}
+                      <strong>{(Number(order.payment.masterPct) * 100).toFixed(1)}</strong>%
+                    </p>
+                    <p className="muted" style={{ margin: 0 }}>
+                      В компанию: <strong>{String(order.payment.toCompany)}</strong> ₽
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {needsDocs ? (
+                <p className="error" style={{ fontSize: '0.9rem' }}>
+                  Сумма &gt; 500 ₽ — для статуса «Готов» обязательны документы (чеки).
+                  {!hasDocs ? ' Документы не загружены.' : ` Загружено: ${order.documents?.length}.`}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="muted">
+              Мастер: {order.master?.user.fullName ?? 'не назначен'}. Смена статусов
+              исполнения — у администратора.
+            </p>
+          )}
+
+          {error ? <p className="error">{error}</p> : null}
+          {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <button className="btn" type="submit" disabled={doneBlocked}>
+              Сохранить
+            </button>
+            <button className="btn secondary" type="button" onClick={makeRepeat}>
+              На повтор (новая заявка)
+            </button>
+            <button className="btn secondary" type="button" onClick={makeWarranty}>
+              Гарантия (доп.статус)
+            </button>
+          </div>
+        </form>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="panel">
+            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Документы</h2>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Тип</th>
+                  <th>Файл</th>
+                  <th>Путь</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(order.documents ?? []).map((d) => (
+                  <tr key={d.id}>
+                    <td>{DOC_KIND_LABELS[d.kind] ?? d.kind}</td>
+                    <td>{d.fileName}</td>
+                    <td className="muted">{d.filePath}</td>
+                    <td>{new Date(d.createdAt).toLocaleDateString('ru-RU')}</td>
+                  </tr>
+                ))}
+                {(order.documents ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      Документов нет.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+
+            <form onSubmit={uploadDoc} style={{ marginTop: 12 }}>
+              <div className="grid-2">
+                <div className="field">
+                  <label>Тип документа</label>
+                  <select value={docKind} onChange={(e) => setDocKind(e.target.value)}>
+                    {DOC_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {DOC_KIND_LABELS[k]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Имя файла</label>
+                  <input
+                    required
+                    value={docFileName}
+                    onChange={(e) => setDocFileName(e.target.value)}
+                    placeholder="chek.pdf"
+                  />
+                </div>
+                <div className="field">
+                  <label>Путь (заглушка)</label>
+                  <input
+                    required
+                    value={docFilePath}
+                    onChange={(e) => setDocFilePath(e.target.value)}
+                    placeholder="/uploads/orders/..."
+                  />
+                </div>
+              </div>
+              <button type="submit" className="btn secondary">
+                Добавить документ
+              </button>
+            </form>
+          </div>
+
+          <div className="panel">
+            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История клиента</h2>
+            {order.client.branchComment ? (
+              <p className="muted">Комментарий филиала: {order.client.branchComment}</p>
+            ) : null}
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Тип</th>
+                  <th>Статус</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.client.orders.map((o) => (
+                  <tr key={o.id}>
+                    <td>
+                      <Link href={`/orders/${o.id}`}>{o.publicId}</Link>
+                      {o.isClaim ? ' ⚠' : ''}
+                    </td>
+                    <td>{TYPE_LABELS[o.type]}</td>
+                    <td>{STATUS_LABELS[o.status]}</td>
+                    <td>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

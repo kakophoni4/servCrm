@@ -1,0 +1,470 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DISPATCHER
+  ADMIN
+  DIRECTOR
+  OWNER
+  MASTER
+}
+
+enum UserStatus {
+  ACTIVE
+  FIRED
+}
+
+enum OrderType {
+  NEW
+  WARRANTY
+  REPEAT
+}
+
+enum SourceKind {
+  OUR
+  PARTNER
+}
+
+enum SourceOur {
+  AVITO
+  LEAFLET
+}
+
+enum OrderStatus {
+  NOT_SCHEDULED
+  WAITING
+  ON_THE_WAY
+  IN_PROGRESS
+  IN_PROGRESS_SD
+  DONE
+  REFUSAL
+  CANCELLED_CC
+}
+
+enum ClaimType {
+  POLICE
+  MASTER_BROKE
+  PRICE_DISSATISFIED
+}
+
+enum DocKind {
+  RECEIPT_SERVICE
+  RECEIPT_PARTS
+  CONTRACT
+  PARTS_PHOTO
+  RECEIPT_SD
+  AD_SCREEN
+  CASH_DOC
+  OTHER
+}
+
+enum CashDirection {
+  INCOME
+  EXPENSE
+  COLLECTION
+}
+
+enum CashIncomeBasis {
+  ORDER
+  EXTRA_FUNDING
+  FINE
+  OTHER
+}
+
+enum CashExpenseBasis {
+  RENT_APT
+  RENT_OFFICE
+  CARDS
+  SALARY_DIR
+  SALARY_DISP
+  SALARY_SENIOR_MASTER
+  SALARY_PROMO
+  TRIP
+  COLLECTION_FEE
+  CONTEST
+  LEAFLETS
+  SELF_EMPLOYED_TAX
+  HIRE_ADS
+  AVITO_ADS
+  OFFICE
+  BONUS
+  OTHER_EXPENSE
+  IP_EXPENSE
+  OPERATING
+}
+
+enum AssetStatus {
+  ACTIVE
+  WRITTEN_OFF
+}
+
+enum ChatChannel {
+  TELEGRAM
+  MAX
+  WEB
+}
+
+enum ChatStatus {
+  OPEN
+  CLOSED
+}
+
+model City {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users      User[]
+  clients    Client[]
+  orders     Order[]
+  claims     Claim[]
+  cashTx     CashTx[]
+  adReports  AdDailyReport[]
+  assets     Asset[]
+  chatThreads ChatThread[]
+
+  @@map("cities")
+}
+
+model Partner {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders Order[]
+
+  @@map("partners")
+}
+
+model AgeCategory {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  label     String
+  sort      Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  clients Client[]
+  orders  Order[]
+
+  @@map("age_categories")
+}
+
+model SalaryCategory {
+  id        String   @id @default(cuid())
+  minSum    Decimal  @map("min_sum") @db.Decimal(12, 2)
+  maxSum    Decimal? @map("max_sum") @db.Decimal(12, 2)
+  percent   Decimal  @db.Decimal(5, 4)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("salary_categories")
+}
+
+model User {
+  id                 String     @id @default(cuid())
+  login              String     @unique
+  passwordHash       String     @map("password_hash")
+  fullName           String     @map("full_name")
+  role               Role
+  status             UserStatus @default(ACTIVE)
+  phone              String?
+  telegramId         String?    @map("telegram_id")
+  cityId             String?    @map("city_id")
+  hiredAt            DateTime?  @map("hired_at")
+  firedAt            DateTime?  @map("fired_at")
+  fireReason         String?    @map("fire_reason") @db.Text
+  recommendedHire    Boolean?   @map("recommended_hire")
+  passportNumber     String?    @map("passport_number")
+  passportEnc        String?    @map("passport_enc") @db.Text
+  contractPhotoPath  String?    @map("contract_photo_path")
+  employeePhotoPath  String?    @map("employee_photo_path")
+  passportPhotoPath  String?    @map("passport_photo_path")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  city              City?            @relation(fields: [cityId], references: [id])
+  masterProfile     Master?
+  createdOrders     Order[]          @relation("OrderCreatedBy")
+  cashCreated       CashTx[]         @relation("CashCreatedBy")
+  settlements       MasterSettlement[]
+  adReports         AdDailyReport[]
+  chatMessages      ChatMessage[]
+  dispatcherPay     DispatcherPaySettings?
+
+  @@map("users")
+}
+
+model Master {
+  id        String     @id @default(cuid())
+  userId    String     @unique @map("user_id")
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user         User               @relation(fields: [userId], references: [id])
+  orders       Order[]
+  settlements  MasterSettlement[]
+
+  @@map("masters")
+}
+
+model Client {
+  id              String   @id @default(cuid())
+  phoneNormalized String   @map("phone_normalized")
+  name            String
+  ageCategoryId   String?  @map("age_category_id")
+  cityId          String?  @map("city_id")
+  branchComment   String?  @map("branch_comment") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  ageCategory AgeCategory? @relation(fields: [ageCategoryId], references: [id])
+  city        City?        @relation(fields: [cityId], references: [id])
+  orders      Order[]
+
+  @@unique([phoneNormalized, name])
+  @@index([phoneNormalized])
+  @@map("clients")
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  publicId      String      @unique @map("public_id")
+  seqPrefix     String      @map("seq_prefix")
+  seq           Int
+  clientId      String      @map("client_id")
+  type          OrderType   @default(NEW)
+  sourceKind    SourceKind  @map("source_kind")
+  sourceOur     SourceOur?  @map("source_our")
+  partnerId     String?     @map("partner_id")
+  scheduledAt   DateTime?   @map("scheduled_at")
+  address       String
+  ageCategoryId String?     @map("age_category_id")
+  comment       String?     @db.Text
+  masterId      String?     @map("master_id")
+  status        OrderStatus @default(WAITING)
+  isClaim       Boolean     @default(false) @map("is_claim")
+  isWarranty    Boolean     @default(false) @map("is_warranty")
+  isRepeat      Boolean     @default(false) @map("is_repeat")
+  isProfile     Boolean     @default(true) @map("is_profile")
+  typeTech      String?     @map("type_tech")
+  branchComment String?     @map("branch_comment") @db.Text
+  cityId        String?     @map("city_id")
+  createdById   String?     @map("created_by_id")
+  cancelFault   String?     @map("cancel_fault")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  client      Client           @relation(fields: [clientId], references: [id])
+  partner     Partner?         @relation(fields: [partnerId], references: [id])
+  ageCategory AgeCategory?     @relation(fields: [ageCategoryId], references: [id])
+  master      Master?          @relation(fields: [masterId], references: [id])
+  city        City?            @relation(fields: [cityId], references: [id])
+  createdBy   User?            @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  payment     OrderPayment?
+  claims      Claim[]
+  documents   OrderDocument[]
+  cashTx      CashTx[]
+  chatThreads ChatThread[]
+
+  @@unique([seqPrefix, seq])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderPayment {
+  id           String   @id @default(cuid())
+  orderId      String   @unique @map("order_id")
+  paid         Decimal  @default(0) @db.Decimal(12, 2)
+  prepay       Decimal  @default(0) @db.Decimal(12, 2)
+  partsCost    Decimal  @default(0) @map("parts_cost") @db.Decimal(12, 2)
+  partsYesNo   Boolean  @default(false) @map("parts_yes_no")
+  workSum      Decimal  @default(0) @map("work_sum") @db.Decimal(12, 2)
+  masterPct    Decimal  @default(0) @map("master_percent") @db.Decimal(5, 4)
+  masterSalary Decimal  @default(0) @map("master_salary") @db.Decimal(12, 2)
+  toCompany    Decimal  @default(0) @map("to_company") @db.Decimal(12, 2)
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_payments")
+}
+
+model OrderDocument {
+  id         String   @id @default(cuid())
+  orderId    String   @map("order_id")
+  kind       DocKind  @default(OTHER)
+  fileName   String   @map("file_name")
+  filePath   String   @map("file_path")
+  mimeType   String?  @map("mime_type")
+  sizeBytes  Int?     @map("size_bytes")
+  uploadedBy String?  @map("uploaded_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_documents")
+}
+
+model Claim {
+  id        String    @id @default(cuid())
+  orderId   String    @map("order_id")
+  type      ClaimType
+  createdAt DateTime  @default(now()) @map("created_at")
+  closedAt  DateTime? @map("closed_at")
+  refundSum Decimal   @default(0) @map("refund_sum") @db.Decimal(12, 2)
+  orderSum  Decimal   @default(0) @map("order_sum") @db.Decimal(12, 2)
+  cityId    String?   @map("city_id")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  city  City? @relation(fields: [cityId], references: [id])
+
+  @@index([orderId])
+  @@map("claims")
+}
+
+model CashTx {
+  id          String            @id @default(cuid())
+  direction   CashDirection
+  amount      Decimal           @db.Decimal(12, 2)
+  incomeBasis CashIncomeBasis?  @map("income_basis")
+  expenseBasis CashExpenseBasis? @map("expense_basis")
+  expenseSubtype String?        @map("expense_subtype")
+  description String?           @db.Text
+  cityId      String?           @map("city_id")
+  orderId     String?           @map("order_id")
+  documentPath String?          @map("document_path")
+  createdById String?           @map("created_by_id")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  city      City?  @relation(fields: [cityId], references: [id])
+  order     Order? @relation(fields: [orderId], references: [id])
+  createdBy User?  @relation("CashCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@index([direction])
+  @@map("cash_tx")
+}
+
+model MasterSettlement {
+  id              String    @id @default(cuid())
+  masterId        String    @map("master_id")
+  amount          Decimal   @db.Decimal(12, 2)
+  periodFrom      DateTime  @map("period_from")
+  periodTo        DateTime  @map("period_to")
+  confirmedOnce   Boolean   @default(false) @map("confirmed_once")
+  confirmedTwice  Boolean   @default(false) @map("confirmed_twice")
+  confirmedById   String?   @map("confirmed_by_id")
+  confirmedAt     DateTime? @map("confirmed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  master      Master @relation(fields: [masterId], references: [id])
+  confirmedBy User?  @relation(fields: [confirmedById], references: [id])
+
+  @@map("master_settlements")
+}
+
+model DispatcherPaySettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique @map("user_id")
+  salaryBase         Decimal  @default(0) @map("salary_base") @db.Decimal(12, 2)
+  dailyTurnoverPct   Decimal  @default(0) @map("daily_turnover_pct") @db.Decimal(5, 4)
+  leafletBonus       Decimal  @default(0) @map("leaflet_bonus") @db.Decimal(12, 2)
+  closedOrdersBonusPct Decimal @default(0) @map("closed_orders_bonus_pct") @db.Decimal(5, 4)
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("dispatcher_pay_settings")
+}
+
+model AdDailyReport {
+  id              String   @id @default(cuid())
+  reportDate      DateTime @map("report_date") @db.Date
+  cityId          String?  @map("city_id")
+  promotersCount  Int      @default(0) @map("promoters_count")
+  leafletsIssued  Int      @default(0) @map("leaflets_issued")
+  leafletsSpread  Int      @default(0) @map("leaflets_spread")
+  cardsIssued     Int      @default(0) @map("cards_issued")
+  cardsSpread     Int      @default(0) @map("cards_spread")
+  stickersIssued  Int      @default(0) @map("stickers_issued")
+  stickersSpread  Int      @default(0) @map("stickers_spread")
+  avitoAdsCount   Int      @default(0) @map("avito_ads_count")
+  leafletsStock   Int      @default(0) @map("leaflets_stock")
+  cardsStock      Int      @default(0) @map("cards_stock")
+  documentPath    String?  @map("document_path")
+  createdById     String?  @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  city      City? @relation(fields: [cityId], references: [id])
+  createdBy User? @relation(fields: [createdById], references: [id])
+
+  @@index([reportDate])
+  @@map("ad_daily_reports")
+}
+
+model Asset {
+  id          String      @id @default(cuid())
+  title       String
+  name        String
+  condition   String?     @db.Text
+  cityId      String?     @map("city_id")
+  status      AssetStatus @default(ACTIVE)
+  writtenOffAt DateTime?  @map("written_off_at")
+  writeOffNote String?    @map("write_off_note") @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  city City? @relation(fields: [cityId], references: [id])
+
+  @@map("assets")
+}
+
+model ChatThread {
+  id          String      @id @default(cuid())
+  channel     ChatChannel @default(TELEGRAM)
+  externalId  String?     @map("external_id")
+  title       String?
+  status      ChatStatus  @default(OPEN)
+  cityId      String?     @map("city_id")
+  linkedOrderId String?   @map("linked_order_id")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  city    City?         @relation(fields: [cityId], references: [id])
+  order   Order?        @relation(fields: [linkedOrderId], references: [id])
+  messages ChatMessage[]
+
+  @@index([status])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String   @map("thread_id")
+  body      String   @db.Text
+  fromClient Boolean @default(true) @map("from_client")
+  authorId  String?  @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User?      @relation(fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}

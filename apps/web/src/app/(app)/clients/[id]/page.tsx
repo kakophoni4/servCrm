@@ -1,0 +1,92 @@
+'use client';
+
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { STATUS_LABELS, TYPE_LABELS } from '@/lib/labels';
+
+type Client = {
+  id: string;
+  name: string;
+  phoneNormalized: string;
+  branchComment?: string | null;
+  ageCategory?: { label: string } | null;
+  city?: { name: string } | null;
+  orders: Array<{
+    id: string;
+    publicId: string;
+    status: string;
+    type: string;
+    address: string;
+    createdAt: string;
+    isClaim: boolean;
+    payment?: { paid: string | number; workSum: string | number } | null;
+  }>;
+};
+
+export default function ClientCardPage() {
+  const { id } = useParams<{ id: string }>();
+  const [client, setClient] = useState<Client | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api<Client>(`/clients/${id}`)
+      .then(setClient)
+      .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+  }, [id]);
+
+  if (!client) {
+    return (
+      <div className="panel">
+        {error ? <p className="error">{error}</p> : <p className="muted">Загрузка…</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="page-title">{client.name}</h1>
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <p>
+          Телефон: <strong>{client.phoneNormalized}</strong>
+        </p>
+        <p className="muted">
+          {client.ageCategory?.label ?? 'возраст не указан'}
+          {client.city ? ` · ${client.city.name}` : ''}
+        </p>
+        {client.branchComment ? (
+          <p>Комментарий филиала: {client.branchComment}</p>
+        ) : null}
+      </div>
+      <div className="panel">
+        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История заказов</h2>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Тип</th>
+              <th>Статус</th>
+              <th>Адрес</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            {client.orders.map((o) => (
+              <tr key={o.id}>
+                <td>
+                  <Link href={`/orders/${o.id}`}>{o.publicId}</Link>
+                  {o.isClaim ? ' ⚠' : ''}
+                </td>
+                <td>{TYPE_LABELS[o.type]}</td>
+                <td>{STATUS_LABELS[o.status]}</td>
+                <td>{o.address}</td>
+                <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
