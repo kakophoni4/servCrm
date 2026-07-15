@@ -25,7 +25,7 @@ export class SettlementsService {
     });
   }
 
-  /** Суммы к сдаче по мастерам за период (непроведённые DONE). */
+  /** Суммы к сдаче (Σ toCompany) по мастерам за период. */
   async preview(
     from: string,
     to: string,
@@ -35,10 +35,11 @@ export class SettlementsService {
   ) {
     const allowed = await this.branch.allowedCityIds(userId, role);
     const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
+    const { fromDate, toDate } = this.periodBounds(from, to);
     const orders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
-        createdAt: { gte: new Date(from), lte: new Date(to) },
+        createdAt: { gte: fromDate, lte: toDate },
         masterId: { not: null },
         cityId: this.branch.cityWhere(cityIds),
       },
@@ -63,12 +64,27 @@ export class SettlementsService {
     return [...map.values()];
   }
 
+  async amountForMaster(
+    masterId: string,
+    from: string,
+    to: string,
+    userId: string,
+    role: Role,
+  ) {
+    const rows = await this.preview(from, to, userId, role);
+    const row = rows.find((r) => r.masterId === masterId);
+    return {
+      amount: row?.amount ?? 0,
+      count: row?.count ?? 0,
+    };
+  }
+
   async create(
     input: {
       masterId: string;
-      amount: number;
       periodFrom: string;
       periodTo: string;
+      amount?: number;
     },
     userId: string,
     role: Role,
@@ -87,11 +103,26 @@ export class SettlementsService {
       throw new ForbiddenException('Мастер вне вашего филиала');
     }
 
+    const calc = await this.amountForMaster(
+      input.masterId,
+      input.periodFrom,
+      input.periodTo,
+      userId,
+      role,
+    );
+    // Сумма сдачи всегда из заявок (toCompany), ручной ввод не принимаем.
+    const amount = calc.amount;
+    if (amount <= 0) {
+      throw new BadRequestException(
+        'Нет суммы к сдаче за период (нет закрытых заявок или toCompany = 0)',
+      );
+    }
+
     return this.prisma.masterSettlement.create({
       data: {
         masterId: input.masterId,
         cityId: master.cityId,
-        amount: input.amount,
+        amount,
         periodFrom: new Date(input.periodFrom),
         periodTo: new Date(input.periodTo),
       },
@@ -118,7 +149,7 @@ export class SettlementsService {
       return this.prisma.masterSettlement.update({
         where: { id },
         data: { confirmedOnce: true },
-        include: { master: { include: { user: true } } },
+        include: { master: { include: { user: true } }, confirmedBy: true },
       });
     }
     return this.prisma.masterSettlement.update({
@@ -128,7 +159,59 @@ export class SettlementsService {
         confirmedById: userId,
         confirmedAt: new Date(),
       },
+      include: { master: { include: { user: true } }, confirmedBy: true },
+    });
+  }
+
+  /**
+   * Владелец отмечает сдачу мастера (paidAmount).
+   * Деньги уже в кассе как INCOME ORDER при закрытии заявок — второй CashTx не создаём.
+   */
+  async pay(
+    id: string,
+    amount: number,
+    _userId: string,
+    role: Role,
+  ) {
+    if (role !== Role.OWNER) {
+      throw new ForbiddenException('Вносить оплату может только владелец');
+    }
+    if (!(amount > 0)) {
+      throw new BadRequestException('Сумма должна быть больше 0');
+    }
+
+    const row = await this.prisma.masterSettlement.findUnique({
+      where: { id },
       include: { master: { include: { user: true } } },
     });
+    if (!row) throw new NotFoundException('Расчёт не найден');
+
+    const due = Number(row.amount);
+    const paid = Number(row.paidAmount);
+    const remaining = Math.round((due - paid) * 100) / 100;
+    if (remaining <= 0) {
+      throw new BadRequestException('Расчёт уже полностью оплачен');
+    }
+    if (amount > remaining + 0.001) {
+      throw new BadRequestException(
+        `Нельзя внести больше остатка (${remaining} ₽)`,
+      );
+    }
+
+    const payAmount = Math.round(amount * 100) / 100;
+
+    return this.prisma.masterSettlement.update({
+      where: { id },
+      data: { paidAmount: paid + payAmount },
+      include: { master: { include: { user: true } }, confirmedBy: true },
+    });
+  }
+
+  private periodBounds(from: string, to: string) {
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    // включить весь день «по»
+    toDate.setHours(23, 59, 59, 999);
+    return { fromDate, toDate };
   }
 }

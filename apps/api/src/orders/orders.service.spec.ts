@@ -44,10 +44,15 @@ describe('OrdersService', () => {
     };
   };
   let salary: { percentFor: jest.Mock };
-  let documents: { hasRequiredReceipts: jest.Mock };
+  let documents: {
+    hasRequiredReceipts: jest.Mock;
+    missingRequiredKinds: jest.Mock;
+    hasRequiredOrderDocs: jest.Mock;
+  };
   let bot: {
     notifyAdminsNewOrder: jest.Mock;
     notifyMasterOrder: jest.Mock;
+    notifyMasterStatusChanged: jest.Mock;
   };
   let branch: { allowedCityIds: jest.Mock };
 
@@ -161,10 +166,15 @@ describe('OrdersService', () => {
     };
 
     salary = { percentFor: jest.fn().mockResolvedValue(0.5) };
-    documents = { hasRequiredReceipts: jest.fn().mockResolvedValue(true) };
+    documents = {
+      hasRequiredReceipts: jest.fn().mockResolvedValue(true),
+      hasRequiredOrderDocs: jest.fn().mockResolvedValue(true),
+      missingRequiredKinds: jest.fn().mockResolvedValue([]),
+    };
     bot = {
       notifyAdminsNewOrder: jest.fn().mockResolvedValue(undefined),
       notifyMasterOrder: jest.fn().mockResolvedValue(undefined),
+      notifyMasterStatusChanged: jest.fn().mockResolvedValue(undefined),
     };
     branch = { allowedCityIds: jest.fn().mockResolvedValue(['A']) };
 
@@ -231,7 +241,7 @@ describe('OrdersService', () => {
       );
     });
 
-    it('sets status WAITING when scheduledAt is provided', async () => {
+    it('sets status WAITING when scheduledAt is provided by OWNER', async () => {
       setupCreateTransaction();
       const scheduledAt = '2026-07-20T10:00:00.000Z';
       const dto = { ...baseCreateDto(), scheduledAt };
@@ -243,6 +253,25 @@ describe('OrdersService', () => {
           data: expect.objectContaining({
             status: OrderStatus.WAITING,
             scheduledAt: new Date(scheduledAt),
+          }),
+        }),
+      );
+    });
+
+    it('ignores scheduledAt from DISPATCHER on create', async () => {
+      setupCreateTransaction();
+      const dto = {
+        ...baseCreateDto(),
+        scheduledAt: '2026-07-20T10:00:00.000Z',
+      };
+
+      await service.create(dto, userId, Role.DISPATCHER);
+
+      expect(txMock.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.NOT_SCHEDULED,
+            scheduledAt: null,
           }),
         }),
       );
@@ -384,6 +413,7 @@ describe('OrdersService', () => {
     });
 
     it('throws BadRequestException when DONE with paid>500 and missing required receipts', async () => {
+      documents.missingRequiredKinds.mockResolvedValue(['CONTRACT' as any]);
       documents.hasRequiredReceipts.mockResolvedValue(false);
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
@@ -396,10 +426,11 @@ describe('OrdersService', () => {
       await expect(
         service.update(orderId, dto, userId, Role.ADMIN),
       ).rejects.toThrow('При оплате >500 ₽ нельзя поставить Готов');
-      expect(documents.hasRequiredReceipts).toHaveBeenCalledWith(orderId);
+      expect(documents.missingRequiredKinds).toHaveBeenCalledWith(orderId);
     });
 
     it('passes when DONE with paid>500 and required receipts exist', async () => {
+      documents.missingRequiredKinds.mockResolvedValue([]);
       documents.hasRequiredReceipts.mockResolvedValue(true);
       setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
       const dto: UpdateOrderDto = {
@@ -409,7 +440,7 @@ describe('OrdersService', () => {
 
       const result = await service.update(orderId, dto, userId, Role.ADMIN);
 
-      expect(documents.hasRequiredReceipts).toHaveBeenCalledWith(orderId);
+      expect(documents.missingRequiredKinds).toHaveBeenCalledWith(orderId);
       expect(result).toBeDefined();
       expect(prisma.$transaction).toHaveBeenCalled();
     });

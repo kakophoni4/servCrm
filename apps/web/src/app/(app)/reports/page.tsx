@@ -5,8 +5,23 @@ import { api } from '@/lib/api';
 import {
   CASH_DIRECTION_LABELS,
   CASH_EXPENSE_BASIS_LABELS,
-  currentMonthRange,
+  monthRange,
 } from '@/lib/labels';
+
+const MONTH_LABELS = [
+  'Январь',
+  'Февраль',
+  'Март',
+  'Апрель',
+  'Май',
+  'Июнь',
+  'Июль',
+  'Август',
+  'Сентябрь',
+  'Октябрь',
+  'Ноябрь',
+  'Декабрь',
+];
 
 type ReportTab =
   | 'closed'
@@ -69,8 +84,8 @@ const FIELD_LABELS: Record<string, string> = {
   publicId: 'Номер',
   createdAt: 'Дата',
   status: 'Статус',
-  cityId: 'ID города',
-  cityName: 'Город',
+  cityId: 'ID филиала',
+  cityName: 'Филиал',
   incomeTotal: 'Приход общий',
   incomeOrders: 'Приход с заявок',
   incomeOther: 'Прочий приход',
@@ -91,7 +106,7 @@ const FIELD_LABELS: Record<string, string> = {
   name: 'Название',
   phone: 'Телефон',
   client: 'Клиент',
-  city: 'Город',
+  city: 'Филиал',
   order: 'Заявка',
   reason: 'Причина',
   reportDate: 'Дата отчёта',
@@ -106,7 +121,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const CASH_CITY_COLUMNS: { key: string; label: string }[] = [
-  { key: 'cityName', label: 'Город' },
+  { key: 'cityName', label: 'Филиал' },
   { key: 'incomeTotal', label: 'Приход общий' },
   { key: 'incomeOrders', label: 'Приход с заявок' },
   { key: 'incomeOther', label: 'Прочий приход' },
@@ -132,18 +147,21 @@ function formatMoney(v: unknown): string {
 }
 
 export default function ReportsPage() {
-  const defaultRange = currentMonthRange();
+  const now = new Date();
   const [tab, setTab] = useState<ReportTab>('closed');
-  const [from, setFrom] = useState(defaultRange.from);
-  const [to, setTo] = useState(defaultRange.to);
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<unknown>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - 3 + i);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
+      const { from, to } = monthRange(year, month);
       let path = '';
       if (tab === 'closed') path = `/reports/closed?from=${from}&to=${to}`;
       else if (tab === 'cancels') path = `/reports/cancels?from=${from}&to=${to}`;
@@ -164,7 +182,7 @@ export default function ReportsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, year, month]);
 
   function formatCell(v: unknown, key?: string): string {
     if (v == null) return '—';
@@ -230,41 +248,55 @@ export default function ReportsPage() {
     if (!rows.length) return <p className="muted">Нет данных за период.</p>;
     const keys = Object.keys(rows[0]).filter((k) => !skipKeys.includes(k));
     return (
-      <table className="table">
-        <thead>
-          <tr>
-            {keys.map((k) => (
-              <th key={k}>{labelOf(k)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
               {keys.map((k) => (
-                <td key={k}>{formatCell(row[k], k)}</td>
+                <th key={k}>{labelOf(k)}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {keys.map((k) => (
+                  <td key={k}>{formatCell(row[k], k)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
-  function renderKeyValue(obj: Record<string, unknown>, skipKeys: string[] = []) {
+  /** Одна строка метрик: заголовки сверху, значения в ряд. */
+  function renderHorizontal(
+    obj: Record<string, unknown>,
+    skipKeys: string[] = [],
+  ) {
+    const entries = Object.entries(obj).filter(([k]) => !skipKeys.includes(k));
+    if (!entries.length) return <p className="muted">Нет данных за период.</p>;
     return (
-      <table className="table">
-        <tbody>
-          {Object.entries(obj)
-            .filter(([k]) => !skipKeys.includes(k))
-            .map(([k, v]) => (
-              <tr key={k}>
-                <th>{labelOf(k)}</th>
-                <td>{formatCell(v, k)}</td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              {entries.map(([k]) => (
+                <th key={k}>{labelOf(k)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {entries.map(([k, v]) => (
+                <td key={k}>{formatCell(v, k)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     );
   }
 
@@ -285,11 +317,11 @@ export default function ReportsPage() {
             Период: {formatCell(obj.period, 'period')}
           </p>
         ) : null}
-        <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>По городам</h3>
+        <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>По филиалам</h3>
         {!rows.length ? (
           <p className="muted">Нет данных за период.</p>
         ) : (
-          <>
+          <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
@@ -319,11 +351,7 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
-            <p className="muted" style={{ marginTop: 8 }}>
-              Остаток = приход − расход − ЗП мастерам (доля мастера уходит
-              мастеру).
-            </p>
-          </>
+          </div>
         )}
         <h3 style={{ margin: '20px 0 8px', fontSize: 16 }}>
           Пояснения по расходам
@@ -357,13 +385,13 @@ export default function ReportsPage() {
       if (Array.isArray(obj.rows) && tab === 'ads') {
         return (
           <div>
-            {renderKeyValue(obj, ['rows'])}
+            {renderHorizontal(obj, ['rows'])}
             <h3 style={{ margin: '16px 0 8px', fontSize: 16 }}>Детализация</h3>
             {renderTable(obj.rows as Record<string, unknown>[])}
           </div>
         );
       }
-      return renderKeyValue(obj, ['rows']);
+      return renderHorizontal(obj, ['rows', 'byCity', 'totals', 'expenseNotes']);
     }
 
     return <pre>{String(data)}</pre>;
@@ -389,14 +417,36 @@ export default function ReportsPage() {
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="grid-2">
           <div className="field">
-            <label>С</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <label>Месяц</label>
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+            >
+              {MONTH_LABELS.map((label, i) => (
+                <option key={label} value={i + 1}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="field">
-            <label>По</label>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <label>Год</label>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
+        <p className="muted" style={{ margin: '0 0 12px', fontSize: '0.85rem' }}>
+          Период: 1–{new Date(year, month, 0).getDate()}{' '}
+          {MONTH_LABELS[month - 1].toLowerCase()} {year}
+        </p>
         <button type="button" className="btn" onClick={load} disabled={loading}>
           Обновить
         </button>

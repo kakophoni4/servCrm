@@ -21,15 +21,12 @@ export default function NewOrderPage() {
     sourceKind: 'OUR',
     sourceOur: 'AVITO',
     partnerId: '',
-    scheduledAt: '',
     address: '',
     ageCategoryId: '',
     comment: '',
-    isClaim: false,
     isProfile: true,
     typeTech: '',
     cityId: '',
-    branchComment: '',
   });
 
   useEffect(() => {
@@ -65,17 +62,12 @@ export default function NewOrderPage() {
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
         partnerId: form.sourceKind === 'PARTNER' ? form.partnerId : undefined,
-        scheduledAt: form.scheduledAt
-          ? new Date(form.scheduledAt).toISOString()
-          : undefined,
         address: form.address,
         ageCategoryId: form.ageCategoryId || undefined,
         comment: form.comment || undefined,
-        isClaim: form.isClaim,
         isProfile: form.isProfile,
         typeTech: form.typeTech || undefined,
         cityId: form.cityId || undefined,
-        branchComment: form.branchComment || undefined,
       };
       const order = await api<{ id: string }>('/orders', {
         method: 'POST',
@@ -118,14 +110,6 @@ export default function NewOrderPage() {
               <option value="WARRANTY">Гарантия</option>
               <option value="REPEAT">Повторный заказ</option>
             </select>
-          </div>
-          <div className="field">
-            <label>Дата/время выполнения</label>
-            <input
-              type="datetime-local"
-              value={form.scheduledAt}
-              onChange={(e) => set('scheduledAt', e.target.value)}
-            />
           </div>
           <div className="field">
             <label>Источник</label>
@@ -177,7 +161,7 @@ export default function NewOrderPage() {
             </select>
           </div>
           <div className="field">
-            <label>Город</label>
+            <label>Филиал</label>
             <select
               value={form.cityId}
               onChange={(e) => set('cityId', e.target.value)}
@@ -213,32 +197,14 @@ export default function NewOrderPage() {
             onChange={(e) => set('comment', e.target.value)}
           />
         </div>
-        <div className="field">
-          <label>Комментарий филиала (карточка клиента)</label>
-          <textarea
-            rows={2}
-            value={form.branchComment}
-            onChange={(e) => set('branchComment', e.target.value)}
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={form.isProfile}
+            onChange={(e) => set('isProfile', e.target.checked)}
           />
-        </div>
-        <div className="grid-2">
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={form.isClaim}
-              onChange={(e) => set('isClaim', e.target.checked)}
-            />
-            Претензионная заявка
-          </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={form.isProfile}
-              onChange={(e) => set('isProfile', e.target.checked)}
-            />
-            Профильная заявка
-          </label>
-        </div>
+          Профильная заявка
+        </label>
         {error ? <p className="error">{error}</p> : null}
         <div style={{ marginTop: 12 }}>
           <button className="btn" type="submit" disabled={loading}>

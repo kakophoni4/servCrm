@@ -1,5 +1,11 @@
 import { INestApplication } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import {
+  OrderStatus,
+  OrderType,
+  Role,
+  SourceKind,
+  SourceOur,
+} from '@prisma/client';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -30,6 +36,39 @@ describe('Settlements (e2e)', () => {
       where: { userId: seed.users.masterA.id },
     });
     masterAId = master.id;
+
+    // DONE-заявка с toCompany — для автосуммы сдачи
+    const client = await prisma.client.create({
+      data: {
+        name: 'Клиент сдачи',
+        phoneNormalized: '79001112233',
+        cityId: seed.cities.a.id,
+      },
+    });
+    await prisma.order.create({
+      data: {
+        publicId: 'SETTLE-A-1',
+        seqPrefix: 'S',
+        seq: 1,
+        clientId: client.id,
+        type: OrderType.NEW,
+        sourceKind: SourceKind.OUR,
+        sourceOur: SourceOur.AVITO,
+        address: 'Тест',
+        status: OrderStatus.DONE,
+        masterId: masterAId,
+        cityId: seed.cities.a.id,
+        createdAt: new Date('2026-01-15T12:00:00.000Z'),
+        payment: {
+          create: {
+            paid: 3000,
+            workSum: 3000,
+            masterSalary: 1500,
+            toCompany: 1500,
+          },
+        },
+      },
+    });
   });
 
   afterAll(async () => {
@@ -38,7 +77,6 @@ describe('Settlements (e2e)', () => {
 
   const createBody = {
     masterId: '',
-    amount: 1500,
     periodFrom: '2026-01-01',
     periodTo: '2026-01-31',
   };
@@ -52,11 +90,11 @@ describe('Settlements (e2e)', () => {
       )
       .send({ ...createBody, masterId: masterAId })
       .expect(201);
-    return res.body as { id: string; cityId: string };
+    return res.body as { id: string; cityId: string; amount: string };
   }
 
   describe('POST /api/settlements', () => {
-    it('adminA creates settlement with cityId of master city A (happy-path)', async () => {
+    it('adminA creates settlement with auto amount from toCompany', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/settlements')
         .set(
@@ -176,6 +214,25 @@ describe('Settlements (e2e)', () => {
         .expect(403);
 
       expect(res.body.message).toContain('филиала');
+    });
+  });
+
+  describe('POST /api/settlements/:id/pay', () => {
+    it('OWNER can mark remaining amount as paid without cash tx', async () => {
+      const created = await createSettlementAsAdminA();
+      const cashBefore = await prisma.cashTx.count();
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/settlements/${created.id}/pay`)
+        .set(
+          'Authorization',
+          bearer(seed.users.owner.id, Role.OWNER, 'owner'),
+        )
+        .send({ amount: 1500 })
+        .expect(201);
+
+      expect(Number(res.body.paidAmount)).toBe(1500);
+      expect(await prisma.cashTx.count()).toBe(cashBefore);
     });
   });
 });

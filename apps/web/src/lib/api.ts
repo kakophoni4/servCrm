@@ -8,6 +8,7 @@ export type AuthUser = {
   role: string;
   cityId?: string | null;
   cityName?: string | null;
+  permissions?: string[];
 };
 
 export function getToken(): string | null {
@@ -53,9 +54,12 @@ export async function api<T>(
   if (!res.ok) {
     let message = `Ошибка ${res.status}`;
     try {
-      const body = (await res.json()) as { message?: string | string[] };
-      if (Array.isArray(body.message)) message = body.message.join(', ');
-      else if (body.message) message = body.message;
+      const text = await res.text();
+      if (text) {
+        const body = JSON.parse(text) as { message?: string | string[] };
+        if (Array.isArray(body.message)) message = body.message.join(', ');
+        else if (body.message) message = body.message;
+      }
     } catch {
       /* ignore */
     }
@@ -63,7 +67,9 @@ export async function api<T>(
   }
 
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 async function parseError(res: Response): Promise<string> {

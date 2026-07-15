@@ -47,6 +47,7 @@ export class AuthService {
         role: user.role,
         cityId: user.cityId,
         cityName: user.city?.name ?? null,
+        permissions: user.permissions ?? [],
       },
     };
   }
@@ -67,6 +68,7 @@ export class AuthService {
       phone: user.phone,
       cityId: user.cityId,
       cityName: user.city?.name ?? null,
+      permissions: user.permissions ?? [],
     };
   }
 }

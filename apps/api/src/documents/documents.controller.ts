@@ -15,8 +15,10 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { DocKind, Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import {
   StorageService,
@@ -27,7 +29,7 @@ import { DocumentsService } from './documents.service';
 const STAFF = [Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER] as const;
 
 @Controller('orders/:orderId/documents')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class DocumentsController {
   constructor(
     private readonly documents: DocumentsService,
@@ -36,12 +38,14 @@ export class DocumentsController {
 
   @Get()
   @Roles(...STAFF)
+  @RequirePermissions('documents.read')
   list(@Param('orderId') orderId: string) {
     return this.documents.list(orderId);
   }
 
   @Post()
   @Roles(...STAFF)
+  @RequirePermissions('documents.write')
   @UseInterceptors(FilesInterceptor('files', 30))
   upload(
     @Param('orderId') orderId: string,
@@ -51,7 +55,7 @@ export class DocumentsController {
   ) {
     return this.documents.uploadMany(
       orderId,
-      kind ?? DocKind.OTHER,
+      kind ?? DocKind.CONTRACT,
       files ?? [],
       user.userId,
     );
@@ -59,6 +63,7 @@ export class DocumentsController {
 
   @Get(':docId/download')
   @Roles(...STAFF)
+  @RequirePermissions('documents.read')
   async download(
     @Param('orderId') orderId: string,
     @Param('docId') docId: string,
@@ -76,6 +81,7 @@ export class DocumentsController {
 
   @Delete(':docId')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('documents.delete')
   remove(@Param('orderId') orderId: string, @Param('docId') docId: string) {
     return this.documents.remove(orderId, docId);
   }

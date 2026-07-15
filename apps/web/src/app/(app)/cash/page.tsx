@@ -1,7 +1,7 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { api, appendFormFields, uploadFiles } from '@/lib/api';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { api, appendFormFields, getStoredUser, uploadFiles } from '@/lib/api';
 import {
   CASH_DIRECTION_LABELS,
   CASH_EXPENSE_BASIS_LABELS,
@@ -22,21 +22,29 @@ type CashTx = {
   createdBy?: { fullName: string } | null;
 };
 
-type OrderOpt = { id: string; publicId: string };
 type City = { id: string; name: string };
 
+/** Ручной приход — без «По заявке» (тот только автоматически при «Готов»). */
+const MANUAL_INCOME_BASIS = Object.fromEntries(
+  Object.entries(CASH_INCOME_BASIS_LABELS).filter(([k]) => k !== 'ORDER'),
+);
+
 export default function CashPage() {
+  const isOwner = (getStoredUser()?.role ?? '') === 'OWNER';
   const [txs, setTxs] = useState<CashTx[]>([]);
-  const [orders, setOrders] = useState<OrderOpt[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [tab, setTab] = useState<'income' | 'expense' | 'collection'>('income');
 
+  const defaultIncomeBasis = useMemo(
+    () => Object.keys(MANUAL_INCOME_BASIS)[0] ?? 'OTHER',
+    [],
+  );
+
   const [income, setIncome] = useState({
     amount: '',
-    incomeBasis: 'ORDER',
-    orderId: '',
+    incomeBasis: 'EXTRA_FUNDING',
     cityId: '',
     description: '',
   });
@@ -55,21 +63,15 @@ export default function CashPage() {
     cityId: '',
     description: '',
   });
-  const [collectionFile, setCollectionFile] = useState<File | null>(null);
 
   async function load() {
-    const [list, orderList, cityList] = await Promise.all([
+    const [list, cityList] = await Promise.all([
       api<CashTx[]>('/cash'),
-      api<OrderOpt[]>('/orders'),
       api<City[]>('/cities'),
     ]);
     setTxs(list);
-    setOrders(orderList);
     setCities(cityList);
     const defaultCity = cityList[0]?.id ?? '';
-    if (!income.orderId && orderList[0]) {
-      setIncome((f) => ({ ...f, orderId: orderList[0].id }));
-    }
     if (defaultCity) {
       setIncome((f) => (f.cityId ? f : { ...f, cityId: defaultCity }));
       setExpense((f) => (f.cityId ? f : { ...f, cityId: defaultCity }));
@@ -82,14 +84,18 @@ export default function CashPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function citySelect(
+  useEffect(() => {
+    if (!isOwner && tab === 'collection') setTab('income');
+  }, [isOwner, tab]);
+
+  function branchSelect(
     value: string,
     onChange: (cityId: string) => void,
     required = false,
   ) {
     return (
       <div className="field">
-        <label>Город</label>
+        <label>Филиал</label>
         <select
           required={required}
           value={value}
@@ -114,12 +120,17 @@ export default function CashPage() {
     return (
       <div className="field">
         <label>Документ{required ? ' *' : ''}</label>
-        <input
-          type="file"
-          required={required}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
-        {file ? <span className="muted">{file.name}</span> : null}
+        <label className="file-picker">
+          <input
+            type="file"
+            required={required}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <span className="file-picker-title">
+            {file?.name ?? 'Выбрать файл'}
+          </span>
+          <span className="file-picker-hint">фото или PDF</span>
+        </label>
       </div>
     );
   }
@@ -128,12 +139,14 @@ export default function CashPage() {
     e.preventDefault();
     setError('');
     setMsg('');
+    if (income.incomeBasis === 'ORDER') {
+      setError('Приход по заявке создаётся автоматически при статусе «Готов»');
+      return;
+    }
     try {
       const fd = appendFormFields(new FormData(), {
         amount: income.amount,
-        incomeBasis: income.incomeBasis,
-        orderId:
-          income.incomeBasis === 'ORDER' ? income.orderId || undefined : undefined,
+        incomeBasis: income.incomeBasis || defaultIncomeBasis,
         cityId: income.cityId || undefined,
         description: income.description || undefined,
       });
@@ -178,16 +191,20 @@ export default function CashPage() {
     e.preventDefault();
     setError('');
     setMsg('');
+    if (!collection.cityId) {
+      setError('Укажите филиал');
+      return;
+    }
     try {
-      const fd = appendFormFields(new FormData(), {
-        amount: collection.amount,
-        cityId: collection.cityId || undefined,
-        description: collection.description || undefined,
+      await api('/cash/collection', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: Number(collection.amount),
+          cityId: collection.cityId,
+          description: collection.description || undefined,
+        }),
       });
-      if (collectionFile) fd.append('file', collectionFile);
-      await uploadFiles('/cash/collection', fd);
-      setCollection((f) => ({ ...f, amount: '', description: '' }));
-      setCollectionFile(null);
+      setCollection((f) => ({ amount: '', cityId: f.cityId, description: '' }));
       setMsg('Инкассация записана');
       await load();
     } catch (err) {
@@ -198,9 +215,19 @@ export default function CashPage() {
   return (
     <div>
       <h1 className="page-title">Касса</h1>
+      <p className="muted" style={{ marginTop: -8, marginBottom: 16 }}>
+        Приход «По заявке» создаётся автоматически при статусе «Готов» — вручную
+        его записать нельзя.
+      </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['income', 'expense', 'collection'] as const).map((t) => (
+        {(
+          [
+            'income',
+            'expense',
+            ...(isOwner ? (['collection'] as const) : []),
+          ] as const
+        ).map((t) => (
           <button
             key={t}
             type="button"
@@ -229,29 +256,14 @@ export default function CashPage() {
                 value={income.incomeBasis}
                 onChange={(e) => setIncome({ ...income, incomeBasis: e.target.value })}
               >
-                {Object.entries(CASH_INCOME_BASIS_LABELS).map(([k, v]) => (
+                {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
                   <option key={k} value={k}>
                     {v}
                   </option>
                 ))}
               </select>
             </div>
-            {citySelect(income.cityId, (cityId) => setIncome({ ...income, cityId }))}
-            {income.incomeBasis === 'ORDER' ? (
-              <div className="field">
-                <label>Заявка</label>
-                <select
-                  value={income.orderId}
-                  onChange={(e) => setIncome({ ...income, orderId: e.target.value })}
-                >
-                  {orders.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.publicId}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+            {branchSelect(income.cityId, (cityId) => setIncome({ ...income, cityId }))}
             {fileField(incomeFile, setIncomeFile, false)}
             <div className="field">
               <label>Комментарий</label>
@@ -291,7 +303,7 @@ export default function CashPage() {
                 ))}
               </select>
             </div>
-            {citySelect(expense.cityId, (cityId) => setExpense({ ...expense, cityId }))}
+            {branchSelect(expense.cityId, (cityId) => setExpense({ ...expense, cityId }))}
             {fileField(expenseFile, setExpenseFile, true)}
             <div className="field">
               <label>Комментарий</label>
@@ -307,7 +319,7 @@ export default function CashPage() {
         </form>
       ) : null}
 
-      {tab === 'collection' ? (
+      {tab === 'collection' && isOwner ? (
         <form className="panel" onSubmit={submitCollection} style={{ marginBottom: 16 }}>
           <div className="grid-2">
             <div className="field">
@@ -320,10 +332,11 @@ export default function CashPage() {
                 }
               />
             </div>
-            {citySelect(collection.cityId, (cityId) =>
-              setCollection({ ...collection, cityId }),
+            {branchSelect(
+              collection.cityId,
+              (cityId) => setCollection({ ...collection, cityId }),
+              true,
             )}
-            {fileField(collectionFile, setCollectionFile, false)}
             <div className="field">
               <label>Комментарий</label>
               <input
@@ -349,7 +362,7 @@ export default function CashPage() {
               <th>Дата</th>
               <th>Тип</th>
               <th>Сумма</th>
-              <th>Город</th>
+              <th>Филиал</th>
               <th>Основание</th>
               <th>Заявка</th>
               <th>Документ</th>

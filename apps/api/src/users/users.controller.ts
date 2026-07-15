@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -24,9 +25,11 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
-import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UploadedMemoryFile } from '../common/storage/storage.service';
 import { CreateUserFiles, UsersService } from './users.service';
@@ -71,6 +74,11 @@ class CreateUserDto {
   @IsOptional()
   @IsString()
   managedCityIds?: string;
+
+  /** JSON-массив или CSV ключей разрешений (для ADMIN/DIRECTOR/OWNER). */
+  @IsOptional()
+  @IsString()
+  permissions?: string;
 }
 
 class SetBranchesDto {
@@ -88,13 +96,27 @@ class FireDto {
   recommendedHire!: boolean;
 }
 
+class UpdatePermissionsDto {
+  @IsArray()
+  @IsString({ each: true })
+  permissions!: string[];
+}
+
 @Controller('users')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  @Get('permission-catalog')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('users.read')
+  permissionCatalog() {
+    return this.users.permissionCatalog();
+  }
+
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('users.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('status') status?: UserStatus,
@@ -105,6 +127,7 @@ export class UsersController {
 
   @Get(':id/passport')
   @Roles(Role.OWNER, Role.DIRECTOR)
+  @RequirePermissions('users.passport')
   async downloadPassport(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },
@@ -122,6 +145,7 @@ export class UsersController {
 
   @Get(':id/employee-photo')
   @Roles(Role.OWNER, Role.DIRECTOR)
+  @RequirePermissions('users.passport')
   async downloadEmployeePhoto(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },
@@ -139,6 +163,7 @@ export class UsersController {
 
   @Get(':id')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('users.read')
   get(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },
@@ -148,6 +173,7 @@ export class UsersController {
 
   @Post()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('users.create')
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'passportPhoto', maxCount: 1 },
@@ -169,12 +195,30 @@ export class UsersController {
 
   @Post(':id/branches')
   @Roles(Role.OWNER)
+  @RequirePermissions('users.branches')
   setBranches(@Param('id') id: string, @Body() dto: SetBranchesDto) {
     return this.users.setBranches(id, dto.cityIds);
   }
 
+  @Patch(':id/permissions')
+  @Roles(Role.OWNER, Role.DIRECTOR)
+  @RequirePermissions('users.create')
+  updatePermissions(
+    @Param('id') id: string,
+    @Body() dto: UpdatePermissionsDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.users.updatePermissions(
+      id,
+      dto.permissions,
+      user.userId,
+      user.role,
+    );
+  }
+
   @Post(':id/fire')
   @Roles(Role.OWNER, Role.DIRECTOR)
+  @RequirePermissions('users.fire')
   fire(
     @Param('id') id: string,
     @Body() dto: FireDto,
@@ -185,6 +229,7 @@ export class UsersController {
 
   @Post(':id/restore')
   @Roles(Role.OWNER, Role.DIRECTOR)
+  @RequirePermissions('users.restore')
   restore(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },

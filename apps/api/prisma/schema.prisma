@@ -115,10 +115,14 @@ enum ChatStatus {
   CLOSED
 }
 
+/// Филиал (не город). В одном городе может быть несколько филиалов.
 model City {
   id        String   @id @default(cuid())
   code      String   @unique
+  /// Название филиала (напр. «Север», «ТЦ Галерея»)
   name      String
+  /// Город, в котором расположен филиал (напр. «Москва»)
+  cityName  String?  @map("city_name")
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -134,6 +138,7 @@ model City {
   masters           Master[]
   directors         BranchDirector[]
   masterSettlements MasterSettlement[]
+  dispatcherShifts  DispatcherShift[]
 
   @@map("cities")
 }
@@ -182,6 +187,8 @@ model User {
   fullName           String     @map("full_name")
   role               Role
   status             UserStatus @default(ACTIVE)
+  /// Разрешения офисных ролей (ADMIN/DIRECTOR/OWNER). У MASTER/DISPATCHER пусто.
+  permissions        String[]   @default([])
   phone              String?
   telegramId         String?    @map("telegram_id")
   cityId             String?    @map("city_id")
@@ -205,6 +212,7 @@ model User {
   adReports         AdDailyReport[]
   chatMessages      ChatMessage[]
   dispatcherPay     DispatcherPaySettings?
+  dispatcherShifts  DispatcherShift[]
   managedBranches   BranchDirector[]
 
   @@map("users")
@@ -284,6 +292,7 @@ model Order {
   cityId        String?     @map("city_id")
   createdById   String?     @map("created_by_id")
   cancelFault   String?     @map("cancel_fault")
+  docsViaAdmin  Boolean     @default(false) @map("docs_via_admin")
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
@@ -386,6 +395,7 @@ model MasterSettlement {
   masterId        String    @map("master_id")
   cityId          String?   @map("city_id")
   amount          Decimal   @db.Decimal(12, 2)
+  paidAmount      Decimal   @default(0) @map("paid_amount") @db.Decimal(12, 2)
   periodFrom      DateTime  @map("period_from")
   periodTo        DateTime  @map("period_to")
   confirmedOnce   Boolean   @default(false) @map("confirmed_once")
@@ -414,6 +424,24 @@ model DispatcherPaySettings {
   user User @relation(fields: [userId], references: [id])
 
   @@map("dispatcher_pay_settings")
+}
+
+/// Кто на смене в конкретный день в филиале (один диспетчер на дату × филиал).
+model DispatcherShift {
+  id        String   @id @default(cuid())
+  workDate  DateTime @map("work_date") @db.Date
+  cityId    String   @map("city_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@unique([workDate, cityId])
+  @@index([userId])
+  @@index([cityId])
+  @@map("dispatcher_shifts")
 }
 
 model AdDailyReport {

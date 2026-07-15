@@ -10,8 +10,10 @@ import {
 import { AssetStatus, Role } from '@prisma/client';
 import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AssetsService } from './assets.service';
 
@@ -34,12 +36,13 @@ class CreateAssetDto {
 }
 
 @Controller('assets')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class AssetsController {
   constructor(private readonly assets: AssetsService) {}
 
   @Get()
   @Roles(Role.OWNER, Role.DIRECTOR, Role.ADMIN)
+  @RequirePermissions('assets.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('status') status?: AssetStatus,
@@ -50,6 +53,7 @@ export class AssetsController {
 
   @Post()
   @Roles(Role.OWNER)
+  @RequirePermissions('assets.write')
   create(
     @CurrentUser() user: { userId: string; role: Role },
     @Body() dto: CreateAssetDto,
@@ -59,6 +63,7 @@ export class AssetsController {
 
   @Post(':id/write-off')
   @Roles(Role.OWNER)
+  @RequirePermissions('assets.write')
   writeOff(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },

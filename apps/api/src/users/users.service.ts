@@ -8,6 +8,11 @@ import {
 import { Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
+import {
+  isOfficeRole,
+  parsePermissionsInput,
+  PERMISSIONS,
+} from '../common/permissions/permissions';
 import { CryptoService } from '../common/storage/crypto.service';
 import {
   StorageService,
@@ -30,6 +35,7 @@ const userSelect = {
   fullName: true,
   role: true,
   status: true,
+  permissions: true,
   phone: true,
   telegramId: true,
   cityId: true,
@@ -70,7 +76,6 @@ export class UsersService {
     const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
     const rows = await this.prisma.user.findMany({
       where: {
-        role: { not: Role.MASTER },
         ...(status ? { status } : {}),
         cityId: this.branch.cityWhere(cityIds),
       },
@@ -78,6 +83,10 @@ export class UsersService {
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((u) => this.toPublic(u));
+  }
+
+  permissionCatalog() {
+    return PERMISSIONS;
   }
 
   async create(
@@ -92,12 +101,10 @@ export class UsersService {
       hiredAt?: string;
       passportNumber?: string;
       managedCityIds?: string;
+      permissions?: string;
     },
     files?: CreateUserFiles,
   ) {
-    if (input.role === Role.MASTER) {
-      throw new BadRequestException('Мастеров создавайте через /masters');
-    }
     const login = input.login.trim().toLowerCase();
     const exists = await this.prisma.user.findUnique({ where: { login } });
     if (exists) throw new ConflictException('Логин занят');
@@ -106,6 +113,17 @@ export class UsersService {
     const hiredAt = input.hiredAt ? new Date(input.hiredAt) : new Date();
     if (Number.isNaN(hiredAt.getTime())) {
       throw new BadRequestException('Некорректная дата начала работы');
+    }
+
+    const office = isOfficeRole(input.role);
+    let permissions: string[] = [];
+    if (office) {
+      permissions = parsePermissionsInput(input.permissions);
+      if (permissions.length === 0) {
+        throw new BadRequestException(
+          'Укажите хотя бы одно разрешение для сотрудника',
+        );
+      }
     }
 
     const passportPhoto = files?.passportPhoto?.[0];
@@ -136,6 +154,7 @@ export class UsersService {
       input.role === Role.DIRECTOR
         ? this.parseCityIds(input.managedCityIds)
         : [];
+    const cityId = input.cityId?.trim() || null;
 
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -144,8 +163,9 @@ export class UsersService {
           passwordHash,
           fullName: input.fullName.trim(),
           role: input.role,
+          permissions,
           phone: input.phone?.trim() || null,
-          cityId: input.cityId?.trim() || null,
+          cityId,
           telegramId: input.telegramId?.trim() || null,
           hiredAt,
           status: UserStatus.ACTIVE,
@@ -155,9 +175,21 @@ export class UsersService {
         },
         select: userSelect,
       });
+      if (input.role === Role.MASTER) {
+        await tx.master.create({
+          data: {
+            userId: created.id,
+            cityId,
+            status: UserStatus.ACTIVE,
+          },
+        });
+      }
       if (managedCityIds.length) {
         await tx.branchDirector.createMany({
-          data: managedCityIds.map((cityId) => ({ cityId, userId: created.id })),
+          data: managedCityIds.map((cid) => ({
+            cityId: cid,
+            userId: created.id,
+          })),
           skipDuplicates: true,
         });
         return tx.user.findUniqueOrThrow({
@@ -190,6 +222,34 @@ export class UsersService {
     return this.toPublic(user);
   }
 
+  async updatePermissions(
+    id: string,
+    raw: string[],
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const target = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(target.cityId, actorUserId, actorRole);
+    if (!isOfficeRole(target.role)) {
+      throw new BadRequestException(
+        'Разрешения задаются только для офисных ролей',
+      );
+    }
+    if (target.role === Role.OWNER && actorRole !== Role.OWNER) {
+      throw new ForbiddenException('Нельзя менять права владельца');
+    }
+    const permissions = parsePermissionsInput(raw);
+    if (permissions.length === 0) {
+      throw new BadRequestException('Укажите хотя бы одно разрешение');
+    }
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { permissions },
+      select: userSelect,
+    });
+    return this.toPublic(user);
+  }
+
   private parseCityIds(csv?: string): string[] {
     if (!csv) return [];
     return [...new Set(csv.split(',').map((s) => s.trim()).filter(Boolean))];
@@ -216,15 +276,37 @@ export class UsersService {
     }
     const target = await this.getRaw(id);
     await this.assertEmployeeBranchAccess(target.cityId, userId, role);
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: {
-        status: UserStatus.FIRED,
-        firedAt: new Date(),
-        fireReason: input.reason,
-        recommendedHire: input.recommendedHire,
-      },
-      select: userSelect,
+    const user = await this.prisma.$transaction(async (tx) => {
+      if (target.role === Role.MASTER) {
+        const master = await tx.master.findUnique({
+          where: { userId: id },
+        });
+        if (master) {
+          await tx.order.updateMany({
+            where: {
+              masterId: master.id,
+              status: {
+                notIn: ['DONE', 'REFUSAL', 'CANCELLED_CC'],
+              },
+            },
+            data: { masterId: null },
+          });
+          await tx.master.update({
+            where: { id: master.id },
+            data: { status: UserStatus.FIRED },
+          });
+        }
+      }
+      return tx.user.update({
+        where: { id },
+        data: {
+          status: UserStatus.FIRED,
+          firedAt: new Date(),
+          fireReason: input.reason,
+          recommendedHire: input.recommendedHire,
+        },
+        select: userSelect,
+      });
     });
     return this.toPublic(user);
   }
@@ -232,15 +314,23 @@ export class UsersService {
   async restore(id: string, userId: string, role: Role) {
     const target = await this.getRaw(id);
     await this.assertEmployeeBranchAccess(target.cityId, userId, role);
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: {
-        status: UserStatus.ACTIVE,
-        firedAt: null,
-        fireReason: null,
-        recommendedHire: null,
-      },
-      select: userSelect,
+    const user = await this.prisma.$transaction(async (tx) => {
+      if (target.role === Role.MASTER) {
+        await tx.master.updateMany({
+          where: { userId: id },
+          data: { status: UserStatus.ACTIVE },
+        });
+      }
+      return tx.user.update({
+        where: { id },
+        data: {
+          status: UserStatus.ACTIVE,
+          firedAt: null,
+          fireReason: null,
+          recommendedHire: null,
+        },
+        select: userSelect,
+      });
     });
     return this.toPublic(user);
   }

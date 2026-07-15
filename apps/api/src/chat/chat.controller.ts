@@ -9,8 +9,10 @@ import {
 import { ChatChannel, Role } from '@prisma/client';
 import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ChatService } from './chat.service';
 
@@ -50,18 +52,20 @@ class IngestDto {
 }
 
 @Controller('chat')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
   @Get('threads')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.read')
   threads(@CurrentUser() user: { userId: string; role: string }) {
     return this.chat.threads(user.userId, user.role);
   }
 
   @Get('threads/:id')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.read')
   get(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string },
@@ -71,6 +75,7 @@ export class ChatController {
 
   @Post('threads/:id/messages')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.write')
   reply(
     @Param('id') id: string,
     @Body() dto: ReplyDto,
@@ -81,6 +86,7 @@ export class ChatController {
 
   @Post('threads/:id/link-order')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.write')
   link(
     @Param('id') id: string,
     @Body() dto: LinkOrderDto,
@@ -91,6 +97,7 @@ export class ChatController {
 
   @Post('threads/:id/send-to-master')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.write')
   sendToMaster(
     @Param('id') id: string,
     @Body() dto: SendToMasterDto,
@@ -102,6 +109,7 @@ export class ChatController {
   /** Для бота / интеграций (MVP: тот же JWT админа). */
   @Post('ingest')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.write')
   ingest(@Body() dto: IngestDto) {
     return this.chat.ingest(dto);
   }

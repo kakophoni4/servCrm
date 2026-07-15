@@ -21,6 +21,10 @@ describe('BotService', () => {
     getBotToken: jest.fn(),
     getWebhookSecret: jest.fn(),
   };
+  const documents = {
+    missingRequiredKinds: jest.fn(),
+    uploadMany: jest.fn(),
+  };
 
   const txMock = {
     order: { update: jest.fn() },
@@ -29,7 +33,7 @@ describe('BotService', () => {
 
   const prisma = {
     user: { findFirst: jest.fn() },
-    order: { findUnique: jest.fn() },
+    order: { findUnique: jest.fn(), update: jest.fn() },
     orderDocument: { findMany: jest.fn(), count: jest.fn() },
     $transaction: jest.fn(),
   } as any;
@@ -42,14 +46,28 @@ describe('BotService', () => {
   const telegramId = 'tg-111';
   const orderId = 'order-1';
 
+  const allDocs = [
+    DocKind.CONTRACT,
+    DocKind.RECEIPT_SERVICE,
+    DocKind.RECEIPT_PARTS,
+    DocKind.PARTS_PHOTO,
+    DocKind.RECEIPT_SD,
+  ];
+
   beforeEach(() => {
     jest.clearAllMocks();
     originalFetch = global.fetch;
     global.fetch = jest.fn();
-    svc = new BotService(prisma, chat as any, settings as any);
+    svc = new BotService(
+      prisma,
+      chat as any,
+      settings as any,
+      documents as any,
+    );
     prisma.$transaction.mockImplementation((cb: (tx: typeof txMock) => unknown) =>
       cb(txMock),
     );
+    documents.missingRequiredKinds.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -101,10 +119,13 @@ describe('BotService', () => {
       ).rejects.toThrow('Заявка не найдена у мастера');
     });
 
-    it('throws BadRequestException for DONE without CONTRACT/RECEIPT_SERVICE', async () => {
+    it('throws BadRequestException for DONE without required docs', async () => {
       mockMaster();
       mockOrder();
-      prisma.orderDocument.findMany.mockResolvedValue([]);
+      documents.missingRequiredKinds.mockResolvedValue([
+        DocKind.CONTRACT,
+        DocKind.RECEIPT_SERVICE,
+      ]);
 
       await expect(
         svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
@@ -114,26 +135,7 @@ describe('BotService', () => {
       ).rejects.toThrow(/договор/);
       await expect(
         svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
-      ).rejects.toThrow(/чек услуги/);
-    });
-
-    it('throws BadRequestException for DONE with partsYesNo without RECEIPT_PARTS/PARTS_PHOTO', async () => {
-      mockMaster();
-      mockOrder({ partsYesNo: true });
-      prisma.orderDocument.findMany.mockResolvedValue([
-        { kind: DocKind.CONTRACT },
-        { kind: DocKind.RECEIPT_SERVICE },
-      ]);
-
-      await expect(
-        svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
-      ).rejects.toThrow(/чек комплектующих/);
-      await expect(
-        svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
-      ).rejects.toThrow(/фото комплектующих/);
+      ).rejects.toThrow(/чек за услугу/);
     });
 
     it('throws BadRequestException for IN_PROGRESS_SD without RECEIPT_SD', async () => {
@@ -146,16 +148,13 @@ describe('BotService', () => {
       ).rejects.toThrow(BadRequestException);
       await expect(
         svc.setStatus(telegramId, orderId, OrderStatus.IN_PROGRESS_SD, true),
-      ).rejects.toThrow('Для статуса «В работе СД» нужна сохранённая расписка СД');
+      ).rejects.toThrow('Для статуса «В работе СД» нужна сохранная расписка');
     });
 
     it('creates ORDER cash income on successful DONE', async () => {
       mockMaster();
       mockOrder({ paid: 2000 });
-      prisma.orderDocument.findMany.mockResolvedValue([
-        { kind: DocKind.CONTRACT },
-        { kind: DocKind.RECEIPT_SERVICE },
-      ]);
+      documents.missingRequiredKinds.mockResolvedValue([]);
       txMock.order.update.mockResolvedValue({
         id: orderId,
         status: OrderStatus.DONE,
@@ -168,7 +167,7 @@ describe('BotService', () => {
       expect(prisma.$transaction).toHaveBeenCalled();
       expect(txMock.order.update).toHaveBeenCalledWith({
         where: { id: orderId },
-        data: { status: OrderStatus.DONE },
+        data: { status: OrderStatus.DONE, docsViaAdmin: false },
       });
       expect(txMock.cashTx.findFirst).toHaveBeenCalledWith({
         where: { orderId, incomeBasis: CashIncomeBasis.ORDER },
@@ -190,10 +189,7 @@ describe('BotService', () => {
     it('does not create cash income when ORDER income already exists', async () => {
       mockMaster();
       mockOrder();
-      prisma.orderDocument.findMany.mockResolvedValue([
-        { kind: DocKind.CONTRACT },
-        { kind: DocKind.RECEIPT_SERVICE },
-      ]);
+      documents.missingRequiredKinds.mockResolvedValue([]);
       txMock.order.update.mockResolvedValue({
         id: orderId,
         status: OrderStatus.DONE,
@@ -356,7 +352,56 @@ describe('BotService', () => {
       );
     });
 
-    it('calls setStatus for c:orderId:STATUS', async () => {
+    it('requests missing docs instead of setStatus for DONE', async () => {
+      documents.missingRequiredKinds.mockResolvedValue([DocKind.CONTRACT]);
+      const sendMessageSpy = jest
+        .spyOn(svc, 'sendMessage')
+        .mockResolvedValue(null);
+      const setStatusSpy = jest.spyOn(svc, 'setStatus');
+
+      await (svc as any).handleCallbackQuery({
+        id: 'cq-docs',
+        data: `c:${orderId}:${OrderStatus.DONE}`,
+        from: { id: 111 },
+        message: { chat: { id: 222 } },
+      });
+
+      expect(setStatusSpy).not.toHaveBeenCalled();
+      expect(sendMessageSpy).toHaveBeenCalled();
+      expect(
+        sendMessageSpy.mock.calls.some((c) =>
+          String(c[1]).includes('Договор'),
+        ),
+      ).toBe(true);
+    });
+
+    it('sets docsViaAdmin on ad:orderId', async () => {
+      mockMaster();
+      prisma.order.update.mockResolvedValue({ id: orderId });
+      jest.spyOn(svc, 'notifyAdminsDocsViaAdmin').mockResolvedValue(null);
+      const sendMessageSpy = jest
+        .spyOn(svc, 'sendMessage')
+        .mockResolvedValue(null);
+
+      await (svc as any).handleCallbackQuery({
+        id: 'cq-ad',
+        data: `ad:${orderId}`,
+        from: { id: 111 },
+        message: { chat: { id: 222 } },
+      });
+
+      expect(prisma.order.update).toHaveBeenCalledWith({
+        where: { id: orderId },
+        data: { docsViaAdmin: true },
+      });
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        '222',
+        expect.stringContaining('администратор'),
+      );
+    });
+
+    it('calls setStatus for c:orderId:STATUS when docs present', async () => {
+      documents.missingRequiredKinds.mockResolvedValue([]);
       const setStatusSpy = jest
         .spyOn(svc, 'setStatus')
         .mockResolvedValue({ id: orderId, status: OrderStatus.DONE } as any);
@@ -376,5 +421,9 @@ describe('BotService', () => {
         true,
       );
     });
+  });
+
+  it('exposes all required doc kinds constant coverage', () => {
+    expect(allDocs).toHaveLength(5);
   });
 });

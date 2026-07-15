@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { api, downloadFile, getStoredUser, uploadFiles } from '@/lib/api';
 import {
   DOC_KIND_LABELS,
+  ORDER_UPLOAD_DOC_KINDS,
   STATUS_LABELS,
   TYPE_LABELS,
   isAdminRole,
@@ -36,6 +37,7 @@ type Order = {
   scheduledAt?: string | null;
   masterId?: string | null;
   cityId?: string | null;
+  docsViaAdmin?: boolean;
   cancelFault?: 'master' | 'admin' | null;
   client: {
     id: string;
@@ -54,7 +56,6 @@ type Order = {
   };
   payment?: {
     paid: string | number;
-    prepay: string | number;
     partsCost: string | number;
     partsYesNo: boolean;
     workSum: string | number;
@@ -67,7 +68,6 @@ type Order = {
 };
 
 const STATUSES = Object.keys(STATUS_LABELS);
-const DOC_KINDS = Object.keys(DOC_KIND_LABELS);
 
 const CLAIM_TYPES: Record<string, string> = {
   POLICE: 'Полиция',
@@ -81,6 +81,12 @@ function toLocalInput(iso?: string | null) {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fileNamesLabel(files: FileList | null) {
+  if (!files?.length) return null;
+  if (files.length === 1) return files[0].name;
+  return `Выбрано: ${files.length}`;
 }
 
 export default function OrderDetailPage() {
@@ -101,21 +107,17 @@ export default function OrderDetailPage() {
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [paid, setPaid] = useState('0');
-  const [prepay, setPrepay] = useState('0');
   const [partsCost, setPartsCost] = useState('0');
-  const [partsYesNo, setPartsYesNo] = useState(false);
-  const [isClaim, setIsClaim] = useState(false);
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
 
   const [showClaimForm, setShowClaimForm] = useState(false);
   const [claimForm, setClaimForm] = useState({
     type: 'PRICE_DISSATISFIED',
     refundSum: '0',
-    orderSum: '0',
     cityId: '',
   });
 
-  const [docKind, setDocKind] = useState('RECEIPT_SERVICE');
+  const [docKind, setDocKind] = useState<string>(ORDER_UPLOAD_DOC_KINDS[0]);
   const [docFiles, setDocFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -129,10 +131,7 @@ export default function OrderDetailPage() {
     setTypeTech(data.typeTech ?? '');
     setScheduledAt(toLocalInput(data.scheduledAt));
     setPaid(String(data.payment?.paid ?? 0));
-    setPrepay(String(data.payment?.prepay ?? 0));
     setPartsCost(String(data.payment?.partsCost ?? 0));
-    setPartsYesNo(Boolean(data.payment?.partsYesNo));
-    setIsClaim(data.isClaim);
     setCancelFault(
       data.cancelFault === 'master' || data.cancelFault === 'admin'
         ? data.cancelFault
@@ -140,7 +139,6 @@ export default function OrderDetailPage() {
     );
     setClaimForm((f) => ({
       ...f,
-      orderSum: String(data.payment?.paid ?? data.payment?.workSum ?? f.orderSum),
       cityId: f.cityId || data.cityId || '',
     }));
   }
@@ -163,19 +161,28 @@ export default function OrderDetailPage() {
 
   const paidNum = Number(paid);
   const needsDocs = paidNum > 500;
-  const hasDocs = (order?.documents?.length ?? 0) > 0;
-  const doneBlocked = status === 'DONE' && needsDocs && !hasDocs;
+  const presentKinds = useMemo(
+    () => new Set((order?.documents ?? []).map((d) => d.kind)),
+    [order?.documents],
+  );
+  const missingKinds = ORDER_UPLOAD_DOC_KINDS.filter((k) => !presentKinds.has(k));
+  const hasAllDocs = missingKinds.length === 0;
+  const doneBlocked = status === 'DONE' && needsDocs && !hasAllDocs;
 
   async function save(e: FormEvent) {
     e.preventDefault();
     if (doneBlocked) {
-      setError('Для статуса «Готов» при сумме > 500 ₽ нужны документы (чеки).');
+      setError(
+        `Для статуса «Готов» при сумме > 500 ₽ нужны все документы: ${missingKinds
+          .map((k) => DOC_KIND_LABELS[k])
+          .join(', ')}.`,
+      );
       return;
     }
     setError('');
     setMsg('');
     try {
-      const body: Record<string, unknown> = { isClaim };
+      const body: Record<string, unknown> = {};
       if (admin) {
         body.status = status;
         body.masterId = masterId || null;
@@ -186,9 +193,7 @@ export default function OrderDetailPage() {
           ? new Date(scheduledAt).toISOString()
           : null;
         body.paid = Number(paid);
-        body.prepay = Number(prepay);
         body.partsCost = Number(partsCost);
-        body.partsYesNo = partsYesNo;
         if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
           body.cancelFault = cancelFault || null;
         }
@@ -212,7 +217,6 @@ export default function OrderDetailPage() {
           orderId: id,
           type: claimForm.type,
           refundSum: Number(claimForm.refundSum),
-          orderSum: Number(claimForm.orderSum),
           cityId: claimForm.cityId || undefined,
         }),
       });
@@ -279,6 +283,10 @@ export default function OrderDetailPage() {
     }
   }
 
+  function goOrder(orderId: string) {
+    router.push(`/orders/${orderId}`);
+  }
+
   if (!order) {
     return (
       <div className="panel">
@@ -286,6 +294,8 @@ export default function OrderDetailPage() {
       </div>
     );
   }
+
+  const selectedLabel = fileNamesLabel(docFiles);
 
   return (
     <div>
@@ -296,6 +306,13 @@ export default function OrderDetailPage() {
 
       <div className="grid-2" style={{ alignItems: 'start' }}>
         <form className="panel" onSubmit={save}>
+          {order.docsViaAdmin ? (
+            <div className="banner-warn">
+              Мастер попросил загрузить документы через администратора и закрыть
+              заявку.
+            </div>
+          ) : null}
+
           <p>
             <strong>{order.client.name}</strong> · {order.client.phoneNormalized}
             <br />
@@ -321,7 +338,7 @@ export default function OrderDetailPage() {
                 />
               </div>
               <div className="field">
-                <label>Дата назначения</label>
+                <label>Дата/время выполнения</label>
                 <input
                   type="datetime-local"
                   value={scheduledAt}
@@ -349,14 +366,11 @@ export default function OrderDetailPage() {
             </>
           )}
 
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-            <input
-              type="checkbox"
-              checked={isClaim}
-              onChange={(e) => setIsClaim(e.target.checked)}
-            />
-            Претензия
-          </label>
+          {order.isClaim ? (
+            <p className="muted" style={{ marginBottom: 12 }}>
+              По заявке есть претензия
+            </p>
+          ) : null}
 
           {admin ? (
             <>
@@ -406,24 +420,12 @@ export default function OrderDetailPage() {
                   <input value={paid} onChange={(e) => setPaid(e.target.value)} />
                 </div>
                 <div className="field">
-                  <label>Предоплата</label>
-                  <input value={prepay} onChange={(e) => setPrepay(e.target.value)} />
-                </div>
-                <div className="field">
                   <label>Комплектующие, ₽</label>
                   <input
                     value={partsCost}
                     onChange={(e) => setPartsCost(e.target.value)}
                   />
                 </div>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={partsYesNo}
-                    onChange={(e) => setPartsYesNo(e.target.checked)}
-                  />
-                  Комплектующие есть
-                </label>
               </div>
 
               {order.payment ? (
@@ -454,8 +456,10 @@ export default function OrderDetailPage() {
 
               {needsDocs ? (
                 <p className="error" style={{ fontSize: '0.9rem' }}>
-                  Сумма &gt; 500 ₽ — для статуса «Готов» обязательны документы (чеки).
-                  {!hasDocs ? ' Документы не загружены.' : ` Загружено: ${order.documents?.length}.`}
+                  Сумма &gt; 500 ₽ — для статуса «Готов» обязательны все типы документов.
+                  {hasAllDocs
+                    ? ' Все документы загружены.'
+                    : ` Не хватает: ${missingKinds.map((k) => DOC_KIND_LABELS[k]).join(', ')}.`}
                 </p>
               ) : null}
             </>
@@ -469,7 +473,7 @@ export default function OrderDetailPage() {
           {error ? <p className="error">{error}</p> : null}
           {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <div className="actions-row">
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
@@ -483,10 +487,10 @@ export default function OrderDetailPage() {
               </button>
             ) : null}
             <button className="btn secondary" type="button" onClick={makeRepeat}>
-              На повтор (новая заявка)
+              На повтор
             </button>
             <button className="btn secondary" type="button" onClick={makeWarranty}>
-              Гарантия (доп.статус)
+              Гарантия
             </button>
           </div>
         </form>
@@ -512,7 +516,7 @@ export default function OrderDetailPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Город</label>
+                  <label>Филиал</label>
                   <select
                     value={claimForm.cityId}
                     onChange={(e) =>
@@ -539,10 +543,10 @@ export default function OrderDetailPage() {
                 <div className="field">
                   <label>Сумма заявки</label>
                   <input
-                    value={claimForm.orderSum}
-                    onChange={(e) =>
-                      setClaimForm({ ...claimForm, orderSum: e.target.value })
-                    }
+                    readOnly
+                    disabled
+                    value={String(order.payment?.paid ?? 0)}
+                    title="Подставляется из заявки"
                   />
                 </div>
               </div>
@@ -563,6 +567,17 @@ export default function OrderDetailPage() {
 
           <div className="panel">
             <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Документы</h2>
+            <ul className="docs-checklist">
+              {ORDER_UPLOAD_DOC_KINDS.map((k) => {
+                const ok = presentKinds.has(k);
+                return (
+                  <li key={k} className={ok ? 'ok' : 'miss'}>
+                    <span>{ok ? '✓' : '○'}</span>
+                    <span>{DOC_KIND_LABELS[k]}</span>
+                  </li>
+                );
+              })}
+            </ul>
             <table className="table">
               <thead>
                 <tr>
@@ -604,7 +619,7 @@ export default function OrderDetailPage() {
                 <div className="field">
                   <label>Тип документа</label>
                   <select value={docKind} onChange={(e) => setDocKind(e.target.value)}>
-                    {DOC_KINDS.map((k) => (
+                    {ORDER_UPLOAD_DOC_KINDS.map((k) => (
                       <option key={k} value={k}>
                         {DOC_KIND_LABELS[k]}
                       </option>
@@ -612,12 +627,19 @@ export default function OrderDetailPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Файлы (можно несколько)</label>
-                  <input
-                    type="file"
-                    multiple
-                    onChange={(e) => setDocFiles(e.target.files)}
-                  />
+                  <label>Файлы</label>
+                  <label className="file-picker">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*,.pdf,application/pdf"
+                      onChange={(e) => setDocFiles(e.target.files)}
+                    />
+                    <span className="file-picker-title">
+                      {selectedLabel ?? 'Выбрать файлы'}
+                    </span>
+                    <span className="file-picker-hint">фото или PDF</span>
+                  </label>
                 </div>
               </div>
               <button type="submit" className="btn secondary" disabled={uploading}>
@@ -642,9 +664,21 @@ export default function OrderDetailPage() {
               </thead>
               <tbody>
                 {order.client.orders.map((o) => (
-                  <tr key={o.id}>
+                  <tr
+                    key={o.id}
+                    className="row-link"
+                    role="link"
+                    tabIndex={0}
+                    onClick={() => goOrder(o.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        goOrder(o.id);
+                      }
+                    }}
+                  >
                     <td>
-                      <Link href={`/orders/${o.id}`}>{o.publicId}</Link>
+                      <strong>{o.publicId}</strong>
                       {o.isClaim ? ' ⚠' : ''}
                     </td>
                     <td>{TYPE_LABELS[o.type]}</td>

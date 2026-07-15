@@ -18,7 +18,10 @@ import { normalizePhone } from '../common/utils/phone';
 import { buildOrderPrefix, buildPublicId } from '../common/utils/order-id';
 import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
-import { DocumentsService } from '../documents/documents.service';
+import {
+  DOC_KIND_RU,
+  DocumentsService,
+} from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalaryService } from '../salary/salary.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -60,6 +63,49 @@ export class OrdersService {
       where: { cityId: this.branch.cityWhere(cityIds) },
       include: this.orderInclude,
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Поиск заявок по publicId или телефону клиента (для претензий и т.п.). */
+  async search(userId: string, role: Role, q: string) {
+    const query = q.trim();
+    if (query.length < 2) return [];
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityFilter = this.branch.cityWhere(allowed);
+    const phoneDigits = normalizePhone(query);
+
+    const or: Prisma.OrderWhereInput[] = [
+      { publicId: { contains: query, mode: 'insensitive' } },
+    ];
+    if (phoneDigits.length >= 3) {
+      or.push({
+        client: { phoneNormalized: { contains: phoneDigits } },
+      });
+    }
+    // Поиск по имени клиента, если ввели буквы
+    if (/[a-zA-Zа-яА-ЯёЁ]/.test(query)) {
+      or.push({
+        client: { name: { contains: query, mode: 'insensitive' } },
+      });
+    }
+
+    return this.prisma.order.findMany({
+      where: {
+        cityId: cityFilter,
+        OR: or,
+      },
+      take: 20,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        publicId: true,
+        cityId: true,
+        client: {
+          select: { name: true, phoneNormalized: true },
+        },
+        payment: { select: { paid: true } },
+      },
     });
   }
 
@@ -105,12 +151,18 @@ export class OrdersService {
       throw new BadRequestException('Укажите партнёра');
     }
 
+    const isAdmin = ADMIN_ROLES.includes(role);
+    // Комментарий филиала — только админ / директор / владелец.
+    const branchComment = isAdmin ? dto.branchComment : undefined;
+    // Дата выполнения — только админ / директор / владелец (не при создании диспетчером).
+    const scheduledAt =
+      isAdmin && dto.scheduledAt ? new Date(dto.scheduledAt) : null;
+
     const phone = normalizePhone(dto.clientPhone);
     if (phone.length < 10) {
       throw new BadRequestException('Некорректный телефон');
     }
 
-    const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
     const status = scheduledAt
       ? OrderStatus.WAITING
       : OrderStatus.NOT_SCHEDULED;
@@ -145,13 +197,13 @@ export class OrdersService {
             name: dto.clientName.trim(),
             ageCategoryId: dto.ageCategoryId,
             cityId,
-            branchComment: dto.branchComment,
+            branchComment,
           },
         });
-      } else if (dto.branchComment) {
+      } else if (branchComment) {
         client = await tx.client.update({
           where: { id: client.id },
-          data: { branchComment: dto.branchComment },
+          data: { branchComment },
         });
       }
 
@@ -185,7 +237,7 @@ export class OrdersService {
           isRepeat,
           isProfile: dto.isProfile ?? true,
           typeTech: dto.typeTech,
-          branchComment: dto.branchComment ?? client.branchComment,
+          branchComment: branchComment ?? client.branchComment,
           cityId,
           createdById: userId,
           payment: { create: {} },
@@ -193,7 +245,6 @@ export class OrdersService {
         include: this.orderInclude,
       });
 
-      void role;
       return order;
     });
 
@@ -298,6 +349,18 @@ export class OrdersService {
       throw new ForbiddenException('Виновника отмены указывает администратор');
     }
 
+    if (dto.branchComment !== undefined && !isAdmin) {
+      throw new ForbiddenException(
+        'Комментарий филиала может менять только администратор',
+      );
+    }
+
+    if (dto.scheduledAt !== undefined && !isAdmin) {
+      throw new ForbiddenException(
+        'Дату выполнения указывает администратор',
+      );
+    }
+
     let status = dto.status;
     if (dto.scheduledAt !== undefined && status === undefined) {
       status = dto.scheduledAt
@@ -364,13 +427,22 @@ export class OrdersService {
         : Number(existingPayment?.paid ?? 0);
 
     if (status === OrderStatus.DONE && requiresDocsForDone(nextPaid)) {
-      const ok = await this.documents.hasRequiredReceipts(id);
-      if (!ok) {
+      const missing = await this.documents.missingRequiredKinds(id);
+      if (missing.length) {
         throw new BadRequestException(
-          'При оплате >500 ₽ нельзя поставить Готов без подтверждающих документов',
+          `При оплате >500 ₽ нельзя поставить Готов без документов: ${missing
+            .map((k) => DOC_KIND_RU[k])
+            .join(', ')}`,
         );
       }
     }
+
+    if (status === OrderStatus.DONE) {
+      data.docsViaAdmin = false;
+    }
+
+    const becameDone =
+      status === OrderStatus.DONE && existing.status !== OrderStatus.DONE;
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
@@ -393,6 +465,7 @@ export class OrdersService {
         paidForCash = paid;
         const partsCost =
           dto.partsCost ?? Number(existingPayment?.partsCost ?? 0);
+        const partsYesNo = partsCost > 0;
         const masterPct = await this.salary.percentFor(paid - partsCost);
         const calc = calcPayment(paid, partsCost, masterPct);
 
@@ -403,14 +476,14 @@ export class OrdersService {
             paid,
             prepay: dto.prepay ?? 0,
             partsCost,
-            partsYesNo: dto.partsYesNo ?? false,
+            partsYesNo,
             ...calc,
           },
           update: {
             paid: dto.paid,
             prepay: dto.prepay,
             partsCost: dto.partsCost,
-            partsYesNo: dto.partsYesNo,
+            partsYesNo,
             ...calc,
           },
         });
@@ -451,6 +524,10 @@ export class OrdersService {
       dto.masterId !== existing.masterId
     ) {
       await this.bot.notifyMasterOrder(dto.masterId, id);
+    }
+
+    if (becameDone) {
+      await this.bot.notifyMasterStatusChanged(id, OrderStatus.DONE);
     }
 
     return result;

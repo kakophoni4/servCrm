@@ -19,8 +19,10 @@ import {
   Min,
 } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ClaimsService } from './claims.service';
 
@@ -74,12 +76,13 @@ class UpdateClaimDto {
 }
 
 @Controller('claims')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClaimsController {
   constructor(private readonly claims: ClaimsService) {}
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('claims.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('cityId') cityId?: string,
@@ -89,6 +92,7 @@ export class ClaimsController {
 
   @Post()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('claims.write')
   create(
     @Body() dto: CreateClaimDto,
     @CurrentUser() user: { userId: string; role: Role },
@@ -98,6 +102,7 @@ export class ClaimsController {
 
   @Patch(':id/close')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('claims.write')
   close(
     @Param('id') id: string,
     @Body() dto: CloseClaimDto,
@@ -108,6 +113,7 @@ export class ClaimsController {
 
   @Patch(':id')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('claims.write')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateClaimDto,

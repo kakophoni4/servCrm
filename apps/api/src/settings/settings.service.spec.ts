@@ -8,9 +8,16 @@ describe('SettingsService — ЗП диспетчеров', () => {
     dispatcherPaySettings: { findUnique: jest.fn() },
     order: { findMany: jest.fn() },
     adDailyReport: { findMany: jest.fn() },
+    dispatcherShift: { findMany: jest.fn() },
   } as any;
 
-  const svc = new SettingsService(prisma);
+  const branch = {
+    allowedCityIds: jest.fn(),
+    resolveCityIds: jest.fn(),
+    cityWhere: jest.fn(),
+  } as any;
+
+  const svc = new SettingsService(prisma, branch);
 
   const userId = 'dispatcher-1';
   const dispatcher = {
@@ -63,6 +70,7 @@ describe('SettingsService — ЗП диспетчеров', () => {
     prisma.adDailyReport.findMany.mockResolvedValue(
       overrides?.ads !== undefined ? overrides.ads : adReports,
     );
+    prisma.dispatcherShift.findMany.mockResolvedValue([]);
   }
 
   beforeEach(() => {
@@ -95,19 +103,19 @@ describe('SettingsService — ЗП диспетчеров', () => {
       );
     });
 
-    it('calculates total = salaryBase + dailyTurnoverPct*turnover + leafletBonus*leaflets + closedOrdersBonusPct*ownClosedNet with rounding', async () => {
+    it('calculates total with leaflet bonus as rate per 100 leaflets', async () => {
       mockCalcChain();
 
       const result = await svc.calcDispatcherPay(userId, '2026-01-01', '2026-01-31');
 
       // turnover = 10000 + 5000 + 3000.333 = 18000.333
       // ownClosedNet = 10000 + 3000.333 = 13000.333
-      // leaflets = 150
+      // leaflets = 150 → 2.5 ₽ × (150/100) = 3.75
       expect(result.salaryBase).toBe(10000);
       expect(result.dailyTurnoverPay).toBe(900.02); // 0.05 * 18000.333
-      expect(result.leafletsPay).toBe(375); // 2.5 * 150
+      expect(result.leafletsPay).toBe(3.75);
       expect(result.closedOrdersBonus).toBe(1300.03); // 0.1 * 13000.333
-      expect(result.total).toBe(12575.05);
+      expect(result.total).toBe(12203.8);
       expect(result.meta.turnover).toBe(18000.33);
       expect(result.meta.ownClosedNet).toBe(13000.33);
       expect(result.meta.leaflets).toBe(150);

@@ -22,7 +22,21 @@ type AdReport = {
   createdBy?: { fullName: string } | null;
 };
 
-const emptyForm = {
+type FormState = {
+  reportDate: string;
+  promotersCount: string;
+  leafletsIssued: string;
+  leafletsSpread: string;
+  cardsIssued: string;
+  cardsSpread: string;
+  stickersIssued: string;
+  stickersSpread: string;
+  avitoAdsCount: string;
+  leafletsStock: string;
+  cardsStock: string;
+};
+
+const emptyForm = (): FormState => ({
   reportDate: new Date().toISOString().slice(0, 10),
   promotersCount: '0',
   leafletsIssued: '0',
@@ -34,11 +48,11 @@ const emptyForm = {
   avitoAdsCount: '0',
   leafletsStock: '0',
   cardsStock: '0',
-};
+});
 
 export default function AdsPage() {
   const [reports, setReports] = useState<AdReport[]>([]);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
 
   async function load() {
@@ -48,6 +62,10 @@ export default function AdsPage() {
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
   }, []);
+
+  function setNum(key: keyof FormState, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -69,7 +87,7 @@ export default function AdsPage() {
           cardsStock: Number(form.cardsStock),
         }),
       });
-      setForm({ ...emptyForm, reportDate: new Date().toISOString().slice(0, 10) });
+      setForm(emptyForm());
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -97,44 +115,118 @@ export default function AdsPage() {
     }
   }
 
-  function numField(key: keyof typeof form, label: string) {
-    return (
-      <div className="field">
-        <label>{label}</label>
-        <input
-          value={form[key]}
-          onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-        />
-      </div>
-    );
-  }
-
   return (
     <div>
-      <h1 className="page-title">Реклама — ежедневный отчёт</h1>
+      <h1 className="page-title">Реклама</h1>
 
-      <form className="panel" onSubmit={onSubmit} style={{ marginBottom: 16 }}>
-        <div className="grid-2">
+      <form className="panel ads-form" onSubmit={onSubmit} style={{ marginBottom: 16 }}>
+        <div className="ads-form-meta">
           <div className="field">
-            <label>Дата отчёта</label>
+            <label>Дата</label>
             <input
               type="date"
               required
               value={form.reportDate}
-              onChange={(e) => setForm({ ...form, reportDate: e.target.value })}
+              onChange={(e) => setNum('reportDate', e.target.value)}
             />
           </div>
-          {numField('promotersCount', 'Промоутеров')}
-          {numField('leafletsIssued', 'Листовок выдано')}
-          {numField('leafletsSpread', 'Листовок разнесено')}
-          {numField('cardsIssued', 'Визиток выдано')}
-          {numField('cardsSpread', 'Визиток разнесено')}
-          {numField('stickersIssued', 'Наклеек выдано')}
-          {numField('stickersSpread', 'Наклеек разнесено')}
-          {numField('avitoAdsCount', 'Объявлений Авито')}
-          {numField('leafletsStock', 'Остаток листовок')}
-          {numField('cardsStock', 'Остаток визиток')}
+          <div className="field">
+            <label>Промоутеров</label>
+            <input
+              inputMode="numeric"
+              value={form.promotersCount}
+              onChange={(e) => setNum('promotersCount', e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Авито</label>
+            <input
+              inputMode="numeric"
+              value={form.avitoAdsCount}
+              onChange={(e) => setNum('avitoAdsCount', e.target.value)}
+            />
+          </div>
         </div>
+
+        <table className="ads-matrix">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Выдано</th>
+              <th>Разнесено</th>
+              <th>Остаток</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Листовки</td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.leafletsIssued}
+                  onChange={(e) => setNum('leafletsIssued', e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.leafletsSpread}
+                  onChange={(e) => setNum('leafletsSpread', e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.leafletsStock}
+                  onChange={(e) => setNum('leafletsStock', e.target.value)}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td>Визитки</td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.cardsIssued}
+                  onChange={(e) => setNum('cardsIssued', e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.cardsSpread}
+                  onChange={(e) => setNum('cardsSpread', e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.cardsStock}
+                  onChange={(e) => setNum('cardsStock', e.target.value)}
+                />
+              </td>
+            </tr>
+            <tr>
+              <td>Наклейки</td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.stickersIssued}
+                  onChange={(e) => setNum('stickersIssued', e.target.value)}
+                />
+              </td>
+              <td>
+                <input
+                  inputMode="numeric"
+                  value={form.stickersSpread}
+                  onChange={(e) => setNum('stickersSpread', e.target.value)}
+                />
+              </td>
+              <td className="muted">—</td>
+            </tr>
+          </tbody>
+        </table>
+
         <button className="btn" type="submit">
           Сохранить отчёт
         </button>
@@ -146,7 +238,7 @@ export default function AdsPage() {
           <thead>
             <tr>
               <th>Дата</th>
-              <th>Город</th>
+              <th>Филиал</th>
               <th>Промоутеры</th>
               <th>Листовки</th>
               <th>Визитки</th>
@@ -179,11 +271,16 @@ export default function AdsPage() {
                       Скачать
                     </button>
                   ) : (
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => uploadScreenshot(r.id, e.target.files)}
-                    />
+                    <label className="file-picker" style={{ padding: '0.35rem 0.55rem' }}>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => uploadScreenshot(r.id, e.target.files)}
+                      />
+                      <span className="file-picker-title" style={{ fontSize: '0.85rem' }}>
+                        Загрузить
+                      </span>
+                    </label>
                   )}
                 </td>
               </tr>

@@ -8,6 +8,12 @@ import {
   uploadFiles,
 } from '@/lib/api';
 import { ROLE_LABELS, USER_STATUS_LABELS, isAdminRole } from '@/lib/labels';
+import { branchLabel } from '@/lib/branchLabel';
+import {
+  ALL_PERMISSION_KEYS,
+  groupPermissions,
+  isOfficeRole,
+} from '@/lib/permissions';
 
 type User = {
   id: string;
@@ -20,11 +26,12 @@ type User = {
   hiredAt?: string | null;
   hasPassport?: boolean;
   hasEmployeePhoto?: boolean;
-  city?: { id: string; name: string } | null;
+  city?: { id: string; name: string; cityName?: string | null } | null;
   managedCityIds?: string[];
+  permissions?: string[];
 };
 
-type City = { id: string; name: string };
+type City = { id: string; name: string; cityName?: string | null };
 
 type Tab = 'ACTIVE' | 'FIRED';
 
@@ -54,11 +61,20 @@ export default function UsersPage() {
   const [employeePhoto, setEmployeePhoto] = useState<File | null>(null);
   const [branchEditId, setBranchEditId] = useState<string | null>(null);
   const [branchSel, setBranchSel] = useState<string[]>([]);
+  const [permSel, setPermSel] = useState<string[]>([...ALL_PERMISSION_KEYS]);
+  const [permEditId, setPermEditId] = useState<string | null>(null);
+  const [editPermSel, setEditPermSel] = useState<string[]>([]);
   const role = getStoredUser()?.role ?? '';
   const admin = isAdminRole(role);
   const isOwner = role === 'OWNER';
+  const canEditPerms = isOwner || role === 'DIRECTOR';
+  const officeTarget = isOfficeRole(form.role);
+  const permGroups = groupPermissions();
 
-  const cityName = (id: string) => cities.find((c) => c.id === id)?.name ?? id;
+  const cityLabel = (id: string) => {
+    const c = cities.find((x) => x.id === id);
+    return c ? branchLabel(c) : id;
+  };
 
   function toggle(list: string[], id: string): string[] {
     return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
@@ -87,6 +103,10 @@ export default function UsersPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (isOfficeRole(form.role) && permSel.length === 0) {
+      setError('Выберите хотя бы одно разрешение');
+      return;
+    }
     try {
       const fd = appendFormFields(new FormData(), {
         login: form.login,
@@ -104,6 +124,9 @@ export default function UsersPage() {
           form.role === 'DIRECTOR' && form.managedCityIds.length
             ? form.managedCityIds.join(',')
             : undefined,
+        permissions: isOfficeRole(form.role)
+          ? JSON.stringify(permSel)
+          : undefined,
       });
       if (passportPhoto) fd.append('passportPhoto', passportPhoto);
       if (contractPhoto) fd.append('contractPhoto', contractPhoto);
@@ -111,6 +134,7 @@ export default function UsersPage() {
 
       await uploadFiles('/users', fd);
       setForm(emptyForm);
+      setPermSel([...ALL_PERMISSION_KEYS]);
       setPassportPhoto(null);
       setContractPhoto(null);
       setEmployeePhoto(null);
@@ -133,6 +157,31 @@ export default function UsersPage() {
       });
       setFireId(null);
       setFireForm({ reason: '', recommendedHire: true });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  function startPermEdit(u: User) {
+    setPermEditId(u.id);
+    setEditPermSel(
+      u.permissions?.length ? [...u.permissions] : [...ALL_PERMISSION_KEYS],
+    );
+  }
+
+  async function savePermEdit(id: string) {
+    setError('');
+    if (editPermSel.length === 0) {
+      setError('Выберите хотя бы одно разрешение');
+      return;
+    }
+    try {
+      await api(`/users/${id}/permissions`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissions: editPermSel }),
+      });
+      setPermEditId(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -199,8 +248,15 @@ export default function UsersPage() {
               <label>Роль</label>
               <select
                 value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setForm({ ...form, role: next });
+                  if (isOfficeRole(next)) {
+                    setPermSel([...ALL_PERMISSION_KEYS]);
+                  }
+                }}
               >
+                <option value="MASTER">Мастер</option>
                 <option value="DISPATCHER">Диспетчер</option>
                 <option value="ADMIN">Администратор</option>
                 <option value="DIRECTOR">Директор</option>
@@ -215,15 +271,15 @@ export default function UsersPage() {
               />
             </div>
             <div className="field">
-              <label>Город</label>
+              <label>Филиал назначения</label>
               <select
                 value={form.cityId}
                 onChange={(e) => setForm({ ...form, cityId: e.target.value })}
               >
-                <option value="">—</option>
+                <option value="">Выберите филиал</option>
                 {cities.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {branchLabel(c)}
                   </option>
                 ))}
               </select>
@@ -280,11 +336,11 @@ export default function UsersPage() {
                           })
                         }
                       />
-                      {c.name}
+                      {branchLabel(c)}
                     </label>
                   ))}
                   {!cities.length ? (
-                    <span className="muted">Сначала добавьте города</span>
+                    <span className="muted">Сначала добавьте филиалы</span>
                   ) : null}
                 </div>
               </div>
@@ -320,6 +376,56 @@ export default function UsersPage() {
               />
             </div>
           </div>
+
+          {officeTarget ? (
+            <div className="field" style={{ marginTop: 12 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 8,
+                }}
+              >
+                <label style={{ margin: 0 }}>Разрешения</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setPermSel([...ALL_PERMISSION_KEYS])}
+                  >
+                    Все
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setPermSel([])}
+                  >
+                    Снять
+                  </button>
+                </div>
+              </div>
+              <div className="perm-grid">
+                {permGroups.map(([group, items]) => (
+                  <div key={group} className="perm-group">
+                    <div className="perm-group-title">{group}</div>
+                    {items.map((p) => (
+                      <label key={p.key} className="perm-item">
+                        <input
+                          type="checkbox"
+                          checked={permSel.includes(p.key)}
+                          onChange={() => setPermSel(toggle(permSel, p.key))}
+                        />
+                        <span>{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <button className="btn" type="submit">
             Создать сотрудника
           </button>
@@ -349,6 +455,7 @@ export default function UsersPage() {
               <th>ФИО</th>
               <th>Логин</th>
               <th>Роль</th>
+              <th>Разрешения</th>
               <th>Филиалы</th>
               <th>Телефон</th>
               <th>Статус</th>
@@ -362,8 +469,94 @@ export default function UsersPage() {
                 <td>{u.login}</td>
                 <td>{ROLE_LABELS[u.role] ?? u.role}</td>
                 <td>
-                  {u.role !== 'DIRECTOR' ? (
+                  {!isOfficeRole(u.role) ? (
                     <span className="muted">—</span>
+                  ) : permEditId === u.id ? (
+                    <div style={{ minWidth: 280 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 8,
+                          marginBottom: 8,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => setEditPermSel([...ALL_PERMISSION_KEYS])}
+                        >
+                          Все
+                        </button>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => setEditPermSel([])}
+                        >
+                          Снять
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => savePermEdit(u.id)}
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => setPermEditId(null)}
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                      <div className="perm-grid">
+                        {permGroups.map(([group, items]) => (
+                          <div key={group} className="perm-group">
+                            <div className="perm-group-title">{group}</div>
+                            {items.map((p) => (
+                              <label key={p.key} className="perm-item">
+                                <input
+                                  type="checkbox"
+                                  checked={editPermSel.includes(p.key)}
+                                  onChange={() =>
+                                    setEditPermSel(toggle(editPermSel, p.key))
+                                  }
+                                />
+                                <span>{p.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <span>
+                      <span className="muted">
+                        {(u.permissions ?? []).length || 0} из{' '}
+                        {ALL_PERMISSION_KEYS.length}
+                      </span>
+                      {canEditPerms && tab === 'ACTIVE' ? (
+                        <>
+                          {' '}
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            style={{ padding: '2px 8px', fontSize: 12 }}
+                            onClick={() => startPermEdit(u)}
+                          >
+                            Изменить
+                          </button>
+                        </>
+                      ) : null}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  {u.role !== 'DIRECTOR' ? (
+                    <span>
+                      {u.city ? branchLabel(u.city) : '—'}
+                    </span>
                   ) : branchEditId === u.id ? (
                     <div
                       style={{
@@ -389,7 +582,7 @@ export default function UsersPage() {
                               setBranchSel(toggle(branchSel, c.id))
                             }
                           />
-                          {c.name}
+                          {branchLabel(c)}
                         </label>
                       ))}
                       <button
@@ -415,7 +608,7 @@ export default function UsersPage() {
                       style={{ display: 'flex', gap: 6, alignItems: 'center' }}
                     >
                       {(u.managedCityIds ?? []).length
-                        ? (u.managedCityIds ?? []).map(cityName).join(', ')
+                        ? (u.managedCityIds ?? []).map(cityLabel).join(', ')
                         : '—'}
                       {isOwner ? (
                         <button

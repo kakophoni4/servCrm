@@ -22,8 +22,10 @@ import {
   Min,
 } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import {
   StorageService,
@@ -95,7 +97,7 @@ class CreateAdDto {
 }
 
 @Controller('ads')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class AdsController {
   constructor(
     private readonly ads: AdsService,
@@ -104,6 +106,7 @@ export class AdsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('ads.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('cityId') cityId?: string,
@@ -113,6 +116,7 @@ export class AdsController {
 
   @Post()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('ads.write')
   create(
     @Body() dto: CreateAdDto,
     @CurrentUser() user: { userId: string; role: Role },
@@ -122,6 +126,7 @@ export class AdsController {
 
   @Post(':id/screenshot')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('ads.write')
   @UseInterceptors(FileInterceptor('file'))
   attach(
     @Param('id') id: string,
@@ -133,6 +138,7 @@ export class AdsController {
 
   @Get(':id/screenshot')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('ads.read')
   async screenshot(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },

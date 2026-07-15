@@ -40,6 +40,7 @@ export class ClaimsService {
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: input.orderId },
+      include: { payment: true },
     });
     if (!order) throw new NotFoundException('Заявка не найдена');
 
@@ -52,13 +53,16 @@ export class ClaimsService {
       throw new ForbiddenException('Заявка вне вашего филиала');
     }
 
+    // Сумма заявки всегда из оплаты заявки, не из формы.
+    const orderSum = Number(order.payment?.paid ?? 0);
+
     const [claim] = await this.prisma.$transaction([
       this.prisma.claim.create({
         data: {
           orderId: input.orderId,
           type: input.type,
           refundSum: input.refundSum ?? 0,
-          orderSum: input.orderSum ?? 0,
+          orderSum,
           cityId: input.cityId ?? order.cityId,
         },
         include: { order: true, city: true },
@@ -125,7 +129,7 @@ export class ClaimsService {
       data: {
         type: input.type,
         refundSum: input.refundSum,
-        orderSum: input.orderSum,
+        // orderSum не меняем вручную — фиксируется при создании из заявки
         cityId: input.cityId === undefined ? undefined : input.cityId,
       },
       include: {

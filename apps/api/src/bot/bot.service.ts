@@ -16,7 +16,13 @@ import {
   Prisma,
   Role,
 } from '@prisma/client';
+import { extname } from 'path';
 import { ChatService } from '../chat/chat.service';
+import {
+  DOC_KIND_RU,
+  DocumentsService,
+  REQUIRED_ORDER_DOC_KINDS,
+} from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -34,6 +40,27 @@ const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
   [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
 };
 
+const DOC_KIND_TG: Record<DocKind, string> = {
+  [DocKind.CONTRACT]: 'Договор',
+  [DocKind.RECEIPT_SERVICE]: 'Чек за услугу',
+  [DocKind.RECEIPT_PARTS]: 'Чек за комплектующие / расходы',
+  [DocKind.PARTS_PHOTO]: 'Фото запчастей и комплектующих',
+  [DocKind.RECEIPT_SD]: 'Сохранная расписка',
+  [DocKind.AD_SCREEN]: 'Скрин рекламы',
+  [DocKind.CASH_DOC]: 'Кассовый документ',
+  [DocKind.OTHER]: 'Прочее',
+};
+
+const ALLOWED_TG_EXT = new Set([
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.heic',
+]);
+
 type TgFrom = {
   id?: number;
   username?: string;
@@ -42,10 +69,20 @@ type TgFrom = {
 
 type TgChat = { id?: number | string };
 
+type TgPhotoSize = { file_id: string; file_unique_id?: string };
+
+type TgDocument = {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+};
+
 type TgMessage = {
   text?: string;
   chat?: TgChat;
   from?: TgFrom;
+  photo?: TgPhotoSize[];
+  document?: TgDocument;
 };
 
 type TgCallbackQuery = {
@@ -60,18 +97,25 @@ type TgUpdate = {
   callback_query?: TgCallbackQuery;
 };
 
+type DocUploadSession = {
+  orderId: string;
+  expectedKind: DocKind;
+};
+
 /**
  * Слой для Telegram-бота. Токен берётся из настроек (админка) с fallback на env.
  */
 @Injectable()
 export class BotService {
   private readonly logger = new Logger(BotService.name);
+  private readonly docSessions = new Map<string, DocUploadSession>();
 
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => ChatService))
     private readonly chat: ChatService,
     private readonly settings: SettingsService,
+    private readonly documents: DocumentsService,
   ) {}
 
   /** Вызов метода Telegram Bot API токеном из настроек. */
@@ -149,7 +193,6 @@ export class BotService {
       0,
     );
 
-    // Штрафы: приходы кассы с основанием FINE, привязанные к заявкам мастера.
     const fineRows = await this.prisma.cashTx.findMany({
       where: {
         incomeBasis: CashIncomeBasis.FINE,
@@ -190,21 +233,12 @@ export class BotService {
     }
 
     if (status === OrderStatus.DONE) {
-      const docs = await this.prisma.orderDocument.findMany({
-        where: { orderId },
-        select: { kind: true },
-      });
-      const kinds = new Set(docs.map((d) => d.kind));
-      const missing: string[] = [];
-      if (!kinds.has(DocKind.CONTRACT)) missing.push('договор');
-      if (!kinds.has(DocKind.RECEIPT_SERVICE)) missing.push('чек услуги');
-      if (order.payment?.partsYesNo) {
-        if (!kinds.has(DocKind.RECEIPT_PARTS)) missing.push('чек комплектующих');
-        if (!kinds.has(DocKind.PARTS_PHOTO)) missing.push('фото комплектующих');
-      }
+      const missing = await this.documents.missingRequiredKinds(orderId);
       if (missing.length) {
         throw new BadRequestException(
-          `Для статуса «Готов» недостаёт документов: ${missing.join(', ')}`,
+          `Для статуса «Готов» недостаёт документов: ${missing
+            .map((k) => DOC_KIND_RU[k])
+            .join(', ')}`,
         );
       }
     }
@@ -215,7 +249,7 @@ export class BotService {
       });
       if (!sdDocs) {
         throw new BadRequestException(
-          'Для статуса «В работе СД» нужна сохранённая расписка СД',
+          'Для статуса «В работе СД» нужна сохранная расписка',
         );
       }
     }
@@ -223,7 +257,10 @@ export class BotService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: orderId },
-        data: { status },
+        data: {
+          status,
+          ...(status === OrderStatus.DONE ? { docsViaAdmin: false } : {}),
+        },
       });
 
       if (status === OrderStatus.DONE) {
@@ -296,9 +333,7 @@ export class BotService {
     if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
     if (order.comment) lines.push(`Комментарий: ${order.comment}`);
     if (order.scheduledAt) {
-      lines.push(
-        `Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`,
-      );
+      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
     }
     lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
 
@@ -320,6 +355,21 @@ export class BotService {
     });
   }
 
+  /** Уведомить мастера о смене статуса (например админ закрыл заявку). */
+  async notifyMasterStatusChanged(orderId: string, status: OrderStatus) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { master: { include: { user: true } } },
+    });
+    const telegramId = order?.master?.user.telegramId;
+    if (!telegramId || !order) return null;
+    const label = STATUS_LABELS[status] ?? status;
+    return this.sendMessage(
+      telegramId,
+      `Заявка ${order.publicId}: статус «${label}»`,
+    );
+  }
+
   /** Уведомить всех активных админов о новой заявке (для назначения мастера). */
   async notifyAdminsNewOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({
@@ -328,8 +378,6 @@ export class BotService {
     });
     if (!order) return null;
 
-    // Получатели: OWNER (всегда) + админы/директора филиала заявки.
-    // Если у заявки нет города — уведомляем всех админов (fallback).
     const branchFilter: Prisma.UserWhereInput[] = order.cityId
       ? [
           { role: Role.OWNER },
@@ -359,7 +407,7 @@ export class BotService {
       `Тел: ${order.client.phoneNormalized}`,
       `Адрес: ${order.address}`,
     ];
-    if (order.city?.name) lines.push(`Город: ${order.city.name}`);
+    if (order.city?.name) lines.push(`Филиал: ${order.city.name}`);
     if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
     if (order.scheduledAt) {
       lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
@@ -370,6 +418,53 @@ export class BotService {
     this.logger.log(
       `notifyAdminsNewOrder → ${admins.length} адм., заявка ${order.publicId}`,
     );
+
+    return Promise.allSettled(
+      admins.map((a) => this.sendMessage(a.telegramId as string, text)),
+    );
+  }
+
+  async notifyAdminsDocsViaAdmin(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        client: true,
+        city: true,
+        master: { include: { user: true } },
+      },
+    });
+    if (!order) return null;
+
+    const branchFilter: Prisma.UserWhereInput[] = order.cityId
+      ? [
+          { role: Role.OWNER },
+          {
+            role: { in: [Role.ADMIN, Role.DIRECTOR] },
+            OR: [
+              { cityId: order.cityId },
+              { managedBranches: { some: { cityId: order.cityId } } },
+            ],
+          },
+        ]
+      : [{ role: { in: [Role.ADMIN, Role.DIRECTOR, Role.OWNER] } }];
+
+    const admins = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        telegramId: { not: null },
+        OR: branchFilter,
+      },
+      select: { telegramId: true },
+    });
+    if (!admins.length) return null;
+
+    const masterName = order.master?.user.fullName ?? 'мастер';
+    const text = [
+      `📎 Заявка ${order.publicId}`,
+      `Мастер ${masterName} просит загрузить документы через администратора и закрыть заявку.`,
+      `Клиент: ${order.client.name}`,
+      `Адрес: ${order.address}`,
+    ].join('\n');
 
     return Promise.allSettled(
       admins.map((a) => this.sendMessage(a.telegramId as string, text)),
@@ -389,18 +484,182 @@ export class BotService {
     }
 
     const msg = update.message;
-    if (msg?.text && msg.chat?.id != null) {
+    if (!msg?.chat?.id) return { ok: true };
+
+    const chatId = String(msg.chat.id);
+    const telegramId =
+      msg.from?.id != null ? String(msg.from.id) : chatId;
+
+    if (msg.photo?.length || msg.document) {
+      await this.handleIncomingFile(telegramId, chatId, msg);
+      return { ok: true };
+    }
+
+    if (msg.text) {
       const from = msg.from;
       const title =
         from?.username || from?.first_name || String(msg.chat.id);
-      await this.incomingMessage(String(msg.chat.id), msg.text, title);
+      await this.incomingMessage(chatId, msg.text, title);
     }
 
     return { ok: true };
   }
 
+  private async requestMissingDocuments(
+    chatId: string,
+    telegramId: string,
+    orderId: string,
+    missing: DocKind[],
+  ) {
+    if (!missing.length) return;
+    this.docSessions.set(telegramId, {
+      orderId,
+      expectedKind: missing[0],
+    });
+    await this.sendMessage(
+      chatId,
+      'Для статуса «Готов» нужны документы. Пришлите фото или PDF. Каждый тип — отдельным сообщением (или несколько файлов подряд одного типа).',
+    );
+    for (const kind of missing) {
+      await this.sendDocKindPrompt(chatId, orderId, kind);
+    }
+  }
+
+  private sendDocKindPrompt(chatId: string, orderId: string, kind: DocKind) {
+    return this.sendMessage(
+      chatId,
+      `Загрузите: «${DOC_KIND_TG[kind]}» (фото или PDF).`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: 'Далее',
+                callback_data: `dn:${orderId}:${kind}`,
+              },
+              {
+                text: 'Загрузить через администратора',
+                callback_data: `ad:${orderId}`,
+              },
+            ],
+          ],
+        },
+      },
+    );
+  }
+
+  private async handleIncomingFile(
+    telegramId: string,
+    chatId: string,
+    msg: TgMessage,
+  ) {
+    const session = this.docSessions.get(telegramId);
+    if (!session) {
+      await this.sendMessage(
+        chatId,
+        'Сначала выберите статус «Готов» — бот запросит нужные документы.',
+      );
+      return;
+    }
+
+    try {
+      await this.masterByTelegram(telegramId);
+    } catch {
+      await this.sendMessage(chatId, 'Мастер не найден');
+      return;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: session.orderId },
+      include: { master: { include: { user: true } } },
+    });
+    if (!order || order.master?.user.telegramId !== telegramId) {
+      this.docSessions.delete(telegramId);
+      await this.sendMessage(chatId, 'Заявка не найдена у мастера');
+      return;
+    }
+
+    try {
+      const file = await this.downloadTgFile(msg);
+      await this.documents.uploadMany(
+        session.orderId,
+        session.expectedKind,
+        [file],
+        order.master.user.id,
+      );
+    } catch (e) {
+      const text =
+        e instanceof BadRequestException
+          ? String(
+              (e.getResponse() as { message?: string | string[] })?.message ??
+                e.message,
+            )
+          : 'Не удалось сохранить файл';
+      await this.sendMessage(
+        chatId,
+        Array.isArray(text) ? text.join('; ') : text,
+      );
+      return;
+    }
+
+    await this.sendMessage(
+      chatId,
+      `Принято: «${DOC_KIND_TG[session.expectedKind]}». Можно прислать ещё файлы этого типа или нажать «Далее».`,
+    );
+  }
+
+  private async downloadTgFile(msg: TgMessage) {
+    const token = await this.settings.getBotToken();
+    if (!token) throw new BadRequestException('Токен бота не задан');
+
+    let fileId: string;
+    let fileName = 'file';
+    let mimeType = 'application/octet-stream';
+
+    if (msg.document) {
+      fileId = msg.document.file_id;
+      fileName = msg.document.file_name || 'document.pdf';
+      mimeType = msg.document.mime_type || mimeType;
+    } else if (msg.photo?.length) {
+      const best = msg.photo[msg.photo.length - 1];
+      fileId = best.file_id;
+      fileName = 'photo.jpg';
+      mimeType = 'image/jpeg';
+    } else {
+      throw new BadRequestException('Нет файла в сообщении');
+    }
+
+    const meta = await this.telegram<{
+      ok?: boolean;
+      result?: { file_path?: string };
+    }>('getFile', { file_id: fileId });
+    const filePath = meta?.result?.file_path;
+    if (!filePath) throw new BadRequestException('Не удалось получить файл');
+
+    const ext = extname(fileName || filePath).toLowerCase() || '.jpg';
+    if (!ALLOWED_TG_EXT.has(ext)) {
+      throw new BadRequestException(
+        'Допустимы только фото или PDF',
+      );
+    }
+
+    const res = await fetch(
+      `https://api.telegram.org/file/bot${token}/${filePath}`,
+    );
+    if (!res.ok) throw new BadRequestException('Ошибка скачивания файла');
+    const buffer = Buffer.from(await res.arrayBuffer());
+
+    return {
+      originalname: fileName.endsWith(ext) ? fileName : `${fileName}${ext}`,
+      mimetype: mimeType,
+      size: buffer.length,
+      buffer,
+    };
+  }
+
   private async handleCallbackQuery(cq: TgCallbackQuery) {
-    const chatId = cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
+    const chatId =
+      cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
     const telegramId = cq.from?.id != null ? String(cq.from.id) : null;
     const data = cq.data ?? '';
 
@@ -412,6 +671,85 @@ export class BotService {
 
     if (data === 'n') {
       await this.sendMessage(chatId, 'Отменено');
+      return;
+    }
+
+    if (data.startsWith('ad:')) {
+      const orderId = data.slice(3);
+      try {
+        await this.masterByTelegram(telegramId);
+        await this.prisma.order.update({
+          where: { id: orderId },
+          data: { docsViaAdmin: true },
+        });
+        this.docSessions.delete(telegramId);
+        await this.notifyAdminsDocsViaAdmin(orderId);
+        await this.sendMessage(
+          chatId,
+          'Документы загрузит администратор и закроет заявку. Статус обновится автоматически.',
+        );
+      } catch (e) {
+        const text =
+          e instanceof BadRequestException || e instanceof NotFoundException
+            ? String(
+                (e.getResponse() as { message?: string | string[] })?.message ??
+                  e.message,
+              )
+            : 'Не удалось передать заявку администратору';
+        await this.sendMessage(
+          chatId,
+          Array.isArray(text) ? text.join('; ') : text,
+        );
+      }
+      return;
+    }
+
+    if (data.startsWith('dn:')) {
+      const rest = data.slice(3);
+      const sep = rest.lastIndexOf(':');
+      if (sep <= 0) return;
+      const orderId = rest.slice(0, sep);
+      const kind = rest.slice(sep + 1) as DocKind;
+      if (!REQUIRED_ORDER_DOC_KINDS.includes(kind)) return;
+
+      const missing = await this.documents.missingRequiredKinds(orderId);
+      if (missing.includes(kind)) {
+        await this.sendMessage(
+          chatId,
+          `Ещё не загружен файл для «${DOC_KIND_TG[kind]}». Пришлите фото или PDF.`,
+        );
+        this.docSessions.set(telegramId, { orderId, expectedKind: kind });
+        return;
+      }
+
+      const next = missing[0];
+      if (!next) {
+        this.docSessions.delete(telegramId);
+        await this.sendMessage(
+          chatId,
+          'Все документы загружены. Подтвердите статус «Готов» ещё раз.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: 'Подтвердить «Готов»',
+                    callback_data: `c:${orderId}:${OrderStatus.DONE}`,
+                  },
+                  { text: 'Отмена', callback_data: 'n' },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      this.docSessions.set(telegramId, { orderId, expectedKind: next });
+      await this.sendMessage(
+        chatId,
+        `Следующий документ: «${DOC_KIND_TG[next]}». Пришлите фото или PDF.`,
+      );
       return;
     }
 
@@ -448,8 +786,41 @@ export class BotService {
       if (sep <= 0) return;
       const orderId = rest.slice(0, sep);
       const status = rest.slice(sep + 1) as OrderStatus;
+
+      if (status === OrderStatus.DONE) {
+        const missing = await this.documents.missingRequiredKinds(orderId);
+        if (missing.length) {
+          await this.requestMissingDocuments(
+            chatId,
+            telegramId,
+            orderId,
+            missing,
+          );
+          return;
+        }
+      }
+
+      if (status === OrderStatus.IN_PROGRESS_SD) {
+        const sdDocs = await this.prisma.orderDocument.count({
+          where: { orderId, kind: DocKind.RECEIPT_SD },
+        });
+        if (!sdDocs) {
+          this.docSessions.set(telegramId, {
+            orderId,
+            expectedKind: DocKind.RECEIPT_SD,
+          });
+          await this.sendMessage(
+            chatId,
+            'Для статуса «В работе СД» нужна сохранная расписка.',
+          );
+          await this.sendDocKindPrompt(chatId, orderId, DocKind.RECEIPT_SD);
+          return;
+        }
+      }
+
       try {
         await this.setStatus(telegramId, orderId, status, true);
+        this.docSessions.delete(telegramId);
         await this.sendMessage(
           chatId,
           `Статус обновлён: ${STATUS_LABELS[status] ?? status}`,
@@ -462,7 +833,10 @@ export class BotService {
                   e.message,
               )
             : 'Не удалось сменить статус';
-        await this.sendMessage(chatId, Array.isArray(text) ? text.join('; ') : text);
+        await this.sendMessage(
+          chatId,
+          Array.isArray(text) ? text.join('; ') : text,
+        );
       }
     }
   }

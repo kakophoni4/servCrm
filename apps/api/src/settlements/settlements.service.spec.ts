@@ -70,7 +70,10 @@ describe('SettlementsService', () => {
       expect(prisma.masterSettlement.update).toHaveBeenCalledWith({
         where: { id: 's-1' },
         data: { confirmedOnce: true },
-        include: { master: { include: { user: true } } },
+        include: {
+          master: { include: { user: true } },
+          confirmedBy: true,
+        },
       });
     });
 
@@ -167,12 +170,14 @@ describe('SettlementsService', () => {
       expect(result).toEqual([
         { masterId: 'm-1', name: 'Иванов', amount: 350, count: 2 },
       ]);
+      const toEnd = new Date('2026-01-31');
+      toEnd.setHours(23, 59, 59, 999);
       expect(prisma.order.findMany).toHaveBeenCalledWith({
         where: {
           status: OrderStatus.DONE,
           createdAt: {
             gte: new Date('2026-01-01'),
-            lte: new Date('2026-01-31'),
+            lte: toEnd,
           },
           masterId: { not: null },
           cityId: { in: ['city-A'] },
@@ -183,21 +188,29 @@ describe('SettlementsService', () => {
   });
 
   describe('create', () => {
-    it('sets cityId from master.cityId on create', async () => {
+    it('sets cityId and auto amount from toCompany on create', async () => {
       prisma.master.findUnique.mockResolvedValue({
         id: 'm-1',
         cityId: 'city-A',
       });
       branch.allowedCityIds.mockResolvedValue(['city-A']);
+      branch.resolveCityIds.mockReturnValue(['city-A']);
+      prisma.order.findMany.mockResolvedValue([
+        {
+          masterId: 'm-1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: { toCompany: 1000 },
+        },
+      ]);
       prisma.masterSettlement.create.mockResolvedValue({
         id: 's-new',
         cityId: 'city-A',
+        amount: 1000,
       });
 
       await svc.create(
         {
           masterId: 'm-1',
-          amount: 1000,
           periodFrom: '2026-01-01',
           periodTo: '2026-01-31',
         },
@@ -228,7 +241,6 @@ describe('SettlementsService', () => {
         svc.create(
           {
             masterId: 'm-1',
-            amount: 1000,
             periodFrom: '2026-01-01',
             periodTo: '2026-01-31',
           },
@@ -240,7 +252,6 @@ describe('SettlementsService', () => {
         svc.create(
           {
             masterId: 'm-1',
-            amount: 1000,
             periodFrom: '2026-01-01',
             periodTo: '2026-01-31',
           },

@@ -64,6 +64,11 @@ export class CashService {
     if (role !== Role.ADMIN && role !== Role.OWNER) {
       throw new ForbiddenException('Недостаточно прав');
     }
+    if (input.incomeBasis === CashIncomeBasis.ORDER) {
+      throw new BadRequestException(
+        'Приход по заявке создаётся автоматически при статусе «Готов»',
+      );
+    }
     const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
     return this.prisma.cashTx.create({
       data: {
@@ -124,24 +129,30 @@ export class CashService {
   async collection(
     input: {
       amount: number;
+      cityId: string;
       description?: string;
-      cityId?: string;
-      documentPath?: string;
     },
     userId: string,
     role: Role,
   ) {
-    if (role !== Role.ADMIN && role !== Role.DIRECTOR && role !== Role.OWNER) {
-      throw new ForbiddenException('Недостаточно прав');
+    if (role !== Role.OWNER) {
+      throw new ForbiddenException('Инкассация доступна только владельцу');
     }
-    const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
+    if (!input.cityId?.trim()) {
+      throw new BadRequestException('Укажите филиал');
+    }
+    const city = await this.prisma.city.findUnique({
+      where: { id: input.cityId },
+      select: { id: true },
+    });
+    if (!city) throw new BadRequestException('Филиал не найден');
+
     return this.prisma.cashTx.create({
       data: {
         direction: CashDirection.COLLECTION,
         amount: input.amount,
+        cityId: city.id,
         description: input.description ?? 'Инкассация',
-        cityId,
-        documentPath: input.documentPath,
         createdById: userId,
       },
     });

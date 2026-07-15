@@ -29,11 +29,6 @@ const ALLOWED_EXT = new Set([
   '.webp',
   '.gif',
   '.heic',
-  '.doc',
-  '.docx',
-  '.xls',
-  '.xlsx',
-  '.txt',
 ]);
 
 @Injectable()

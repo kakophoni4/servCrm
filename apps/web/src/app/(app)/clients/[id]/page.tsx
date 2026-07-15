@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { STATUS_LABELS, TYPE_LABELS } from '@/lib/labels';
@@ -27,6 +26,7 @@ type Client = {
 
 export default function ClientCardPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
   const [error, setError] = useState('');
 
@@ -35,6 +35,10 @@ export default function ClientCardPage() {
       .then(setClient)
       .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
   }, [id]);
+
+  function goOrder(orderId: string) {
+    router.push(`/orders/${orderId}`);
+  }
 
   if (!client) {
     return (
@@ -75,9 +79,21 @@ export default function ClientCardPage() {
           </thead>
           <tbody>
             {client.orders.map((o) => (
-              <tr key={o.id}>
+              <tr
+                key={o.id}
+                className="row-link"
+                role="link"
+                tabIndex={0}
+                onClick={() => goOrder(o.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    goOrder(o.id);
+                  }
+                }}
+              >
                 <td>
-                  <Link href={`/orders/${o.id}`}>{o.publicId}</Link>
+                  <strong>{o.publicId}</strong>
                   {o.isClaim ? ' ⚠' : ''}
                 </td>
                 <td>{TYPE_LABELS[o.type]}</td>

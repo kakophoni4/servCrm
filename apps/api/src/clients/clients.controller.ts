@@ -9,18 +9,21 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ClientsService } from './clients.service';
 
 @Controller('clients')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('clients.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('phone') phone?: string,
@@ -32,6 +35,7 @@ export class ClientsController {
 
   @Get(':id')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('clients.read')
   get(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: Role },
@@ -41,6 +45,7 @@ export class ClientsController {
 
   @Patch(':id/comment')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('clients.comment')
   updateComment(
     @Param('id') id: string,
     @Body() body: { branchComment: string },

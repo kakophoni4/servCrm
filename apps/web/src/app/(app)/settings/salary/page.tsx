@@ -8,7 +8,6 @@ type SalaryCategory = {
   minSum: string | number;
   maxSum?: string | number | null;
   percent: string | number;
-  note?: string | null;
 };
 
 export default function SalarySettingsPage() {
@@ -18,14 +17,12 @@ export default function SalarySettingsPage() {
     minSum: '',
     maxSum: '',
     percent: '',
-    note: '',
   });
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     minSum: '',
     maxSum: '',
     percent: '',
-    note: '',
   });
 
   async function load() {
@@ -45,11 +42,10 @@ export default function SalarySettingsPage() {
         body: JSON.stringify({
           minSum: Number(form.minSum),
           maxSum: form.maxSum ? Number(form.maxSum) : null,
-          percent: Number(form.percent),
-          note: form.note || undefined,
+          percent: Number(form.percent) / 100,
         }),
       });
-      setForm({ minSum: '', maxSum: '', percent: '', note: '' });
+      setForm({ minSum: '', maxSum: '', percent: '' });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -61,8 +57,7 @@ export default function SalarySettingsPage() {
     setEditForm({
       minSum: String(c.minSum),
       maxSum: c.maxSum != null ? String(c.maxSum) : '',
-      percent: String(c.percent),
-      note: c.note ?? '',
+      percent: String(Number(c.percent) * 100),
     });
   }
 
@@ -76,8 +71,7 @@ export default function SalarySettingsPage() {
         body: JSON.stringify({
           minSum: Number(editForm.minSum),
           maxSum: editForm.maxSum ? Number(editForm.maxSum) : null,
-          percent: Number(editForm.percent),
-          note: editForm.note || undefined,
+          percent: Number(editForm.percent) / 100,
         }),
       });
       setEditId(null);
@@ -120,18 +114,13 @@ export default function SalarySettingsPage() {
             />
           </div>
           <div className="field">
-            <label>Процент (0.4 = 40%)</label>
+            <label>Процент, %</label>
             <input
               required
+              inputMode="decimal"
+              placeholder="40"
               value={form.percent}
               onChange={(e) => setForm({ ...form, percent: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Примечание</label>
-            <input
-              value={form.note}
-              onChange={(e) => setForm({ ...form, note: e.target.value })}
             />
           </div>
         </div>
@@ -148,7 +137,6 @@ export default function SalarySettingsPage() {
               <th>От, ₽</th>
               <th>До, ₽</th>
               <th>%</th>
-              <th>Примечание</th>
               <th></th>
             </tr>
           </thead>
@@ -156,7 +144,7 @@ export default function SalarySettingsPage() {
             {categories.map((c) =>
               editId === c.id ? (
                 <tr key={c.id}>
-                  <td colSpan={5}>
+                  <td colSpan={4}>
                     <form onSubmit={saveEdit}>
                       <div className="grid-2">
                         <div className="field">
@@ -178,20 +166,12 @@ export default function SalarySettingsPage() {
                           />
                         </div>
                         <div className="field">
-                          <label>%</label>
+                          <label>Процент, %</label>
                           <input
+                            inputMode="decimal"
                             value={editForm.percent}
                             onChange={(e) =>
                               setEditForm({ ...editForm, percent: e.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="field">
-                          <label>Примечание</label>
-                          <input
-                            value={editForm.note}
-                            onChange={(e) =>
-                              setEditForm({ ...editForm, note: e.target.value })
                             }
                           />
                         </div>
@@ -216,7 +196,6 @@ export default function SalarySettingsPage() {
                   <td>{String(c.minSum)}</td>
                   <td>{c.maxSum != null ? String(c.maxSum) : '∞'}</td>
                   <td>{String(Number(c.percent) * 100)}%</td>
-                  <td>{c.note ?? '—'}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button
@@ -240,7 +219,7 @@ export default function SalarySettingsPage() {
             )}
             {categories.length === 0 ? (
               <tr>
-                <td colSpan={5} className="muted">
+                <td colSpan={4} className="muted">
                   Категорий пока нет.
                 </td>
               </tr>

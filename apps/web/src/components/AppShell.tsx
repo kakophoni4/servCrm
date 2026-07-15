@@ -15,21 +15,16 @@ import { NewOrderNotifier } from './NewOrderNotifier';
 type NavItem = { href: string; label: string; roles?: string[] };
 
 const NAV: NavItem[] = [
-  { href: '/orders', label: 'Заявки' },
-  { href: '/orders/new', label: 'Новая заявка' },
-  { href: '/clients', label: 'Клиенты' },
-  { href: '/claims', label: 'Претензии' },
+  { href: '/chat', label: 'Чаты', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/orders', label: 'Заявки и клиенты' },
   { href: '/cash', label: 'Касса', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
   { href: '/reports', label: 'Отчёты', roles: ['DIRECTOR', 'OWNER'] },
   { href: '/ads', label: 'Реклама', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
   { href: '/assets', label: 'Имущество', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
-  { href: '/chat', label: 'Чат', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
-  { href: '/settlements', label: 'Расчёт мастеров', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/settlements', label: 'Расчёт', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
   { href: '/settings/salary', label: 'Настройки ЗП', roles: ['DIRECTOR', 'OWNER'] },
   { href: '/settings/dispatcher-pay', label: 'ЗП диспетчеров', roles: ['DIRECTOR', 'OWNER'] },
-  { href: '/settings/dispatcher-payroll', label: 'Расчёт диспетчеров', roles: ['DIRECTOR', 'OWNER'] },
-  { href: '/settings/bot', label: 'Бот Telegram', roles: ['OWNER'] },
-  { href: '/masters', label: 'Мастера', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/settings/cities', label: 'Настройки', roles: ['OWNER'] },
   { href: '/users', label: 'Сотрудники', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
 ];
 
@@ -70,9 +65,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             const active =
               item.href === '/orders'
                 ? pathname === '/orders' ||
-                  (pathname.startsWith('/orders/') &&
-                    !pathname.startsWith('/orders/new'))
-                : pathname === item.href || pathname.startsWith(item.href + '/');
+                  pathname.startsWith('/orders/') ||
+                  pathname.startsWith('/clients') ||
+                  pathname.startsWith('/claims')
+                : item.href === '/users'
+                  ? pathname.startsWith('/users') ||
+                    pathname.startsWith('/masters')
+                  : item.href === '/settings/cities'
+                    ? pathname.startsWith('/settings/cities') ||
+                      pathname.startsWith('/settings/bot')
+                    : pathname === item.href ||
+                      pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.href}

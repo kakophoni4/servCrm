@@ -1,5 +1,5 @@
 export const STATUS_LABELS: Record<string, string> = {
-  NOT_SCHEDULED: 'Не оформлена',
+  NOT_SCHEDULED: 'Не назначена',
   WAITING: 'Ожидает',
   ON_THE_WAY: 'В пути',
   IN_PROGRESS: 'В работе',
@@ -38,12 +38,22 @@ export const USER_STATUS_LABELS: Record<string, string> = {
   FIRED: 'Уволен',
 };
 
+/** Типы, доступные для загрузки к заявке */
+export const ORDER_UPLOAD_DOC_KINDS = [
+  'CONTRACT',
+  'RECEIPT_SERVICE',
+  'RECEIPT_PARTS',
+  'PARTS_PHOTO',
+  'RECEIPT_SD',
+] as const;
+
 export const DOC_KIND_LABELS: Record<string, string> = {
-  RECEIPT_SERVICE: 'Чек за услугу',
-  RECEIPT_PARTS: 'Чек за запчасти',
   CONTRACT: 'Договор',
-  PARTS_PHOTO: 'Фото запчастей',
-  RECEIPT_SD: 'Чек СД',
+  RECEIPT_SERVICE: 'Чек за услугу',
+  RECEIPT_PARTS: 'Чек за комплектующие / расходы',
+  PARTS_PHOTO: 'Фото запчастей и комплектующих',
+  RECEIPT_SD: 'Сохранная расписка',
+  // legacy (только отображение старых записей)
   AD_SCREEN: 'Скрин рекламы',
   CASH_DOC: 'Кассовый документ',
   OTHER: 'Прочее',
@@ -104,12 +114,20 @@ export function isAdminRole(role: string) {
   return role === 'ADMIN' || role === 'DIRECTOR' || role === 'OWNER';
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+/** Диапазон календарного месяца (локальная дата, без сдвига UTC). month = 1..12 */
+export function monthRange(year: number, month: number): { from: string; to: string } {
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    from: `${year}-${pad2(month)}-01`,
+    to: `${year}-${pad2(month)}-${pad2(lastDay)}`,
+  };
+}
+
 export function currentMonthRange(): { from: string; to: string } {
   const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-  };
+  return monthRange(now.getFullYear(), now.getMonth() + 1);
 }

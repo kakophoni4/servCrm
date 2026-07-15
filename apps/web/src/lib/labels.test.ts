@@ -7,6 +7,7 @@ import {
   ROLE_LABELS,
   USER_STATUS_LABELS,
   DOC_KIND_LABELS,
+  ORDER_UPLOAD_DOC_KINDS,
   CASH_DIRECTION_LABELS,
   CASH_INCOME_BASIS_LABELS,
   CASH_EXPENSE_BASIS_LABELS,
@@ -15,11 +16,12 @@ import {
   CHAT_STATUS_LABELS,
   isAdminRole,
   currentMonthRange,
+  monthRange,
 } from './labels';
 
 describe('STATUS_LABELS', () => {
   it('маппит известные статусы заявок', () => {
-    expect(STATUS_LABELS.NOT_SCHEDULED).toBe('Не оформлена');
+    expect(STATUS_LABELS.NOT_SCHEDULED).toBe('Не назначена');
     expect(STATUS_LABELS.WAITING).toBe('Ожидает');
     expect(STATUS_LABELS.IN_PROGRESS).toBe('В работе');
     expect(STATUS_LABELS.DONE).toBe('Готов');
@@ -74,7 +76,22 @@ describe('DOC_KIND_LABELS', () => {
   it('маппит виды документов', () => {
     expect(DOC_KIND_LABELS.RECEIPT_SERVICE).toBe('Чек за услугу');
     expect(DOC_KIND_LABELS.CONTRACT).toBe('Договор');
+    expect(DOC_KIND_LABELS.RECEIPT_PARTS).toBe('Чек за комплектующие / расходы');
+    expect(DOC_KIND_LABELS.PARTS_PHOTO).toBe('Фото запчастей и комплектующих');
+    expect(DOC_KIND_LABELS.RECEIPT_SD).toBe('Сохранная расписка');
     expect(DOC_KIND_LABELS.OTHER).toBe('Прочее');
+  });
+
+  it('ORDER_UPLOAD_DOC_KINDS не содержит устаревшие типы', () => {
+    expect(ORDER_UPLOAD_DOC_KINDS).toEqual([
+      'CONTRACT',
+      'RECEIPT_SERVICE',
+      'RECEIPT_PARTS',
+      'PARTS_PHOTO',
+      'RECEIPT_SD',
+    ]);
+    expect(ORDER_UPLOAD_DOC_KINDS).not.toContain('AD_SCREEN');
+    expect(ORDER_UPLOAD_DOC_KINDS).not.toContain('CASH_DOC');
   });
 });
 
@@ -136,17 +153,29 @@ describe('isAdminRole', () => {
   });
 });
 
+describe('monthRange', () => {
+  it('возвращает полный календарный месяц', () => {
+    expect(monthRange(2026, 7)).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-31',
+    });
+    expect(monthRange(2026, 2)).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+  });
+});
+
 describe('currentMonthRange', () => {
   it('возвращает from/to в формате YYYY-MM-DD за текущий месяц', () => {
     const now = new Date();
     const { from, to } = currentMonthRange();
+    const expected = monthRange(now.getFullYear(), now.getMonth() + 1);
 
-    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(from).toBe(expected.from);
+    expect(to).toBe(expected.to);
     expect(from.slice(0, 7)).toBe(
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
     );
-    expect(to.slice(0, 7)).toBe(from.slice(0, 7));
-    expect(from <= to).toBe(true);
   });
 });

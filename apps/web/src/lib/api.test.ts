@@ -19,6 +19,20 @@ const mockUser: AuthUser = {
   cityName: 'Москва',
 };
 
+function mockJsonResponse(
+  body: unknown,
+  init: { ok?: boolean; status?: number } = {},
+) {
+  const text =
+    body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body);
+  return {
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
+    text: () => Promise.resolve(text),
+    json: () => Promise.resolve(body),
+  };
+}
+
 function createStorageMock() {
   const store: Record<string, string> = {};
   return {
@@ -56,11 +70,7 @@ describe('api', () => {
 
   it('подставляет Authorization и Content-Type при наличии токена', async () => {
     setSession('secret-token', mockUser);
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ ok: true }),
-    });
+    fetchMock.mockResolvedValue(mockJsonResponse({ ok: true }));
 
     await api('/users');
 
@@ -73,11 +83,7 @@ describe('api', () => {
   });
 
   it('не ставит Authorization без токена', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve([]),
-    });
+    fetchMock.mockResolvedValue(mockJsonResponse([]));
 
     await api('/orders');
 
@@ -89,11 +95,7 @@ describe('api', () => {
 
   it('возвращает JSON при успешном ответе', async () => {
     const payload = { id: '1', name: 'Заявка' };
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(payload),
-    });
+    fetchMock.mockResolvedValue(mockJsonResponse(payload));
 
     const result = await api<typeof payload>('/orders/1');
 
@@ -104,6 +106,7 @@ describe('api', () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 204,
+      text: () => Promise.resolve(''),
     });
 
     const result = await api('/orders/1');
@@ -112,21 +115,20 @@ describe('api', () => {
   });
 
   it('бросает ошибку с message-строкой при !ok', async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: () => Promise.resolve({ message: 'Неверные данные' }),
-    });
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({ message: 'Неверные данные' }, { ok: false, status: 400 }),
+    );
 
     await expect(api('/bad')).rejects.toThrow('Неверные данные');
   });
 
   it('бросает ошибку с message-массивом при !ok', async () => {
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 422,
-      json: () => Promise.resolve({ message: ['Поле A', 'Поле B'] }),
-    });
+    fetchMock.mockResolvedValue(
+      mockJsonResponse(
+        { message: ['Поле A', 'Поле B'] },
+        { ok: false, status: 422 },
+      ),
+    );
 
     await expect(api('/bad')).rejects.toThrow('Поле A, Поле B');
   });
@@ -135,18 +137,14 @@ describe('api', () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 500,
-      json: () => Promise.reject(new Error('invalid json')),
+      text: () => Promise.resolve('not-json{{{'),
     });
 
     await expect(api('/bad')).rejects.toThrow('Ошибка 500');
   });
 
   it('формирует URL как ${API_URL}/api${path}', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({}),
-    });
+    fetchMock.mockResolvedValue(mockJsonResponse({}));
 
     await api('/settings/dispatcher-pay');
 

@@ -23,8 +23,10 @@ import {
   Min,
 } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import {
   StorageService,
@@ -90,21 +92,16 @@ class CollectionDto {
   @Min(0.01)
   amount!: number;
 
+  @IsString()
+  cityId!: string;
+
   @IsOptional()
   @IsString()
   description?: string;
-
-  @IsOptional()
-  @IsString()
-  cityId?: string;
-
-  @IsOptional()
-  @IsString()
-  documentPath?: string;
 }
 
 @Controller('cash')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class CashController {
   constructor(
     private readonly cash: CashService,
@@ -113,6 +110,7 @@ export class CashController {
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('cash.read')
   list(
     @CurrentUser() user: { userId: string; role: Role },
     @Query('from') from?: string,
@@ -124,6 +122,7 @@ export class CashController {
 
   @Post('income')
   @Roles(Role.ADMIN, Role.OWNER)
+  @RequirePermissions('cash.income')
   @UseInterceptors(FileInterceptor('file'))
   income(
     @Body() dto: IncomeDto,
@@ -144,6 +143,7 @@ export class CashController {
 
   @Post('expense')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('cash.expense')
   @UseInterceptors(FileInterceptor('file'))
   expense(
     @Body() dto: ExpenseDto,
@@ -163,23 +163,13 @@ export class CashController {
   }
 
   @Post('collection')
-  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
-  @UseInterceptors(FileInterceptor('file'))
+  @Roles(Role.OWNER)
+  @RequirePermissions('cash.collection')
   collection(
     @Body() dto: CollectionDto,
-    @UploadedFile() file: UploadedMemoryFile | undefined,
     @CurrentUser() user: { userId: string; role: Role },
-    @Query('cityId') cityId?: string,
   ) {
-    return this.cash.collection(
-      {
-        ...dto,
-        cityId: cityId ?? dto.cityId,
-        documentPath: this.resolveDocumentPath(dto.documentPath, file),
-      },
-      user.userId,
-      user.role,
-    );
+    return this.cash.collection(dto, user.userId, user.role);
   }
 
   private resolveDocumentPath(

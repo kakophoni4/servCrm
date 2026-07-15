@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getStoredUser } from '@/lib/api';
 import { ASSET_STATUS_LABELS } from '@/lib/labels';
 
 type Asset = {
@@ -19,22 +19,26 @@ type Asset = {
 type City = { id: string; name: string };
 
 export default function AssetsPage() {
+  const isOwner = (getStoredUser()?.role ?? '') === 'OWNER';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [status, setStatus] = useState<'ACTIVE' | 'WRITTEN_OFF'>('ACTIVE');
+  const [cityFilter, setCityFilter] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({ title: '', name: '', condition: '', cityId: '' });
   const [writeOffId, setWriteOffId] = useState<string | null>(null);
   const [writeOffNote, setWriteOffNote] = useState('');
 
   async function load() {
-    setAssets(await api<Asset[]>(`/assets?status=${status}`));
+    const q = new URLSearchParams({ status });
+    if (cityFilter) q.set('cityId', cityFilter);
+    setAssets(await api<Asset[]>(`/assets?${q}`));
   }
 
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, cityFilter]);
 
   useEffect(() => {
     api<City[]>('/cities')
@@ -84,7 +88,15 @@ export default function AssetsPage() {
     <div>
       <h1 className="page-title">Имущество</h1>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
         {(['ACTIVE', 'WRITTEN_OFF'] as const).map((s) => (
           <button
             key={s}
@@ -95,6 +107,23 @@ export default function AssetsPage() {
             {ASSET_STATUS_LABELS[s]}
           </button>
         ))}
+        <select
+          value={cityFilter}
+          onChange={(e) => setCityFilter(e.target.value)}
+          style={{
+            border: '1px solid var(--line)',
+            borderRadius: '0.5rem',
+            padding: '0.5rem 0.7rem',
+            marginLeft: 'auto',
+          }}
+        >
+          <option value="">{isOwner ? 'Все филиалы' : 'Мой филиал'}</option>
+          {cities.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {status === 'ACTIVE' ? (
@@ -124,7 +153,7 @@ export default function AssetsPage() {
               />
             </div>
             <div className="field">
-              <label>Город</label>
+              <label>Филиал</label>
               <select
                 value={form.cityId}
                 onChange={(e) => setForm({ ...form, cityId: e.target.value })}
@@ -152,9 +181,8 @@ export default function AssetsPage() {
               <th>Категория</th>
               <th>Наименование</th>
               <th>Состояние</th>
-              <th>Город</th>
-              <th>Статус</th>
-              <th></th>
+              <th>Филиал</th>
+              <th>{status === 'WRITTEN_OFF' ? 'Списание' : ''}</th>
             </tr>
           </thead>
           <tbody>
@@ -164,7 +192,6 @@ export default function AssetsPage() {
                 <td>{a.name}</td>
                 <td>{a.condition ?? '—'}</td>
                 <td>{a.city?.name ?? '—'}</td>
-                <td>{ASSET_STATUS_LABELS[a.status] ?? a.status}</td>
                 <td>
                   {a.status === 'ACTIVE' ? (
                     writeOffId === a.id ? (
@@ -210,7 +237,7 @@ export default function AssetsPage() {
             ))}
             {assets.length === 0 ? (
               <tr>
-                <td colSpan={6} className="muted">
+                <td colSpan={5} className="muted">
                   Записей нет.
                 </td>
               </tr>

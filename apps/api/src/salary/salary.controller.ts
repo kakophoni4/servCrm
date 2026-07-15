@@ -16,8 +16,10 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { SalaryService } from './salary.service';
 
@@ -42,30 +44,34 @@ class SalaryDto {
 }
 
 @Controller('salary-categories')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class SalaryController {
   constructor(private readonly salary: SalaryService) {}
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('salary.read')
   list() {
     return this.salary.list();
   }
 
   @Post()
   @Roles(Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('salary.write')
   create(@Body() dto: SalaryDto) {
     return this.salary.create(dto);
   }
 
   @Patch(':id')
   @Roles(Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('salary.write')
   update(@Param('id') id: string, @Body() dto: Partial<SalaryDto>) {
     return this.salary.update(id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.OWNER)
+  @RequirePermissions('salary.delete')
   remove(@Param('id') id: string) {
     return this.salary.remove(id);
   }

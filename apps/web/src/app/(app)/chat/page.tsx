@@ -135,7 +135,7 @@ export default function ChatPage() {
 
   return (
     <div>
-      <h1 className="page-title">Чат</h1>
+      <h1 className="page-title">Чаты</h1>
 
       <div className="grid-2" style={{ alignItems: 'start' }}>
         <div className="panel">

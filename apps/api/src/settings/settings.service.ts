@@ -1,6 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrderStatus, Role, UserStatus } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 function payRange(from?: string, to?: string) {
@@ -40,7 +46,10 @@ function maskToken(token: string): string {
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branch: BranchScopeService,
+  ) {}
 
   // ---- дженерик ключ-значение ----
   async get(key: string): Promise<string | null> {
@@ -191,8 +200,17 @@ export class SettingsService {
   }
 
   // ---- ЗП диспетчеров ----
-  getDispatcherPay(userId: string) {
-    return this.prisma.dispatcherPaySettings.findUnique({ where: { userId } });
+  async getDispatcherPay(userId: string) {
+    const row = await this.prisma.dispatcherPaySettings.findUnique({
+      where: { userId },
+    });
+    return {
+      userId,
+      salaryBase: Number(row?.salaryBase ?? 0),
+      dailyTurnoverPct: Number(row?.dailyTurnoverPct ?? 0),
+      leafletBonus: Number(row?.leafletBonus ?? 0),
+      closedOrdersBonusPct: Number(row?.closedOrdersBonusPct ?? 0),
+    };
   }
 
   upsertDispatcherPay(
@@ -217,9 +235,151 @@ export class SettingsService {
     });
   }
 
+  /** График смен на месяц в филиале: день → диспетчер (или пусто). */
+  async getDispatcherSchedule(
+    year: number,
+    month: number,
+    actorUserId: string,
+    actorRole: Role,
+    requestedCityId?: string,
+  ) {
+    if (!Number.isFinite(year) || month < 1 || month > 12) {
+      throw new BadRequestException('Некорректный месяц');
+    }
+    const cityId = await this.resolveScheduleCityId(
+      actorUserId,
+      actorRole,
+      requestedCityId,
+    );
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month - 1, daysInMonth));
+
+    const shifts = await this.prisma.dispatcherShift.findMany({
+      where: {
+        cityId,
+        workDate: { gte: start, lte: end },
+      },
+      include: { user: { select: { id: true, fullName: true } } },
+    });
+    const byDate = new Map(
+      shifts.map((s) => [
+        s.workDate.toISOString().slice(0, 10),
+        { userId: s.userId, fullName: s.user.fullName },
+      ]),
+    );
+
+    const days = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const assigned = byDate.get(date) ?? null;
+      days.push({
+        date,
+        day: d,
+        userId: assigned?.userId ?? null,
+        fullName: assigned?.fullName ?? null,
+      });
+    }
+    return { year, month, cityId, days };
+  }
+
+  async setDispatcherShift(
+    date: string,
+    userId: string | null,
+    actorUserId: string,
+    actorRole: Role,
+    requestedCityId?: string,
+  ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('Некорректная дата');
+    }
+    const workDate = new Date(`${date}T00:00:00.000Z`);
+
+    if (!userId) {
+      const cityId = await this.resolveScheduleCityId(
+        actorUserId,
+        actorRole,
+        requestedCityId,
+      );
+      await this.prisma.dispatcherShift.deleteMany({
+        where: { workDate, cityId },
+      });
+      return { date, cityId, userId: null };
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        fullName: true,
+        cityId: true,
+      },
+    });
+    if (
+      !user ||
+      user.role !== Role.DISPATCHER ||
+      user.status !== UserStatus.ACTIVE
+    ) {
+      throw new NotFoundException('Диспетчер не найден');
+    }
+    if (!user.cityId) {
+      throw new BadRequestException('У диспетчера не назначен филиал');
+    }
+
+    const cityId = await this.resolveScheduleCityId(
+      actorUserId,
+      actorRole,
+      requestedCityId ?? user.cityId,
+    );
+    if (user.cityId !== cityId) {
+      throw new ForbiddenException('Диспетчер другого филиала');
+    }
+
+    const row = await this.prisma.dispatcherShift.upsert({
+      where: { workDate_cityId: { workDate, cityId } },
+      create: { workDate, cityId, userId },
+      update: { userId },
+      include: { user: { select: { id: true, fullName: true } } },
+    });
+    return {
+      date,
+      cityId,
+      userId: row.userId,
+      fullName: row.user.fullName,
+    };
+  }
+
+  private async resolveScheduleCityId(
+    actorUserId: string,
+    actorRole: Role,
+    requestedCityId?: string,
+  ): Promise<string> {
+    const allowed = await this.branch.allowedCityIds(actorUserId, actorRole);
+    const resolved = this.branch.resolveCityIds(allowed, requestedCityId);
+    if (resolved === null) {
+      // OWNER без cityId — нельзя: график всегда по филиалу
+      if (!requestedCityId) {
+        throw new BadRequestException('Укажите филиал');
+      }
+      return requestedCityId;
+    }
+    if (!resolved.length) {
+      throw new ForbiddenException('Филиал вне доступа');
+    }
+    if (requestedCityId) {
+      if (!resolved.includes(requestedCityId)) {
+        throw new ForbiddenException('Филиал вне доступа');
+      }
+      return requestedCityId;
+    }
+    return resolved[0];
+  }
+
   /**
    * Расчёт ЗП диспетчера за период:
-   * оклад + % от оборота закрытых заявок + бонус за листовки + % от чистой суммы своих закрытых заявок.
+   * оклад + % от оборота + бонус за листовки (ставка за каждые 100 шт.) + % от своих закрытых.
    */
   async calcDispatcherPay(userId: string, from?: string, to?: string) {
     const user = await this.prisma.user.findUnique({
@@ -279,17 +439,35 @@ export class SettingsService {
       .filter((o) => o.createdById === user.id)
       .reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
 
-    const adReports = await this.prisma.adDailyReport.findMany({
+    // Листовки за дни смен диспетчера; если графика нет — отчёты, которые он создал.
+    const shifts = await this.prisma.dispatcherShift.findMany({
       where: {
-        createdById: user.id,
-        reportDate: { gte: start, lte: end },
+        userId: user.id,
+        workDate: { gte: start, lte: end },
       },
-      select: { leafletsSpread: true },
+      select: { workDate: true },
     });
+    const adReports =
+      shifts.length > 0
+        ? await this.prisma.adDailyReport.findMany({
+            where: {
+              reportDate: { in: shifts.map((s) => s.workDate) },
+              ...(user.cityId != null ? { cityId: user.cityId } : {}),
+            },
+            select: { leafletsSpread: true },
+          })
+        : await this.prisma.adDailyReport.findMany({
+            where: {
+              createdById: user.id,
+              reportDate: { gte: start, lte: end },
+            },
+            select: { leafletsSpread: true },
+          });
     const leaflets = adReports.reduce((s, r) => s + r.leafletsSpread, 0);
 
     const dailyTurnoverPay = roundMoney(dailyTurnoverPct * turnover);
-    const leafletsPay = roundMoney(leafletBonusRate * leaflets);
+    // leafletBonus — ₽ за каждые 100 розданных листовок в смену
+    const leafletsPay = roundMoney(leafletBonusRate * (leaflets / 100));
     const closedOrdersBonus = roundMoney(closedOrdersBonusPct * ownClosedNet);
     const salary = roundMoney(salaryBase);
     const total = roundMoney(

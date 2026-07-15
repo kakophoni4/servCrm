@@ -152,6 +152,67 @@ textarea {
   gap: 0.75rem 1rem;
 }
 
+.ads-form {
+  max-width: 720px;
+}
+
+.ads-form-meta {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 0.65rem 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.ads-form-meta .field {
+  margin-bottom: 0;
+}
+
+.ads-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.ads-matrix th,
+.ads-matrix td {
+  padding: 0.4rem 0.45rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+  vertical-align: middle;
+}
+
+.ads-matrix th {
+  color: var(--muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.ads-matrix td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+  width: 7rem;
+}
+
+.ads-matrix input {
+  width: 100%;
+  max-width: 7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+  font: inherit;
+}
+
+@media (max-width: 640px) {
+  .ads-form-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .ads-matrix input {
+    max-width: none;
+  }
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -168,6 +229,141 @@ textarea {
 .table th {
   color: var(--muted);
   font-weight: 600;
+}
+
+.table tbody tr.row-link {
+  cursor: pointer;
+}
+
+.table tbody tr.row-link:hover {
+  background: #f0fdfa;
+}
+
+.file-picker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.file-picker:hover,
+.file-picker:focus-within {
+  border-color: var(--accent);
+  background: #ecfeff;
+}
+
+.file-picker input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-picker-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.file-picker-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.docs-checklist {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.docs-checklist li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.docs-checklist .ok {
+  color: var(--accent);
+}
+
+.docs-checklist .miss {
+  color: var(--muted);
+}
+
+.banner-warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+}
+
+.order-suggest {
+  position: relative;
+}
+
+.order-suggest-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.order-suggest-list li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.order-suggest-list li button:hover,
+.order-suggest-list li button:focus {
+  background: #ecfeff;
+}
+
+.order-suggest-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  background: #f0fdfa;
 }
 
 .badge {
@@ -254,6 +450,160 @@ textarea {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll .table {
+  min-width: max-content;
+  width: 100%;
+}
+
+.table-scroll .table th,
+.table-scroll .table td {
+  white-space: nowrap;
+}
+
+/* Разрешения при создании сотрудника */
+.perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem 1rem;
+  max-height: 320px;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 0.65rem;
+  background: #f8fafc;
+}
+
+.perm-group-title {
+  font-weight: 650;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  color: #0f172a;
+}
+
+.perm-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+  cursor: pointer;
+}
+
+.perm-item input {
+  margin-top: 0.15rem;
+}
+
+/* Вкладки Мастер / Диспетчер */
+.seg-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+  background: #f1f5f9;
+  border-radius: 0.65rem;
+}
+
+.seg-tabs button {
+  border: none;
+  background: transparent;
+  color: #475569;
+  padding: 0.45rem 0.95rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 550;
+}
+
+.seg-tabs button.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* Хаб «Заявки и клиенты» — три панели */
+.desk-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+@media (min-width: 1100px) {
+  .desk-grid {
+    grid-template-columns: 1.2fr 0.9fr 1fr;
+    min-height: calc(100vh - 7rem);
+  }
+}
+
+.desk-panel {
+  background: var(--panel, #fff);
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.desk-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line, #e2e8f0);
+  flex-shrink: 0;
+}
+
+.desk-panel-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.desk-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.desk-select {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+}
+
+.desk-panel-body {
+  padding: 0.75rem 1rem 1rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.desk-claims-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line, #e2e8f0);
+}
+
+.desk-claims-form .field {
+  margin: 0;
+}
+
+.desk-claims-form .btn {
+  justify-self: start;
 }
 
 @media (max-width: 900px) {
