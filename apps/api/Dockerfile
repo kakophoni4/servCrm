@@ -10,6 +10,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json* ./
 COPY apps/api apps/api
 WORKDIR /app/apps/api
+# Санитайзинг миграций: убираем null-байты/BOM (файлы, ошибочно сохранённые в UTF-16),
+# иначе Postgres падает с "string contains embedded null". SQL миграций — чистый ASCII.
+RUN find prisma/migrations -name '*.sql' -exec sh -c 'tr -d "\000\377\376" < "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
 RUN npx prisma generate && npx nest build
 
 FROM node:20-alpine AS runner
