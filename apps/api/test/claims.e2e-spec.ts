@@ -24,6 +24,8 @@ function bearer(
   return `Bearer ${makeToken(user.id, user.role, user.login)}`;
 }
 
+let orderSeqCounter = 0;
+
 async function seedOrder(
   prisma: PrismaClient,
   cityId: string,
@@ -41,7 +43,7 @@ async function seedOrder(
     data: {
       publicId: `claim-order-${tag}`,
       seqPrefix: 'A',
-      seq: 1,
+      seq: ++orderSeqCounter,
       clientId: client.id,
       type: OrderType.NEW,
       sourceKind: SourceKind.OUR,

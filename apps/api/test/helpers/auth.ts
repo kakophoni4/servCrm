@@ -44,21 +44,21 @@ const DEFAULT_USERS: SeedUserSpec[] = [
   { key: 'owner', login: 'owner', fullName: 'Owner', role: Role.OWNER },
   {
     key: 'adminA',
-    login: 'adminA',
+    login: 'admina',
     fullName: 'Admin A',
     role: Role.ADMIN,
     cityKey: 'a',
   },
   {
     key: 'adminB',
-    login: 'adminB',
+    login: 'adminb',
     fullName: 'Admin B',
     role: Role.ADMIN,
     cityKey: 'b',
   },
   {
     key: 'dispatcherA',
-    login: 'dispatcherA',
+    login: 'dispatchera',
     fullName: 'Dispatcher A',
     role: Role.DISPATCHER,
     cityKey: 'a',
@@ -66,7 +66,7 @@ const DEFAULT_USERS: SeedUserSpec[] = [
   },
   {
     key: 'directorA',
-    login: 'directorA',
+    login: 'directora',
     fullName: 'Director A',
     role: Role.DIRECTOR,
     cityKey: 'a',
@@ -74,7 +74,7 @@ const DEFAULT_USERS: SeedUserSpec[] = [
   },
   {
     key: 'masterA',
-    login: 'masterA',
+    login: 'mastera',
     fullName: 'Master A',
     role: Role.MASTER,
     cityKey: 'a',

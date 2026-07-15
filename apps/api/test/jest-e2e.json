@@ -4,5 +4,6 @@
   "rootDir": ".",
   "testRegex": ".e2e-spec.ts$",
   "setupFilesAfterEnv": ["./setup-e2e.ts"],
-  "testTimeout": 30000
+  "testTimeout": 30000,
+  "maxWorkers": 1
 }

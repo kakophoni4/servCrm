@@ -44,8 +44,8 @@ describe('Auth (e2e)', () => {
   describe('POST /api/auth/login', () => {
     it.each([
       { key: 'owner', login: 'owner', role: Role.OWNER },
-      { key: 'adminA', login: 'adminA', role: Role.ADMIN },
-      { key: 'dispatcherA', login: 'dispatcherA', role: Role.DISPATCHER },
+      { key: 'adminA', login: 'admina', role: Role.ADMIN },
+      { key: 'dispatcherA', login: 'dispatchera', role: Role.DISPATCHER },
     ] as const)(
       'returns 200 with accessToken and user for $role',
       async ({ key, login, role }) => {
@@ -73,7 +73,7 @@ describe('Auth (e2e)', () => {
     it('returns 401 for MASTER (no web cabinet)', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/auth/login')
-        .send({ login: 'masterA', password: seed.password })
+        .send({ login: 'mastera', password: seed.password })
         .expect(401);
 
       expect(res.body.message).toContain('веб-кабинета');
@@ -87,7 +87,7 @@ describe('Auth (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/auth/login')
-        .send({ login: 'adminA', password: seed.password })
+        .send({ login: 'admina', password: seed.password })
         .expect(401);
     });
   });

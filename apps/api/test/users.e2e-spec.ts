@@ -99,7 +99,7 @@ describe('Users (e2e)', () => {
 
       expect(res.body).toMatchObject({
         id: seed.users.adminA.id,
-        login: 'adminA',
+        login: 'admina',
         role: Role.ADMIN,
         cityId: seed.cities.a.id,
       });
@@ -128,7 +128,7 @@ describe('Users (e2e)', () => {
 
       expect(res.body).toMatchObject({
         id: seed.users.adminB.id,
-        login: 'adminB',
+        login: 'adminb',
         cityId: seed.cities.b.id,
       });
     });
