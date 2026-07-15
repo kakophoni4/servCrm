@@ -415,8 +415,8 @@ describe('OrdersService', () => {
     });
 
     it('does not create duplicate cashTx when ORDER income already exists on DONE', async () => {
-      txMock.cashTx.findFirst.mockResolvedValue({ id: 'existing-cash-tx' });
       setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
+      txMock.cashTx.findFirst.mockResolvedValue({ id: 'existing-cash' });
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
         paid: 1000,
@@ -436,8 +436,8 @@ describe('OrdersService', () => {
     });
 
     it('creates cashTx when DONE and no existing ORDER income', async () => {
-      txMock.cashTx.findFirst.mockResolvedValue(null);
       setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
+      txMock.cashTx.findFirst.mockResolvedValue(null);
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
         paid: 1000,
@@ -445,6 +445,8 @@ describe('OrdersService', () => {
 
       await service.update(orderId, dto, userId, Role.ADMIN);
 
+      expect(txMock.cashTx.findFirst).toHaveBeenCalled();
+      expect(txMock.cashTx.create).toHaveBeenCalledTimes(1);
       expect(txMock.cashTx.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({

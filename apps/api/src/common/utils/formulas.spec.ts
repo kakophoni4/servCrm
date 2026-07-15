@@ -7,9 +7,9 @@ import {
 
 describe('pickSalaryPercent', () => {
   const bands: SalaryBand[] = [
-    { minSum: 0, maxSum: 1000, percent: 0.3 },
-    { minSum: 1000, maxSum: 5000, percent: 0.4 },
-    { minSum: 5000, maxSum: null, percent: 0.5 },
+    { minSum: 0, maxSum: 4999.99, percent: 0.4 },
+    { minSum: 5000, maxSum: 9999.99, percent: 0.5 },
+    { minSum: 10000, maxSum: null, percent: 0.6 },
   ];
 
   it('returns percent for workSum inside a band range', () => {
@@ -21,11 +21,11 @@ describe('pickSalaryPercent', () => {
   });
 
   it('returns percent when workSum is exactly on maxSum boundary', () => {
-    expect(pickSalaryPercent(1000, bands)).toBe(0.3);
+    expect(pickSalaryPercent(9999.99, bands)).toBe(0.5);
   });
 
   it('returns percent when maxSum is null (open upper bound)', () => {
-    expect(pickSalaryPercent(10000, bands)).toBe(0.5);
+    expect(pickSalaryPercent(15000, bands)).toBe(0.6);
   });
 
   it('returns last band percent when workSum is below all minSum values', () => {
@@ -45,13 +45,13 @@ describe('pickSalaryPercent', () => {
 
   it('sorts unsorted bands before matching', () => {
     const unsorted: SalaryBand[] = [
-      { minSum: 5000, maxSum: null, percent: 0.5 },
-      { minSum: 0, maxSum: 1000, percent: 0.3 },
-      { minSum: 1000, maxSum: 5000, percent: 0.4 },
+      { minSum: 10000, maxSum: null, percent: 0.6 },
+      { minSum: 0, maxSum: 4999.99, percent: 0.4 },
+      { minSum: 5000, maxSum: 9999.99, percent: 0.5 },
     ];
 
     expect(pickSalaryPercent(2500, unsorted)).toBe(0.4);
-    expect(pickSalaryPercent(10000, unsorted)).toBe(0.5);
+    expect(pickSalaryPercent(15000, unsorted)).toBe(0.6);
   });
 });
 
