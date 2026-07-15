@@ -202,6 +202,60 @@ textarea {
   width: min(400px, 92vw);
 }
 
+.notify-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.notify-card {
+  background: var(--panel);
+  border-radius: 0.9rem;
+  padding: 1.25rem;
+  width: min(520px, 96vw);
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  border-top: 4px solid var(--accent);
+}
+
+.notify-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.notify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notify-item {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.notify-flag {
+  margin-left: 0.5rem;
+  background: #fef2f2;
+  color: var(--danger);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.notify-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;

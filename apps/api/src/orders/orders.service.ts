@@ -113,7 +113,7 @@ export class OrdersService {
     const isWarranty = dto.type === OrderType.WARRANTY;
     const isRepeat = dto.type === OrderType.REPEAT;
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       let client = await tx.client.findUnique({
         where: {
           phoneNormalized_name: {
@@ -181,6 +181,41 @@ export class OrdersService {
       void role;
       return order;
     });
+
+    // Уведомление админам в Telegram (не блокирует ответ).
+    void this.bot
+      .notifyAdminsNewOrder(created.id)
+      .catch(() => undefined);
+
+    return created;
+  }
+
+  /**
+   * Заявки, созданные после указанного момента — для всплывающих
+   * уведомлений в CRM. По умолчанию последняя минута.
+   */
+  async recent(after?: string) {
+    const afterDate =
+      after && !Number.isNaN(Date.parse(after))
+        ? new Date(after)
+        : new Date(Date.now() - 60_000);
+    const orders = await this.prisma.order.findMany({
+      where: { createdAt: { gt: afterDate } },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+      include: { client: true, city: true },
+    });
+    return orders.map((o) => ({
+      id: o.id,
+      publicId: o.publicId,
+      clientName: o.client.name,
+      phone: o.client.phoneNormalized,
+      address: o.address,
+      cityName: o.city?.name ?? null,
+      status: o.status,
+      hasMaster: Boolean(o.masterId),
+      createdAt: o.createdAt.toISOString(),
+    }));
   }
 
   async update(

@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
@@ -25,6 +26,12 @@ export class OrdersController {
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   list() {
     return this.orders.list();
+  }
+
+  @Get('recent')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  recent(@Query('after') after?: string) {
+    return this.orders.recent(after);
   }
 
   @Get(':id')

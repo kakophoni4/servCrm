@@ -170,3 +170,22 @@ export function getDispatcherPaySummary(from: string, to: string) {
     `/settings/dispatcher-pay/summary?${q}`,
   );
 }
+
+/** Заявка для всплывающего уведомления в CRM. */
+export type RecentOrder = {
+  id: string;
+  publicId: string;
+  clientName: string;
+  phone: string;
+  address: string;
+  cityName: string | null;
+  status: string;
+  hasMaster: boolean;
+  createdAt: string;
+};
+
+/** Новые заявки, созданные после `after` (ISO). Только для админов. */
+export function getRecentOrders(after: string) {
+  const q = new URLSearchParams({ after });
+  return api<RecentOrder[]>(`/orders/recent?${q}`);
+}

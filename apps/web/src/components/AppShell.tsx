@@ -10,6 +10,7 @@ import {
   getToken,
 } from '@/lib/api';
 import { ROLE_LABELS } from '@/lib/labels';
+import { NewOrderNotifier } from './NewOrderNotifier';
 
 type NavItem = { href: string; label: string; roles?: string[] };
 
@@ -92,6 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="main">{children}</main>
+      <NewOrderNotifier />
     </div>
   );
 }

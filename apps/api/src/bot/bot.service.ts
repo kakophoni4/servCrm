@@ -13,6 +13,7 @@ import {
   ChatChannel,
   DocKind,
   OrderStatus,
+  Role,
 } from '@prisma/client';
 import { ChatService } from '../chat/chat.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -316,6 +317,47 @@ export class BotService {
     return this.sendMessage(telegramId, lines.join('\n'), {
       reply_markup: { inline_keyboard: [row1, row2] },
     });
+  }
+
+  /** Уведомить всех активных админов о новой заявке (для назначения мастера). */
+  async notifyAdminsNewOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { client: true, city: true },
+    });
+    if (!order) return null;
+
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: { in: [Role.ADMIN, Role.DIRECTOR, Role.OWNER] },
+        status: 'ACTIVE',
+        telegramId: { not: null },
+      },
+      select: { telegramId: true },
+    });
+    if (!admins.length) return null;
+
+    const lines = [
+      `🆕 Новая заявка ${order.publicId}`,
+      `Клиент: ${order.client.name}`,
+      `Тел: ${order.client.phoneNormalized}`,
+      `Адрес: ${order.address}`,
+    ];
+    if (order.city?.name) lines.push(`Город: ${order.city.name}`);
+    if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
+    if (order.scheduledAt) {
+      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
+    }
+    lines.push('Назначьте мастера в CRM.');
+    const text = lines.join('\n');
+
+    this.logger.log(
+      `notifyAdminsNewOrder → ${admins.length} адм., заявка ${order.publicId}`,
+    );
+
+    return Promise.allSettled(
+      admins.map((a) => this.sendMessage(a.telegramId as string, text)),
+    );
   }
 
   /** Публичный webhook Telegram: проверка секрета + разбор Update. */
