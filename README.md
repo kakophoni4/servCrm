@@ -43,21 +43,18 @@ docker-compose.prod.yml  — полный стенд на VPS
 | Чат-центр + bot HTTP | ✅ | ✅ |
 | ЗП диспетчеров (настройки) | ✅ | ✅ |
 
-## Деплой на сервер
+## Деплой на сервер (HTTP по IP, без домена)
 
-1. Установить Docker на VPS (2 vCPU / 4 GB хватит на старт).
-2. Клонировать репо, скопировать `.env.example` → `.env`, заполнить секреты и `DOMAIN`.
-3. `docker compose -f docker-compose.prod.yml up -d --build`
-4. `docker compose -f docker-compose.prod.yml exec api npx prisma db seed` (или `npm run db:seed` из образа — см. ниже).
-5. Открыть `https://DOMAIN`, войти пилотными логинами.
+1. Docker на VPS (2 vCPU / 4 GB хватит на старт).
+2. Клон репо, `.env.example` → `.env` (пароли + `CORS_ORIGIN=http://ВАШ_IP`).
+3. Открыть порт **80** в firewall/security group.
+4. `docker compose -f docker-compose.prod.yml up -d --build`
+5. Сиды: `docker compose -f docker-compose.prod.yml exec api npx tsx prisma/seed.ts`
+6. Открыть в браузере `http://ВАШ_IP/`
 
-Сиды после первого старта:
+Caddy слушает только `:80`, TLS/домен не нужны. Фронт ходит на `/api` того же хоста.
 
-```bash
-docker compose -f docker-compose.prod.yml exec api npx tsx prisma/seed.ts
-```
-
-(если в образе нет tsx — выполнить seed с машины разработчика, указав `DATABASE_URL` на сервер.)
+Позже с доменом: поставить DNS и при желании вернуть HTTPS в `deploy/Caddyfile`.
 
 ### Пилотные логины
 

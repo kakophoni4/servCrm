@@ -1,4 +1,5 @@
-{$DOMAIN:localhost} {
+# HTTP-only (IP или любой host, без TLS)
+:80 {
 	encode gzip
 
 	handle /api/* {

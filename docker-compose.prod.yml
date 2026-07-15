@@ -24,7 +24,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       PORT: 3001
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://crm.example.com}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
       UPLOAD_DIR: /data/uploads
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
     volumes:
@@ -38,7 +38,8 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://crm.example.com}
+        # пусто = same-origin /api (удобно при доступе по IP)
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
     restart: unless-stopped
     depends_on:
       - api
@@ -48,7 +49,6 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
