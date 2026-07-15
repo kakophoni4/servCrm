@@ -1,6 +1,20 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { IsNumber, IsOptional, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -28,11 +42,41 @@ class DispatcherPayDto {
   closedOrdersBonusPct?: number;
 }
 
+class BotConfigDto {
+  @IsOptional()
+  @IsString()
+  token?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
 @Controller('settings')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  // ---- Telegram-бот (только владелец) ----
+  @Get('bot')
+  @Roles(Role.OWNER)
+  getBot() {
+    return this.settings.getBotConfig();
+  }
+
+  @Put('bot')
+  @Roles(Role.OWNER)
+  setBot(@Body() dto: BotConfigDto) {
+    return this.settings.setBotConfig(dto);
+  }
+
+  @Post('bot/test')
+  @Roles(Role.OWNER)
+  testBot() {
+    return this.settings.testBot();
+  }
+
+  // ---- ЗП диспетчеров ----
   @Get('dispatcher-pay/:userId')
   @Roles(Role.OWNER, Role.DIRECTOR)
   get(@Param('userId') userId: string) {

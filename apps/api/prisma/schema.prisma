@@ -468,3 +468,12 @@ model ChatMessage {
   @@index([threadId, createdAt])
   @@map("chat_messages")
 }
+
+/// Хранилище настраиваемых параметров (ключ-значение): TG-токен бота, флаги и т.п.
+model AppSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}

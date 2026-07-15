@@ -65,3 +65,54 @@ export async function api<T>(
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+async function parseError(res: Response): Promise<string> {
+  let message = `Ошибка ${res.status}`;
+  try {
+    const body = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(body.message)) message = body.message.join(', ');
+    else if (body.message) message = body.message;
+  } catch {
+    /* ignore */
+  }
+  return message;
+}
+
+/** Загрузка файлов через multipart/form-data (без Content-Type — его ставит браузер). */
+export async function uploadFiles<T>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${API_URL}/api${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+/** Скачивание защищённого файла с авторизацией и сохранением на диск. */
+export async function downloadFile(
+  path: string,
+  fileName: string,
+): Promise<void> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${API_URL}/api${path}`, { headers });
+  if (!res.ok) throw new Error(await parseError(res));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

@@ -1,25 +1,57 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ChatChannel, OrderStatus } from '@prisma/client';
 import { ChatService } from '../chat/chat.service';
 import { DocumentsService } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import { requiresDocsForDone } from '../common/utils/formulas';
 
 /**
- * Слой для Telegram-бота (webhook / polling подключается через TELEGRAM_BOT_TOKEN).
- * Сейчас — HTTP API для эмуляции и будущей интеграции.
+ * Слой для Telegram-бота. Токен берётся из настроек (админка) с fallback на env.
  */
 @Injectable()
 export class BotService {
+  private readonly logger = new Logger(BotService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly chat: ChatService,
     private readonly documents: DocumentsService,
+    private readonly settings: SettingsService,
   ) {}
+
+  /** Вызов метода Telegram Bot API токеном из настроек. */
+  async telegram<T = unknown>(
+    method: string,
+    payload: Record<string, unknown>,
+  ): Promise<T | null> {
+    const token = await this.settings.getBotToken();
+    if (!token) {
+      this.logger.warn(`Telegram ${method}: токен не задан`);
+      return null;
+    }
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return (await res.json()) as T;
+    } catch (e) {
+      this.logger.error(`Telegram ${method} error: ${String(e)}`);
+      return null;
+    }
+  }
+
+  /** Отправить текст в чат Telegram (chatId = telegramId). */
+  sendMessage(chatId: string, text: string) {
+    return this.telegram('sendMessage', { chat_id: chatId, text });
+  }
 
   async masterByTelegram(telegramId: string) {
     const user = await this.prisma.user.findFirst({

@@ -11,21 +11,24 @@ import {
 } from '@/lib/api';
 import { ROLE_LABELS } from '@/lib/labels';
 
-const NAV = [
+type NavItem = { href: string; label: string; roles?: string[] };
+
+const NAV: NavItem[] = [
   { href: '/orders', label: 'Заявки' },
   { href: '/orders/new', label: 'Новая заявка' },
   { href: '/clients', label: 'Клиенты' },
   { href: '/claims', label: 'Претензии' },
-  { href: '/cash', label: 'Касса' },
-  { href: '/reports', label: 'Отчёты' },
-  { href: '/ads', label: 'Реклама' },
-  { href: '/assets', label: 'Имущество' },
-  { href: '/chat', label: 'Чат' },
-  { href: '/settlements', label: 'Расчёт мастеров' },
-  { href: '/settings/salary', label: 'Настройки ЗП' },
-  { href: '/settings/dispatcher-pay', label: 'ЗП диспетчеров' },
-  { href: '/masters', label: 'Мастера' },
-  { href: '/users', label: 'Сотрудники' },
+  { href: '/cash', label: 'Касса', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/reports', label: 'Отчёты', roles: ['DIRECTOR', 'OWNER'] },
+  { href: '/ads', label: 'Реклама', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/assets', label: 'Имущество', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/chat', label: 'Чат', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/settlements', label: 'Расчёт мастеров', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/settings/salary', label: 'Настройки ЗП', roles: ['DIRECTOR', 'OWNER'] },
+  { href: '/settings/dispatcher-pay', label: 'ЗП диспетчеров', roles: ['DIRECTOR', 'OWNER'] },
+  { href: '/settings/bot', label: 'Бот Telegram', roles: ['OWNER'] },
+  { href: '/masters', label: 'Мастера', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
+  { href: '/users', label: 'Сотрудники', roles: ['ADMIN', 'DIRECTOR', 'OWNER'] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -59,7 +62,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="sidebar">
         <div className="brand">Field CRM</div>
         <nav>
-          {NAV.map((item) => {
+          {NAV.filter(
+            (item) => !item.roles || item.roles.includes(user.role),
+          ).map((item) => {
             const active =
               item.href === '/orders'
                 ? pathname === '/orders' ||

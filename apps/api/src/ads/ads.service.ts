@@ -1,9 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  StorageService,
+  UploadedMemoryFile,
+} from '../common/storage/storage.service';
 
 @Injectable()
 export class AdsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   list() {
     return this.prisma.adDailyReport.findMany({
@@ -11,6 +18,24 @@ export class AdsService {
       orderBy: { reportDate: 'desc' },
       take: 90,
     });
+  }
+
+  async attachScreenshot(id: string, file: UploadedMemoryFile) {
+    const report = await this.prisma.adDailyReport.findUnique({ where: { id } });
+    if (!report) throw new NotFoundException('Отчёт не найден');
+    const { relPath } = this.storage.save('ads', file);
+    return this.prisma.adDailyReport.update({
+      where: { id },
+      data: { documentPath: relPath },
+    });
+  }
+
+  async getScreenshot(id: string) {
+    const report = await this.prisma.adDailyReport.findUnique({ where: { id } });
+    if (!report?.documentPath) {
+      throw new NotFoundException('Скриншот не прикреплён');
+    }
+    return report.documentPath;
   }
 
   create(

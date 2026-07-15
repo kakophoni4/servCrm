@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, downloadFile, uploadFiles } from '@/lib/api';
 
 type AdReport = {
   id: string;
@@ -16,6 +16,7 @@ type AdReport = {
   avitoAdsCount: number;
   leafletsStock: number;
   cardsStock: number;
+  documentPath?: string | null;
   createdAt: string;
   city?: { name: string } | null;
   createdBy?: { fullName: string } | null;
@@ -70,6 +71,27 @@ export default function AdsPage() {
       });
       setForm({ ...emptyForm, reportDate: new Date().toISOString().slice(0, 10) });
       await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  async function uploadScreenshot(id: string, files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', files[0]);
+      await uploadFiles(`/ads/${id}/screenshot`, fd);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки');
+    }
+  }
+
+  async function viewScreenshot(id: string) {
+    try {
+      await downloadFile(`/ads/${id}/screenshot`, `ad-${id}.jpg`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     }
@@ -130,6 +152,7 @@ export default function AdsPage() {
               <th>Визитки</th>
               <th>Авито</th>
               <th>Кто</th>
+              <th>Скрин</th>
             </tr>
           </thead>
           <tbody>
@@ -146,11 +169,28 @@ export default function AdsPage() {
                 </td>
                 <td>{r.avitoAdsCount}</td>
                 <td>{r.createdBy?.fullName ?? '—'}</td>
+                <td>
+                  {r.documentPath ? (
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      onClick={() => viewScreenshot(r.id)}
+                    >
+                      Скачать
+                    </button>
+                  ) : (
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => uploadScreenshot(r.id, e.target.files)}
+                    />
+                  )}
+                </td>
               </tr>
             ))}
             {reports.length === 0 ? (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={8} className="muted">
                   Отчётов пока нет.
                 </td>
               </tr>

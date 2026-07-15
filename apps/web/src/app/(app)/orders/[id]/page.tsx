@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { api, getStoredUser } from '@/lib/api';
+import { api, downloadFile, getStoredUser, uploadFiles } from '@/lib/api';
 import {
   DOC_KIND_LABELS,
   STATUS_LABELS,
@@ -84,8 +84,8 @@ export default function OrderDetailPage() {
   const [isClaim, setIsClaim] = useState(false);
 
   const [docKind, setDocKind] = useState('RECEIPT_SERVICE');
-  const [docFileName, setDocFileName] = useState('');
-  const [docFilePath, setDocFilePath] = useState('');
+  const [docFiles, setDocFiles] = useState<FileList | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   async function load() {
     const data = await api<Order>(`/orders/${id}`);
@@ -142,21 +142,31 @@ export default function OrderDetailPage() {
     e.preventDefault();
     setError('');
     setMsg('');
+    if (!docFiles || docFiles.length === 0) {
+      setError('Выберите файл(ы) для загрузки');
+      return;
+    }
+    setUploading(true);
     try {
-      await api(`/orders/${id}/documents`, {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: docKind,
-          fileName: docFileName,
-          filePath: docFilePath,
-        }),
-      });
-      setDocFileName('');
-      setDocFilePath('');
-      setMsg('Документ добавлен');
+      const fd = new FormData();
+      Array.from(docFiles).forEach((f) => fd.append('files', f));
+      await uploadFiles(`/orders/${id}/documents?kind=${docKind}`, fd);
+      setDocFiles(null);
+      (e.target as HTMLFormElement).reset();
+      setMsg('Документы загружены');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function download(docId: string, fileName: string) {
+    try {
+      await downloadFile(`/orders/${id}/documents/${docId}/download`, fileName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка скачивания');
     }
   }
 
@@ -328,8 +338,8 @@ export default function OrderDetailPage() {
                 <tr>
                   <th>Тип</th>
                   <th>Файл</th>
-                  <th>Путь</th>
                   <th>Дата</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -337,8 +347,16 @@ export default function OrderDetailPage() {
                   <tr key={d.id}>
                     <td>{DOC_KIND_LABELS[d.kind] ?? d.kind}</td>
                     <td>{d.fileName}</td>
-                    <td className="muted">{d.filePath}</td>
                     <td>{new Date(d.createdAt).toLocaleDateString('ru-RU')}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => download(d.id, d.fileName)}
+                      >
+                        Скачать
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {(order.documents ?? []).length === 0 ? (
@@ -364,26 +382,16 @@ export default function OrderDetailPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Имя файла</label>
+                  <label>Файлы (можно несколько)</label>
                   <input
-                    required
-                    value={docFileName}
-                    onChange={(e) => setDocFileName(e.target.value)}
-                    placeholder="chek.pdf"
-                  />
-                </div>
-                <div className="field">
-                  <label>Путь (заглушка)</label>
-                  <input
-                    required
-                    value={docFilePath}
-                    onChange={(e) => setDocFilePath(e.target.value)}
-                    placeholder="/uploads/orders/..."
+                    type="file"
+                    multiple
+                    onChange={(e) => setDocFiles(e.target.files)}
                   />
                 </div>
               </div>
-              <button type="submit" className="btn secondary">
-                Добавить документ
+              <button type="submit" className="btn secondary" disabled={uploading}>
+                {uploading ? 'Загрузка…' : 'Загрузить файлы'}
               </button>
             </form>
           </div>
