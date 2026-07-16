@@ -986,67 +986,69 @@ export default function OrderDetailPage() {
                 );
               })}
             </ul>
-            <table className="table docs-table">
-              <thead>
-                <tr>
-                  <th>Тип</th>
-                  <th>Дата</th>
-                  <th className="docs-col-actions">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {docGroups.map((g) => (
-                  <tr key={g.kind}>
-                    <td>
-                      <span className="docs-kind">
-                        {DOC_KIND_LABELS[g.kind] ?? g.kind}
-                      </span>
-                      {g.docs.length > 1 ? (
-                        <span className="docs-count">{g.docs.length}</span>
-                      ) : null}
-                    </td>
-                    <td className="muted">
-                      {g.latestAt
-                        ? new Date(g.latestAt).toLocaleDateString('ru-RU')
-                        : '—'}
-                    </td>
-                    <td>
-                      <div className="docs-actions">
-                        <button
-                          type="button"
-                          className="btn-link"
-                          disabled={previewLoadingKind === g.kind}
-                          onClick={() => openPreviewGroup(g)}
-                        >
-                          {previewLoadingKind === g.kind
-                            ? '…'
-                            : 'Предпросмотр'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-link"
-                          disabled={downloadLoadingKind === g.kind}
-                          onClick={() => void downloadGroup(g)}
-                        >
-                          {downloadLoadingKind === g.kind
-                            ? '…'
-                            : g.docs.length > 1
-                              ? 'Скачать архив'
-                              : 'Скачать'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {docGroups.length === 0 ? (
+            <div className="table-scroll">
+              <table className="table docs-table">
+                <thead>
                   <tr>
-                    <td colSpan={3} className="muted">
-                      Документов нет.
-                    </td>
+                    <th>Тип</th>
+                    <th>Дата</th>
+                    <th className="docs-col-actions">Действия</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {docGroups.map((g) => (
+                    <tr key={g.kind}>
+                      <td>
+                        <span className="docs-kind">
+                          {DOC_KIND_LABELS[g.kind] ?? g.kind}
+                        </span>
+                        {g.docs.length > 1 ? (
+                          <span className="docs-count">{g.docs.length}</span>
+                        ) : null}
+                      </td>
+                      <td className="muted">
+                        {g.latestAt
+                          ? new Date(g.latestAt).toLocaleDateString('ru-RU')
+                          : '—'}
+                      </td>
+                      <td>
+                        <div className="docs-actions">
+                          <button
+                            type="button"
+                            className="btn-link"
+                            disabled={previewLoadingKind === g.kind}
+                            onClick={() => openPreviewGroup(g)}
+                          >
+                            {previewLoadingKind === g.kind
+                              ? '…'
+                              : 'Предпросмотр'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-link"
+                            disabled={downloadLoadingKind === g.kind}
+                            onClick={() => void downloadGroup(g)}
+                          >
+                            {downloadLoadingKind === g.kind
+                              ? '…'
+                              : g.docs.length > 1
+                                ? 'Скачать архив'
+                                : 'Скачать'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {docGroups.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="muted">
+                        Документов нет.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
 
             {preview ? (
               <div

@@ -48,11 +48,12 @@ export default function ChatPage() {
   const [orders, setOrders] = useState<OrderOpt[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  /** На телефоне: список или тред; на desktop оба видны. */
+  const [mobileView, setMobileView] = useState<'list' | 'thread'>('list');
 
   async function loadThreads() {
     const list = await api<Thread[]>('/chat/threads');
     setThreads(list);
-    if (!selectedId && list[0]) setSelectedId(list[0].id);
   }
 
   async function loadThread(id: string) {
@@ -71,14 +72,27 @@ export default function ChatPage() {
         if (m[0]) setMasterId(m[0].id);
       })
       .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId) {
+      setThread(null);
+      return;
+    }
     setMsg('');
-    loadThread(selectedId).catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    loadThread(selectedId).catch((e) =>
+      setError(e instanceof Error ? e.message : 'Ошибка'),
+    );
   }, [selectedId]);
+
+  function openThread(id: string) {
+    setSelectedId(id);
+    setMobileView('thread');
+  }
+
+  function backToList() {
+    setMobileView('list');
+  }
 
   async function sendMessage(e: FormEvent) {
     e.preventDefault();
@@ -133,12 +147,17 @@ export default function ChatPage() {
     }
   }
 
+  const layoutClass =
+    mobileView === 'thread'
+      ? 'grid-2 chat-layout chat-show-thread'
+      : 'grid-2 chat-layout chat-show-list';
+
   return (
     <div>
       <h1 className="page-title">Чаты</h1>
 
-      <div className="grid-2" style={{ alignItems: 'start' }}>
-        <div className="panel">
+      <div className={layoutClass}>
+        <div className="panel chat-list-panel">
           <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Диалоги</h2>
           {threads.length === 0 ? (
             <p className="muted">Диалогов пока нет.</p>
@@ -150,7 +169,7 @@ export default function ChatPage() {
                     type="button"
                     className={selectedId === t.id ? 'btn' : 'btn secondary'}
                     style={{ width: '100%', textAlign: 'left' }}
-                    onClick={() => setSelectedId(t.id)}
+                    onClick={() => openThread(t.id)}
                   >
                     <div>{t.title ?? t.id.slice(0, 8)}</div>
                     <div className="muted" style={{ fontSize: '0.8rem' }}>
@@ -165,14 +184,23 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="panel">
+        <div className="panel chat-thread-panel">
           {!thread ? (
             <p className="muted">Выберите диалог</p>
           ) : (
             <>
+              <button
+                type="button"
+                className="btn secondary chat-back"
+                onClick={backToList}
+              >
+                ← К диалогам
+              </button>
               <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>
                 {thread.title ?? 'Диалог'}{' '}
-                <span className="badge">{CHAT_STATUS_LABELS[thread.status]}</span>
+                <span className="badge">
+                  {CHAT_STATUS_LABELS[thread.status]}
+                </span>
               </h2>
 
               {thread.order ? (
@@ -191,11 +219,10 @@ export default function ChatPage() {
                 </p>
               )}
 
-              <form onSubmit={linkOrder} style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+              <form onSubmit={linkOrder} className="chat-thread-actions">
                 <select
                   value={linkOrderId}
                   onChange={(e) => setLinkOrderId(e.target.value)}
-                  style={{ flex: 1 }}
                   required
                 >
                   <option value="">Выберите заявку…</option>
@@ -211,14 +238,10 @@ export default function ChatPage() {
                 </button>
               </form>
 
-              <form
-                onSubmit={sendToMaster}
-                style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}
-              >
+              <form onSubmit={sendToMaster} className="chat-thread-actions">
                 <select
                   value={masterId}
                   onChange={(e) => setMasterId(e.target.value)}
-                  style={{ flex: 1, minWidth: 160 }}
                   required
                 >
                   <option value="">Мастер…</option>
@@ -233,16 +256,7 @@ export default function ChatPage() {
                 </button>
               </form>
 
-              <div
-                style={{
-                  maxHeight: 360,
-                  overflowY: 'auto',
-                  border: '1px solid var(--line)',
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 12,
-                }}
-              >
+              <div className="chat-messages">
                 {thread.messages.length === 0 ? (
                   <p className="muted">Сообщений нет.</p>
                 ) : (
@@ -278,13 +292,12 @@ export default function ChatPage() {
                 )}
               </div>
 
-              <form onSubmit={sendMessage} style={{ display: 'flex', gap: 8 }}>
+              <form onSubmit={sendMessage} className="chat-compose">
                 <input
                   required
                   placeholder="Сообщение"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  style={{ flex: 1 }}
                 />
                 <button type="submit" className="btn">
                   Отправить

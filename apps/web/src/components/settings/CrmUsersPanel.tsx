@@ -64,10 +64,13 @@ export function CrmUsersPanel() {
   const [permSel, setPermSel] = useState<string[]>([...ALL_PERMISSION_KEYS]);
   const [permEditId, setPermEditId] = useState<string | null>(null);
   const [editPermSel, setEditPermSel] = useState<string[]>([]);
+  const [tgEditId, setTgEditId] = useState<string | null>(null);
+  const [tgDraft, setTgDraft] = useState('');
   const role = getStoredUser()?.role ?? '';
   const admin = isAdminRole(role);
   const isOwner = role === 'OWNER';
   const canEditPerms = isOwner || role === 'DIRECTOR';
+  const canEditTelegram = admin;
   const officeTarget = isOfficeRole(form.role);
   const permGroups = groupPermissions();
 
@@ -140,6 +143,21 @@ export function CrmUsersPanel() {
       setEmployeePhoto(null);
       setTab('ACTIVE');
       await load('ACTIVE');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
+  async function saveTelegram(id: string) {
+    setError('');
+    try {
+      await api(`/users/${id}/telegram`, {
+        method: 'PATCH',
+        body: JSON.stringify({ telegramId: tgDraft.trim() || '' }),
+      });
+      setTgEditId(null);
+      setTgDraft('');
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     }
@@ -459,6 +477,7 @@ export function CrmUsersPanel() {
           </button>
         </div>
         {error ? <p className="error">{error}</p> : null}
+        <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
@@ -468,6 +487,7 @@ export function CrmUsersPanel() {
               <th>Разрешения</th>
               <th>Филиалы</th>
               <th>Телефон</th>
+              <th>Telegram ID</th>
               <th>Статус</th>
               <th></th>
             </tr>
@@ -636,6 +656,62 @@ export function CrmUsersPanel() {
                   )}
                 </td>
                 <td>{u.phone ?? '—'}</td>
+                <td>
+                  {tgEditId === u.id ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <input
+                        value={tgDraft}
+                        onChange={(e) => setTgDraft(e.target.value)}
+                        placeholder="из /start в боте"
+                        style={{ minWidth: 120 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => saveTelegram(u.id)}
+                      >
+                        Сохранить
+                      </button>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => {
+                          setTgEditId(null);
+                          setTgDraft('');
+                        }}
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                    >
+                      {u.telegramId || (
+                        <span className="muted">—</span>
+                      )}
+                      {canEditTelegram && tab === 'ACTIVE' ? (
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => {
+                            setTgEditId(u.id);
+                            setTgDraft(u.telegramId ?? '');
+                          }}
+                        >
+                          ✎
+                        </button>
+                      ) : null}
+                    </span>
+                  )}
+                </td>
                 <td>{USER_STATUS_LABELS[u.status] ?? u.status}</td>
                 <td>
                   {admin && u.status === 'ACTIVE' ? (
@@ -715,6 +791,7 @@ export function CrmUsersPanel() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

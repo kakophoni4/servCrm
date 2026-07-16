@@ -65,47 +65,49 @@ export default function ClientCardPage() {
       </div>
       <div className="panel">
         <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История заказов</h2>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Тип</th>
-              <th>Статус</th>
-              <th>Адрес</th>
-              <th>Оплачено</th>
-              <th>Сумма работ</th>
-              <th>Дата</th>
-            </tr>
-          </thead>
-          <tbody>
-            {client.orders.map((o) => (
-              <tr
-                key={o.id}
-                className="row-link"
-                role="link"
-                tabIndex={0}
-                onClick={() => goOrder(o.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    goOrder(o.id);
-                  }
-                }}
-              >
-                <td>
-                  <strong>{o.publicId}</strong>
-                  {o.isClaim ? ' ⚠' : ''}
-                </td>
-                <td>{TYPE_LABELS[o.type]}</td>
-                <td>{STATUS_LABELS[o.status]}</td>
-                <td>{o.address}</td>
-                <td>{o.payment ? `${String(o.payment.paid)} ₽` : '—'}</td>
-                <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '—'}</td>
-                <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
+        <div className="table-scroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Тип</th>
+                <th>Статус</th>
+                <th>Адрес</th>
+                <th>Оплачено</th>
+                <th>Сумма работ</th>
+                <th>Дата</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {client.orders.map((o) => (
+                <tr
+                  key={o.id}
+                  className="row-link"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => goOrder(o.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      goOrder(o.id);
+                    }
+                  }}
+                >
+                  <td>
+                    <strong>{o.publicId}</strong>
+                    {o.isClaim ? ' ⚠' : ''}
+                  </td>
+                  <td>{TYPE_LABELS[o.type]}</td>
+                  <td>{STATUS_LABELS[o.status]}</td>
+                  <td>{o.address}</td>
+                  <td>{o.payment ? `${String(o.payment.paid)} ₽` : '—'}</td>
+                  <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '—'}</td>
+                  <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

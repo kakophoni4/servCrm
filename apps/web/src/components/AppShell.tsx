@@ -72,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -80,6 +81,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     setUser(getStoredUser());
   }, [router]);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setNavOpen(false);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [navOpen]);
 
   function logout() {
     clearSession();
@@ -94,60 +117,91 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const navLinks = NAV.filter((item) => {
+    if (item.roles && !item.roles.includes(user.role)) return false;
+    if (
+      item.anyOf?.length &&
+      !hasPermission(user.role, user.permissions, item.anyOf)
+    ) {
+      return false;
+    }
+    return true;
+  }).map((item) => {
+    const active =
+      item.href === '/orders'
+        ? pathname === '/orders' ||
+          pathname.startsWith('/orders/') ||
+          pathname.startsWith('/clients') ||
+          pathname.startsWith('/claims')
+        : item.href === '/cash'
+          ? pathname.startsWith('/cash') ||
+            pathname.startsWith('/assets') ||
+            pathname.startsWith('/ads')
+          : item.href === '/manage'
+            ? pathname.startsWith('/manage') ||
+              pathname.startsWith('/settlements') ||
+              pathname.startsWith('/settings/salary') ||
+              pathname.startsWith('/settings/dispatcher-pay') ||
+              pathname.startsWith('/users') ||
+              pathname.startsWith('/masters')
+            : item.href === '/settings/cities'
+              ? pathname.startsWith('/settings/cities') ||
+                pathname.startsWith('/settings/bot')
+              : item.href === '/settings/account'
+                ? pathname.startsWith('/settings/account')
+                : pathname === item.href ||
+                  pathname.startsWith(item.href + '/');
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={active ? 'active' : ''}
+        onClick={() => setNavOpen(false)}
+      >
+        <NavIcon href={item.href} className="nav-icon" />
+        <span>{item.label}</span>
+      </Link>
+    );
+  });
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">СРМ Сервис</div>
-        <nav>
-          {NAV.filter((item) => {
-            if (item.roles && !item.roles.includes(user.role)) return false;
-            if (
-              item.anyOf?.length &&
-              !hasPermission(user.role, user.permissions, item.anyOf)
-            ) {
-              return false;
-            }
-            return true;
-          }).map((item) => {
-            const active =
-              item.href === '/orders'
-                ? pathname === '/orders' ||
-                  pathname.startsWith('/orders/') ||
-                  pathname.startsWith('/clients') ||
-                  pathname.startsWith('/claims')
-                : item.href === '/cash'
-                  ? pathname.startsWith('/cash') ||
-                    pathname.startsWith('/assets') ||
-                    pathname.startsWith('/ads')
-                  : item.href === '/manage'
-                    ? pathname.startsWith('/manage') ||
-                      pathname.startsWith('/settlements') ||
-                      pathname.startsWith('/settings/salary') ||
-                      pathname.startsWith('/settings/dispatcher-pay') ||
-                      pathname.startsWith('/users') ||
-                      pathname.startsWith('/masters')
-                    : item.href === '/settings/cities'
-                      ? pathname.startsWith('/settings/cities') ||
-                        pathname.startsWith('/settings/bot')
-                      : item.href === '/settings/account'
-                        ? pathname.startsWith('/settings/account')
-                        : pathname === item.href ||
-                          pathname.startsWith(item.href + '/');
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={active ? 'active' : ''}
-              >
-                <NavIcon href={item.href} className="nav-icon" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+    <div className={`app-shell${navOpen ? ' nav-open' : ''}`}>
+      <button
+        type="button"
+        className="nav-backdrop"
+        aria-label="Закрыть меню"
+        tabIndex={navOpen ? 0 : -1}
+        onClick={() => setNavOpen(false)}
+      />
+      <aside className="sidebar" id="app-sidebar">
+        <div className="sidebar-head">
+          <div className="brand">СРМ Сервис</div>
+          <button
+            type="button"
+            className="nav-close"
+            aria-label="Закрыть меню"
+            onClick={() => setNavOpen(false)}
+          >
+            ×
+          </button>
+        </div>
+        <nav>{navLinks}</nav>
       </aside>
       <div className="app-content">
         <header className="topbar">
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label="Открыть меню"
+            aria-expanded={navOpen}
+            aria-controls="app-sidebar"
+            onClick={() => setNavOpen(true)}
+          >
+            <span className="nav-toggle-bar" />
+            <span className="nav-toggle-bar" />
+            <span className="nav-toggle-bar" />
+          </button>
+          <div className="topbar-brand-mobile">СРМ Сервис</div>
           <div className="topbar-spacer" />
           <div className="topbar-user">
             <div className="topbar-user-meta">

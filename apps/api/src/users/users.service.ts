@@ -285,6 +285,48 @@ export class UsersService {
     return this.toPublic(user);
   }
 
+  /** Привязать / сменить Telegram ID у существующего сотрудника. */
+  async updateTelegramId(
+    id: string,
+    telegramIdRaw: string | undefined,
+    actorUserId: string,
+    actorRole: Role,
+  ) {
+    const target = await this.getRaw(id);
+    await this.assertEmployeeBranchAccess(target.cityId, actorUserId, actorRole);
+    const telegramId = telegramIdRaw?.trim() || null;
+
+    if (telegramId) {
+      const taken = await this.prisma.user.findFirst({
+        where: { telegramId, NOT: { id } },
+        select: { id: true, fullName: true },
+      });
+      if (taken) {
+        throw new ConflictException(
+          `Этот Telegram ID уже у ${taken.fullName}`,
+        );
+      }
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { telegramId },
+      select: userSelect,
+    });
+
+    if (user.role === Role.DISPATCHER && user.telegramId) {
+      await this.chat
+        .ensureTelegramThread({
+          telegramId: user.telegramId,
+          title: user.fullName,
+          cityId: user.cityId,
+        })
+        .catch(() => undefined);
+    }
+
+    return this.toPublic(user);
+  }
+
   private parseCityIds(csv?: string): string[] {
     if (!csv) return [];
     return [...new Set(csv.split(',').map((s) => s.trim()).filter(Boolean))];

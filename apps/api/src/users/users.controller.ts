@@ -102,6 +102,12 @@ class UpdatePermissionsDto {
   permissions!: string[];
 }
 
+class UpdateTelegramDto {
+  @IsOptional()
+  @IsString()
+  telegramId?: string;
+}
+
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class UsersController {
@@ -211,6 +217,22 @@ export class UsersController {
     return this.users.updatePermissions(
       id,
       dto.permissions,
+      user.userId,
+      user.role,
+    );
+  }
+
+  @Patch(':id/telegram')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('users.create')
+  updateTelegram(
+    @Param('id') id: string,
+    @Body() dto: UpdateTelegramDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.users.updateTelegramId(
+      id,
+      dto.telegramId,
       user.userId,
       user.role,
     );

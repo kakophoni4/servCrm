@@ -148,6 +148,7 @@ export function MasterSalaryPanel() {
         <div className="salary-create-head">
           <h2 className="salary-list-title">Категории</h2>
         </div>
+        <div className="table-scroll">
         <table className="table salary-table">
           <thead>
             <tr>
@@ -261,6 +262,7 @@ export function MasterSalaryPanel() {
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

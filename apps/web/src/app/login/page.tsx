@@ -6,8 +6,8 @@ import { api, setSession, AuthUser } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [login, setLogin] = useState('dispatcher');
-  const [password, setPassword] = useState('disp123');
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -36,9 +36,6 @@ export default function LoginPage() {
     <div className="login-page">
       <form className="panel login-card" onSubmit={onSubmit}>
         <h1 className="page-title">СРМ Сервис</h1>
-        <p className="muted" style={{ marginTop: -8 }}>
-          Вход для диспетчера и администратора
-        </p>
         <div className="field">
           <label htmlFor="login">Логин</label>
           <input
@@ -64,9 +61,6 @@ export default function LoginPage() {
         <button className="btn" type="submit" disabled={loading}>
           {loading ? 'Входим…' : 'Войти'}
         </button>
-        <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-          Пилот: dispatcher / disp123 · admin / admin123 · owner / owner123
-        </p>
       </form>
     </div>
   );
