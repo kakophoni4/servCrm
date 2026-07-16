@@ -40,12 +40,12 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'assets.write', group: 'Имущество', label: 'Выдача / списание' },
   { key: 'chat.read', group: 'Чаты', label: 'Просмотр чатов' },
   { key: 'chat.write', group: 'Чаты', label: 'Сообщения в чатах' },
-  { key: 'users.read', group: 'Сотрудники', label: 'Просмотр сотрудников' },
-  { key: 'users.create', group: 'Сотрудники', label: 'Создание сотрудников' },
-  { key: 'users.fire', group: 'Сотрудники', label: 'Увольнение' },
-  { key: 'users.restore', group: 'Сотрудники', label: 'Восстановление' },
-  { key: 'users.passport', group: 'Сотрудники', label: 'Паспорт / фото' },
-  { key: 'users.branches', group: 'Сотрудники', label: 'Филиалы директора' },
+  { key: 'users.read', group: 'Управление CRM', label: 'Просмотр сотрудников' },
+  { key: 'users.create', group: 'Управление CRM', label: 'Создание сотрудников' },
+  { key: 'users.fire', group: 'Управление CRM', label: 'Увольнение' },
+  { key: 'users.restore', group: 'Управление CRM', label: 'Восстановление' },
+  { key: 'users.passport', group: 'Управление CRM', label: 'Паспорт / фото' },
+  { key: 'users.branches', group: 'Управление CRM', label: 'Филиалы директора' },
   { key: 'cities.read', group: 'Настройки', label: 'Просмотр филиалов' },
   { key: 'cities.manage', group: 'Настройки', label: 'Управление филиалами' },
   { key: 'salary.read', group: 'Настройки', label: 'Просмотр настроек ЗП' },
@@ -59,6 +59,54 @@ export const ALL_PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
 export function isOfficeRole(role: string): boolean {
   return role === 'ADMIN' || role === 'DIRECTOR' || role === 'OWNER';
+}
+
+/** Как на API: пустой permissions[] у ADMIN/DIRECTOR = полный доступ (legacy). */
+export function roleDefaultPermissions(role: string): string[] {
+  if (role === 'OWNER') return [...ALL_PERMISSION_KEYS];
+  if (role === 'ADMIN' || role === 'DIRECTOR') return [...ALL_PERMISSION_KEYS];
+  return [];
+}
+
+export function effectivePermissions(
+  role: string,
+  stored: string[] | null | undefined,
+): string[] {
+  if (role === 'OWNER') return [...ALL_PERMISSION_KEYS];
+  if (role === 'MASTER' || role === 'DISPATCHER') return [...ALL_PERMISSION_KEYS];
+  const list = stored ?? [];
+  if (list.length === 0) return roleDefaultPermissions(role);
+  return [...new Set(list.filter((k) => ALL_PERMISSION_KEYS.includes(k)))];
+}
+
+export function hasPermission(
+  role: string,
+  stored: string[] | null | undefined,
+  required: string | string[],
+): boolean {
+  const keys = Array.isArray(required) ? required : [required];
+  if (!keys.length) return true;
+  if (role === 'OWNER' || role === 'MASTER' || role === 'DISPATCHER') {
+    return true;
+  }
+  const eff = new Set(effectivePermissions(role, stored));
+  return keys.some((k) => eff.has(k));
+}
+
+/** Проверка по текущему пользователю из localStorage. */
+export function userHasPermission(required: string | string[]): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem('crm_user');
+    if (!raw) return false;
+    const user = JSON.parse(raw) as {
+      role?: string;
+      permissions?: string[];
+    };
+    return hasPermission(user.role ?? '', user.permissions, required);
+  } catch {
+    return false;
+  }
 }
 
 export function groupPermissions(list: PermissionDef[] = PERMISSIONS) {

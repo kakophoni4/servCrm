@@ -53,12 +53,12 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'chat.write', group: 'Чаты', label: 'Сообщения в чатах' },
 
   // Сотрудники
-  { key: 'users.read', group: 'Сотрудники', label: 'Просмотр сотрудников' },
-  { key: 'users.create', group: 'Сотрудники', label: 'Создание сотрудников' },
-  { key: 'users.fire', group: 'Сотрудники', label: 'Увольнение' },
-  { key: 'users.restore', group: 'Сотрудники', label: 'Восстановление' },
-  { key: 'users.passport', group: 'Сотрудники', label: 'Паспорт / фото' },
-  { key: 'users.branches', group: 'Сотрудники', label: 'Филиалы директора' },
+  { key: 'users.read', group: 'Управление CRM', label: 'Просмотр сотрудников' },
+  { key: 'users.create', group: 'Управление CRM', label: 'Создание сотрудников' },
+  { key: 'users.fire', group: 'Управление CRM', label: 'Увольнение' },
+  { key: 'users.restore', group: 'Управление CRM', label: 'Восстановление' },
+  { key: 'users.passport', group: 'Управление CRM', label: 'Паспорт / фото' },
+  { key: 'users.branches', group: 'Управление CRM', label: 'Филиалы директора' },
 
   // Настройки
   { key: 'cities.read', group: 'Настройки', label: 'Просмотр филиалов' },
@@ -92,7 +92,10 @@ export function effectivePermissions(
   stored: string[] | null | undefined,
 ): string[] {
   if (role === 'OWNER') return [...ALL_PERMISSION_KEYS];
-  if (role === 'MASTER' || role === 'DISPATCHER') return [];
+  // Диспетчер: доступ к офисным эндпоинтам через bypass в guard;
+  // для единообразия UI считаем полный набор ключей.
+  if (role === 'DISPATCHER') return [...ALL_PERMISSION_KEYS];
+  if (role === 'MASTER') return [];
   const list = stored ?? [];
   if (list.length === 0) return roleDefaultPermissions(role);
   return [...new Set(list.filter((k) => ALL_PERMISSION_KEYS.includes(k)))];

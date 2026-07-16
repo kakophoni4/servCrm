@@ -10,12 +10,15 @@ describe('SettlementsService', () => {
   const prisma = {
     masterSettlement: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
       create: jest.fn(),
+      delete: jest.fn(),
     },
     order: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     master: {
       findUnique: jest.fn(),
@@ -175,12 +178,23 @@ describe('SettlementsService', () => {
       expect(prisma.order.findMany).toHaveBeenCalledWith({
         where: {
           status: OrderStatus.DONE,
-          createdAt: {
-            gte: new Date('2026-01-01'),
-            lte: toEnd,
-          },
           masterId: { not: null },
           cityId: { in: ['city-A'] },
+          OR: [
+            {
+              completedAt: {
+                gte: new Date('2026-01-01'),
+                lte: toEnd,
+              },
+            },
+            {
+              completedAt: null,
+              updatedAt: {
+                gte: new Date('2026-01-01'),
+                lte: toEnd,
+              },
+            },
+          ],
         },
         include: { payment: true, master: { include: { user: true } } },
       });
@@ -202,6 +216,7 @@ describe('SettlementsService', () => {
           payment: { toCompany: 1000 },
         },
       ]);
+      prisma.masterSettlement.findFirst.mockResolvedValue(null);
       prisma.masterSettlement.create.mockResolvedValue({
         id: 's-new',
         cityId: 'city-A',
@@ -279,6 +294,113 @@ describe('SettlementsService', () => {
         include: { master: { include: { user: true } }, confirmedBy: true },
         orderBy: { createdAt: 'desc' },
       });
+    });
+  });
+
+  describe('board', () => {
+    it('merges live due from orders with paid from settlements', async () => {
+      branch.allowedCityIds.mockResolvedValue(['city-A']);
+      branch.resolveCityIds.mockReturnValue(['city-A']);
+      prisma.order.findMany.mockResolvedValue([
+        {
+          masterId: 'm-1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: { toCompany: 4800 },
+        },
+      ]);
+      prisma.masterSettlement.findMany.mockResolvedValue([
+        {
+          id: 's-1',
+          masterId: 'm-1',
+          paidAmount: 1000,
+          periodFrom: new Date('2026-07-01'),
+          periodTo: new Date('2026-07-31'),
+          master: { user: { fullName: 'Иванов' } },
+        },
+      ]);
+
+      const rows = await svc.board(
+        '2026-07-01',
+        '2026-07-31',
+        userId,
+        Role.OWNER,
+      );
+
+      expect(rows).toEqual([
+        {
+          masterId: 'm-1',
+          name: 'Иванов',
+          due: 4800,
+          paid: 1000,
+          remaining: 3800,
+          orderCount: 1,
+          settlementId: 's-1',
+        },
+      ]);
+    });
+  });
+
+  describe('acceptPayment', () => {
+    it('creates settlement then pays when none exists', async () => {
+      prisma.master.findUnique.mockResolvedValue({
+        id: 'm-1',
+        cityId: 'city-A',
+      });
+      branch.allowedCityIds.mockResolvedValue(null);
+      branch.resolveCityIds.mockReturnValue(null);
+      prisma.order.findMany.mockResolvedValue([
+        {
+          masterId: 'm-1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: { toCompany: 4800 },
+        },
+      ]);
+      prisma.masterSettlement.findFirst.mockResolvedValue(null);
+      prisma.masterSettlement.create.mockResolvedValue({
+        id: 's-new',
+        amount: 4800,
+        paidAmount: 0,
+        master: { user: { fullName: 'Иванов' } },
+      });
+      prisma.masterSettlement.findUnique.mockResolvedValue({
+        id: 's-new',
+        amount: 4800,
+        paidAmount: 0,
+        master: { user: { fullName: 'Иванов' } },
+      });
+      prisma.masterSettlement.update.mockResolvedValue({
+        id: 's-new',
+        paidAmount: 2000,
+      });
+
+      const result = await svc.acceptPayment(
+        {
+          masterId: 'm-1',
+          periodFrom: '2026-07-01',
+          periodTo: '2026-07-31',
+          amount: 2000,
+        },
+        userId,
+        Role.OWNER,
+      );
+
+      expect(prisma.masterSettlement.create).toHaveBeenCalled();
+      expect(result.paidAmount).toBe(2000);
+    });
+
+    it('rejects non-OWNER', async () => {
+      await expect(
+        svc.acceptPayment(
+          {
+            masterId: 'm-1',
+            periodFrom: '2026-07-01',
+            periodTo: '2026-07-31',
+            amount: 100,
+          },
+          userId,
+          Role.ADMIN,
+        ),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

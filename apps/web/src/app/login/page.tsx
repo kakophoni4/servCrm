@@ -35,7 +35,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <form className="panel login-card" onSubmit={onSubmit}>
-        <h1 className="page-title">Field CRM</h1>
+        <h1 className="page-title">СРМ Сервис</h1>
         <p className="muted" style={{ marginTop: -8 }}>
           Вход для диспетчера и администратора
         </p>

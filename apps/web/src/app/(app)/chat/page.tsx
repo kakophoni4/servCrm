@@ -267,7 +267,9 @@ export default function ChatPage() {
                       </div>
                       <div className="muted" style={{ fontSize: '0.75rem' }}>
                         {m.fromClient
-                          ? 'Клиент'
+                          ? thread.order
+                            ? 'Клиент'
+                            : 'Сотрудник'
                           : (m.author?.fullName ?? 'Оператор')}{' '}
                         · {new Date(m.createdAt).toLocaleString('ru-RU')}
                       </div>

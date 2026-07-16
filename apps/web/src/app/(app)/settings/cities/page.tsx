@@ -1,9 +1,12 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, getStoredUser } from '@/lib/api';
 import { BotSettingsPanel } from '@/components/settings/BotSettingsPanel';
+import { CrmManagePanel } from '@/components/settings/CrmManagePanel';
+import { PartnersSettingsPanel } from '@/components/settings/PartnersSettingsPanel';
+import { hasPermission } from '@/lib/permissions';
 
 type City = {
   id: string;
@@ -13,15 +16,20 @@ type City = {
   active: boolean;
 };
 
-type Tab = 'branches' | 'bot';
+type Tab = 'branches' | 'partners' | 'bot' | 'crm';
 
 function OwnerSettingsInner() {
-  const role = getStoredUser()?.role ?? '';
+  const user = getStoredUser();
+  const role = user?.role ?? '';
   const search = useSearchParams();
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>(
-    search.get('tab') === 'bot' ? 'bot' : 'branches',
-  );
+  const isOwner = role === 'OWNER';
+  const canCrm = hasPermission(role, user?.permissions, [
+    'users.read',
+    'settlements.read',
+    'salary.read',
+    'settings.dispatcher_pay',
+  ]);
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -33,28 +41,57 @@ function OwnerSettingsInner() {
   const [editName, setEditName] = useState('');
   const [editCityName, setEditCityName] = useState('');
 
+  const allowedTabs = useMemo(() => {
+    const tabs: Tab[] = [];
+    if (isOwner) {
+      tabs.push('branches', 'partners', 'bot');
+    }
+    if (canCrm) tabs.push('crm');
+    return tabs;
+  }, [isOwner, canCrm]);
+
+  function tabFromSearch(raw: string | null): Tab {
+    if (raw === 'bot' && isOwner) return 'bot';
+    if (raw === 'partners' && isOwner) return 'partners';
+    if (raw === 'crm' && canCrm) return 'crm';
+    if (raw === 'branches' && isOwner) return 'branches';
+    return allowedTabs[0] ?? 'crm';
+  }
+
+  const [tab, setTab] = useState<Tab>(() => tabFromSearch(search.get('tab')));
+
   async function load() {
     const data = await api<City[]>('/cities/manage');
     setCities(data);
   }
 
   useEffect(() => {
-    if (role !== 'OWNER') {
-      setError('Настройки доступны только владельцу');
+    if (!isOwner && !canCrm) {
+      setError('Недостаточно прав для настроек');
       return;
     }
-    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
-  }, [role]);
+    if (isOwner) {
+      load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    }
+  }, [isOwner, canCrm]);
 
   useEffect(() => {
-    setTab(search.get('tab') === 'bot' ? 'bot' : 'branches');
-  }, [search]);
+    setTab(tabFromSearch(search.get('tab')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, isOwner, canCrm, allowedTabs]);
 
   function selectTab(next: Tab) {
+    if (!allowedTabs.includes(next)) return;
     setTab(next);
-    router.replace(
-      next === 'bot' ? '/settings/cities?tab=bot' : '/settings/cities',
-    );
+    const q =
+      next === 'bot'
+        ? '?tab=bot'
+        : next === 'partners'
+          ? '?tab=partners'
+          : next === 'crm'
+            ? '?tab=crm'
+            : '';
+    router.replace(`/settings/cities${q}`);
   }
 
   async function create(e: FormEvent) {
@@ -117,10 +154,10 @@ function OwnerSettingsInner() {
     }
   }
 
-  if (role && role !== 'OWNER') {
+  if (role && !isOwner && !canCrm) {
     return (
       <div className="panel">
-        <p className="error">Настройки доступны только владельцу.</p>
+        <p className="error">Недостаточно прав для настроек.</p>
       </div>
     );
   }
@@ -130,26 +167,52 @@ function OwnerSettingsInner() {
       <h1 className="page-title">Настройки</h1>
 
       <div className="seg-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={tab === 'branches' ? 'active' : ''}
-          onClick={() => selectTab('branches')}
-        >
-          Филиалы
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={tab === 'bot' ? 'active' : ''}
-          onClick={() => selectTab('bot')}
-        >
-          Бот Telegram
-        </button>
+        {isOwner ? (
+          <>
+            <button
+              type="button"
+              role="tab"
+              className={tab === 'branches' ? 'active' : ''}
+              onClick={() => selectTab('branches')}
+            >
+              Филиалы
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={tab === 'partners' ? 'active' : ''}
+              onClick={() => selectTab('partners')}
+            >
+              Партнёры
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={tab === 'bot' ? 'active' : ''}
+              onClick={() => selectTab('bot')}
+            >
+              Бот Telegram
+            </button>
+          </>
+        ) : null}
+        {canCrm ? (
+          <button
+            type="button"
+            role="tab"
+            className={tab === 'crm' ? 'active' : ''}
+            onClick={() => selectTab('crm')}
+          >
+            Управление CRM
+          </button>
+        ) : null}
       </div>
 
-      {tab === 'bot' ? (
+      {tab === 'crm' ? (
+        <CrmManagePanel />
+      ) : tab === 'bot' ? (
         <BotSettingsPanel />
+      ) : tab === 'partners' ? (
+        <PartnersSettingsPanel />
       ) : (
         <>
           <div className="panel" style={{ marginBottom: 16 }}>

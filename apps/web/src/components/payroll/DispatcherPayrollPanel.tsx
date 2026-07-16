@@ -122,10 +122,9 @@ export function DispatcherPayrollPanel() {
             <thead>
               <tr>
                 <th>Диспетчер</th>
-                <th>Оклад</th>
-                <th>% оборота</th>
+                <th>Мес. оклад</th>
                 <th>Бонус (листовки)</th>
-                <th>Бонус заявки</th>
+                <th>Бонус от прибыли в смены</th>
                 <th>ИТОГО</th>
               </tr>
             </thead>
@@ -134,7 +133,6 @@ export function DispatcherPayrollPanel() {
                 <tr key={r.userId}>
                   <td>{r.fullName}</td>
                   <td>{money(r.salaryBase)}</td>
-                  <td>{money(r.dailyTurnoverPay)}</td>
                   <td>{money(r.leafletsPay)}</td>
                   <td>{money(r.closedOrdersBonus)}</td>
                   <td>

@@ -38,14 +38,29 @@ export const USER_STATUS_LABELS: Record<string, string> = {
   FIRED: 'Уволен',
 };
 
-/** Типы, доступные для загрузки к заявке */
+/** Типы для обычной загрузки / «Готов» (без сохранной расписки). */
 export const ORDER_UPLOAD_DOC_KINDS = [
   'CONTRACT',
   'RECEIPT_SERVICE',
   'RECEIPT_PARTS',
   'PARTS_PHOTO',
-  'RECEIPT_SD',
 ] as const;
+
+/** Только для статуса «В работе СД». */
+export const SD_UPLOAD_DOC_KIND = 'RECEIPT_SD' as const;
+
+export type OrderUploadDocKind = (typeof ORDER_UPLOAD_DOC_KINDS)[number];
+
+/** Чек/фото комплектующих обязательны только при сумме комплектующих > 0. */
+export function requiredOrderDocKinds(
+  partsCost: number,
+): OrderUploadDocKind[] {
+  const always: OrderUploadDocKind[] = ['CONTRACT', 'RECEIPT_SERVICE'];
+  if (Number(partsCost) > 0) {
+    return [...always, 'RECEIPT_PARTS', 'PARTS_PHOTO'];
+  }
+  return always;
+}
 
 export const DOC_KIND_LABELS: Record<string, string> = {
   CONTRACT: 'Договор',

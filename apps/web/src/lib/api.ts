@@ -115,17 +115,22 @@ export function appendFormFields(
   return formData;
 }
 
-/** Скачивание защищённого файла с авторизацией и сохранением на диск. */
-export async function downloadFile(
-  path: string,
-  fileName: string,
-): Promise<void> {
+/** Загрузка защищённого файла как Blob (для скачивания и предпросмотра). */
+export async function fetchAuthorizedBlob(path: string): Promise<Blob> {
   const token = getToken();
   const headers = new Headers();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const res = await fetch(`${API_URL}/api${path}`, { headers });
   if (!res.ok) throw new Error(await parseError(res));
-  const blob = await res.blob();
+  return res.blob();
+}
+
+/** Скачивание защищённого файла с авторизацией и сохранением на диск. */
+export async function downloadFile(
+  path: string,
+  fileName: string,
+): Promise<void> {
+  const blob = await fetchAuthorizedBlob(path);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -142,17 +147,15 @@ export type DispatcherPayCalc = {
   fullName: string;
   period: { from: string; to: string };
   salaryBase: number;
-  dailyTurnoverPay: number;
   leafletsPay: number;
   closedOrdersBonus: number;
   total: number;
   meta?: {
-    turnover: number;
     leaflets: number;
-    ownClosedNet: number;
+    shiftClosedNet: number;
+    shiftDays: number;
     settings: {
       salaryBase: number;
-      dailyTurnoverPct: number;
       leafletBonus: number;
       closedOrdersBonusPct: number;
     };
@@ -188,10 +191,17 @@ export type RecentOrder = {
   status: string;
   hasMaster: boolean;
   createdAt: string;
+  scheduledAt?: string | null;
+  kind?: 'new' | 'urgent';
 };
 
 /** Новые заявки, созданные после `after` (ISO). Только для админов. */
 export function getRecentOrders(after: string) {
   const q = new URLSearchParams({ after });
   return api<RecentOrder[]>(`/orders/recent?${q}`);
+}
+
+/** Без мастера и до визита ≤30 мин (или уже просрочено). */
+export function getUrgentUnassignedOrders() {
+  return api<RecentOrder[]>('/orders/urgent-unassigned');
 }

@@ -12,7 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { DocKind, Role } from '@prisma/client';
+import { DocKind, OrderStatus, Role } from '@prisma/client';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
@@ -50,6 +50,7 @@ export class DocumentsController {
   upload(
     @Param('orderId') orderId: string,
     @Query('kind') kind: DocKind,
+    @Query('forStatus') forStatus: OrderStatus | undefined,
     @UploadedFiles() files: UploadedMemoryFile[],
     @CurrentUser() user: { userId: string },
   ) {
@@ -58,6 +59,7 @@ export class DocumentsController {
       kind ?? DocKind.CONTRACT,
       files ?? [],
       user.userId,
+      forStatus,
     );
   }
 

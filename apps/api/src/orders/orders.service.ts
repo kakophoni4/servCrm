@@ -24,6 +24,7 @@ import {
 } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalaryService } from '../salary/salary.service';
+import { SettlementsService } from '../settlements/settlements.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
@@ -43,6 +44,7 @@ export class OrdersService {
     private readonly documents: DocumentsService,
     private readonly bot: BotService,
     private readonly branch: BranchScopeService,
+    private readonly settlements: SettlementsService,
   ) {}
 
   private orderInclude = {
@@ -51,6 +53,7 @@ export class OrdersService {
     ageCategory: true,
     master: { include: { user: true } },
     city: true,
+    createdBy: { select: { id: true, fullName: true, role: true } },
     payment: true,
     claims: true,
     documents: true,
@@ -154,18 +157,18 @@ export class OrdersService {
     const isAdmin = ADMIN_ROLES.includes(role);
     // Комментарий филиала — только админ / директор / владелец.
     const branchComment = isAdmin ? dto.branchComment : undefined;
-    // Дата выполнения — только админ / директор / владелец (не при создании диспетчером).
-    const scheduledAt =
-      isAdmin && dto.scheduledAt ? new Date(dto.scheduledAt) : null;
+
+    if (!dto.scheduledAt || Number.isNaN(Date.parse(dto.scheduledAt))) {
+      throw new BadRequestException('Укажите время по заказу');
+    }
+    const scheduledAt = new Date(dto.scheduledAt);
 
     const phone = normalizePhone(dto.clientPhone);
     if (phone.length < 10) {
       throw new BadRequestException('Некорректный телефон');
     }
 
-    const status = scheduledAt
-      ? OrderStatus.WAITING
-      : OrderStatus.NOT_SCHEDULED;
+    const status = OrderStatus.WAITING;
 
     const isWarranty = dto.type === OrderType.WARRANTY;
     const isRepeat = dto.type === OrderType.REPEAT;
@@ -286,6 +289,49 @@ export class OrdersService {
       status: o.status,
       hasMaster: Boolean(o.masterId),
       createdAt: o.createdAt.toISOString(),
+      scheduledAt: o.scheduledAt?.toISOString() ?? null,
+      kind: 'new' as const,
+    }));
+  }
+
+  /**
+   * Заявки без мастера, до визита осталось ≤30 мин (или время уже прошло).
+   * Для тех же всплывающих уведомлений, что и у новых заявок.
+   */
+  async urgentUnassigned(userId: string, role: Role, cityId?: string) {
+    const now = new Date();
+    const deadline = new Date(now.getTime() + 30 * 60_000);
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, cityId);
+    const orders = await this.prisma.order.findMany({
+      where: {
+        masterId: null,
+        scheduledAt: { not: null, lte: deadline },
+        status: {
+          notIn: [
+            OrderStatus.DONE,
+            OrderStatus.REFUSAL,
+            OrderStatus.CANCELLED_CC,
+          ],
+        },
+        cityId: this.branch.cityWhere(cityIds),
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: 50,
+      include: { client: true, city: true },
+    });
+    return orders.map((o) => ({
+      id: o.id,
+      publicId: o.publicId,
+      clientName: o.client.name,
+      phone: o.client.phoneNormalized,
+      address: o.address,
+      cityName: o.city?.name ?? null,
+      status: o.status,
+      hasMaster: false,
+      createdAt: o.createdAt.toISOString(),
+      scheduledAt: o.scheduledAt!.toISOString(),
+      kind: 'urgent' as const,
     }));
   }
 
@@ -370,6 +416,15 @@ export class OrdersService {
         : OrderStatus.NOT_SCHEDULED;
     }
 
+    const nextStatus = status ?? existing.status;
+    const nextMasterId =
+      dto.masterId !== undefined ? dto.masterId || null : existing.masterId;
+    if (nextStatus === OrderStatus.DONE && !nextMasterId) {
+      throw new BadRequestException(
+        'Для статуса «Готов» назначьте мастера',
+      );
+    }
+
     const data: Prisma.OrderUpdateInput = {
       type: dto.type,
       sourceKind: dto.sourceKind,
@@ -393,7 +448,7 @@ export class OrdersService {
           : dto.ageCategoryId
             ? { connect: { id: dto.ageCategoryId } }
             : { disconnect: true },
-      comment: dto.comment,
+      // Комментарий диспетчера задаётся при создании и не меняется.
       master:
         dto.masterId === undefined
           ? undefined
@@ -437,12 +492,41 @@ export class OrdersService {
       }
     }
 
+    if (status === OrderStatus.IN_PROGRESS_SD) {
+      const missing = await this.documents.missingKindsForStatus(
+        id,
+        OrderStatus.IN_PROGRESS_SD,
+      );
+      if (missing.length) {
+        throw new BadRequestException(
+          'Для статуса «В работе СД» нужна сохранная расписка',
+        );
+      }
+    }
+
     if (status === OrderStatus.DONE) {
       data.docsViaAdmin = false;
     }
 
     const becameDone =
       status === OrderStatus.DONE && existing.status !== OrderStatus.DONE;
+    if (becameDone) {
+      data.completedAt = new Date();
+    } else if (
+      nextStatus === OrderStatus.DONE &&
+      !existing.completedAt
+    ) {
+      data.completedAt = new Date();
+    }
+
+    const paymentTouched =
+      dto.paid !== undefined ||
+      dto.prepay !== undefined ||
+      dto.partsCost !== undefined ||
+      dto.partsYesNo !== undefined;
+    const masterChanged =
+      dto.masterId !== undefined &&
+      (dto.masterId || null) !== existing.masterId;
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
@@ -450,24 +534,16 @@ export class OrdersService {
         data,
       });
 
-      let paidForCash =
-        dto.paid ?? Number(existingPayment?.paid ?? 0);
+      let toCompanyCash = Number(existingPayment?.toCompany ?? 0);
 
-      if (
-        dto.paid !== undefined ||
-        dto.prepay !== undefined ||
-        dto.partsCost !== undefined ||
-        dto.partsYesNo !== undefined ||
-        status === OrderStatus.DONE
-      ) {
-        const paid =
-          dto.paid ?? Number(existingPayment?.paid ?? 0);
-        paidForCash = paid;
+      if (paymentTouched || status === OrderStatus.DONE) {
+        const paid = dto.paid ?? Number(existingPayment?.paid ?? 0);
         const partsCost =
           dto.partsCost ?? Number(existingPayment?.partsCost ?? 0);
         const partsYesNo = partsCost > 0;
         const masterPct = await this.salary.percentFor(paid - partsCost);
         const calc = calcPayment(paid, partsCost, masterPct);
+        toCompanyCash = calc.toCompany;
 
         await tx.orderPayment.upsert({
           where: { orderId: id },
@@ -489,8 +565,22 @@ export class OrdersService {
         });
       }
 
-      const nextStatus = status ?? existing.status;
       if (nextStatus === OrderStatus.DONE) {
+        let cashCityId = existing.cityId;
+        if (!cashCityId && nextMasterId) {
+          const master = await tx.master.findUnique({
+            where: { id: nextMasterId },
+            select: { cityId: true },
+          });
+          cashCityId = master?.cityId ?? null;
+          if (cashCityId) {
+            await tx.order.update({
+              where: { id },
+              data: { cityId: cashCityId },
+            });
+          }
+        }
+
         const exists = await tx.cashTx.findFirst({
           where: {
             orderId: id,
@@ -498,17 +588,25 @@ export class OrdersService {
           },
           select: { id: true },
         });
+        const cashData = {
+          amount: toCompanyCash,
+          cityId: cashCityId ?? undefined,
+          description: 'Приход по заявке (чистыми)',
+        };
         if (!exists) {
           await tx.cashTx.create({
             data: {
               direction: CashDirection.INCOME,
               incomeBasis: CashIncomeBasis.ORDER,
-              amount: paidForCash,
               orderId: id,
-              cityId: existing.cityId ?? undefined,
               createdById: userId,
-              description: `Приход по заявке`,
+              ...cashData,
             },
+          });
+        } else if (paymentTouched || becameDone || !existing.cityId) {
+          await tx.cashTx.update({
+            where: { id: exists.id },
+            data: cashData,
           });
         }
       }
@@ -530,12 +628,42 @@ export class OrdersService {
       await this.bot.notifyMasterStatusChanged(id, OrderStatus.DONE);
     }
 
+    if (
+      nextStatus === OrderStatus.DONE &&
+      (becameDone || paymentTouched || masterChanged)
+    ) {
+      await this.settlements.syncForCompletedOrder(id).catch(() => undefined);
+      if (
+        masterChanged &&
+        existing.masterId &&
+        existing.masterId !== nextMasterId
+      ) {
+        const when =
+          result.completedAt ?? existing.completedAt ?? new Date();
+        await this.settlements
+          .syncMasterMonth(existing.masterId, when, existing.cityId)
+          .catch(() => undefined);
+      }
+    }
+
+    // Смена статуса офисом = ознакомление (не эскалируем DIR/OWNER).
+    if (
+      isAdmin &&
+      status !== undefined &&
+      status !== existing.status
+    ) {
+      void this.bot.ackOrderNotify(id).catch(() => undefined);
+    }
+
     return result;
   }
 
   /** Повтор = новая заявка на того же клиента. */
   async createRepeat(id: string, userId: string, role: Role) {
     const source = await this.get(id);
+    const scheduledAt =
+      source.scheduledAt?.toISOString() ??
+      new Date(Date.now() + 2 * 60 * 60_000).toISOString();
     return this.create(
       {
         clientName: source.client.name,
@@ -544,6 +672,7 @@ export class OrdersService {
         sourceKind: source.sourceKind,
         sourceOur: source.sourceOur ?? undefined,
         partnerId: source.partnerId ?? undefined,
+        scheduledAt,
         address: source.address,
         ageCategoryId: source.ageCategoryId ?? undefined,
         comment: `Повтор к заявке ${source.publicId}`,

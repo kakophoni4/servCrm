@@ -39,6 +39,7 @@ type CityAgg = {
   expensePromo: number;
   expenseCollection: number;
   masterSalary: number;
+  partsCost: number;
   expenseAds: number;
   expenseTotal: number;
   balance: number;
@@ -54,6 +55,7 @@ function emptyAgg(cityId: string | null, cityName: string): CityAgg {
     expensePromo: 0,
     expenseCollection: 0,
     masterSalary: 0,
+    partsCost: 0,
     expenseAds: 0,
     expenseTotal: 0,
     balance: 0,
@@ -98,6 +100,12 @@ export class ReportsService {
       (s, o) => s + Number(o.payment?.toCompany ?? 0),
       0,
     );
+    const ourNetSum = orders
+      .filter((o) => o.sourceKind === SourceKind.OUR)
+      .reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
+    const partnerNetSum = orders
+      .filter((o) => o.sourceKind === SourceKind.PARTNER)
+      .reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
     const work = orders.reduce(
       (s, o) => s + Number(o.payment?.workSum ?? 0),
       0,
@@ -141,6 +149,8 @@ export class ReportsService {
       closed,
       ours,
       partner,
+      ourNetSum,
+      partnerNetSum,
       claimsPercent: closed ? (withClaim / closed) * 100 : 0,
       netSum: net,
       avgCheckHandover: closed ? net / closed : 0,
@@ -173,12 +183,21 @@ export class ReportsService {
         updatedAt: { gte: start, lte: end },
         cityId: cityFilter,
       },
+      select: {
+        status: true,
+        cancelFault: true,
+        sourceKind: true,
+      },
     });
     return {
       period: { from: start, to: end },
       total: orders.length,
+      refusal: orders.filter((o) => o.status === OrderStatus.REFUSAL).length,
+      cancelledCc: orders.filter((o) => o.status === OrderStatus.CANCELLED_CC)
+        .length,
       byMasterFault: orders.filter((o) => o.cancelFault === 'master').length,
       byAdminFault: orders.filter((o) => o.cancelFault === 'admin').length,
+      faultUnset: orders.filter((o) => !o.cancelFault).length,
       our: orders.filter((o) => o.sourceKind === SourceKind.OUR).length,
       partner: orders.filter((o) => o.sourceKind === SourceKind.PARTNER).length,
     };
@@ -197,10 +216,14 @@ export class ReportsService {
       requestedCityId,
     );
     const cityFilter = this.branch.cityWhere(cityIds);
-    const [txs, doneOrders] = await Promise.all([
+    const [txs, doneOrders, cityRows] = await Promise.all([
       this.prisma.cashTx.findMany({
         where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
-        include: { city: true, order: true, createdBy: true },
+        include: {
+          city: true,
+          order: { include: { city: true } },
+          createdBy: { select: { fullName: true, cityId: true, city: true } },
+        },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.order.findMany({
@@ -211,7 +234,46 @@ export class ReportsService {
         },
         include: { payment: true, city: true },
       }),
+      this.prisma.city.findMany({
+        where: cityIds ? { id: { in: cityIds } } : undefined,
+        select: { id: true, name: true },
+      }),
     ]);
+
+    const cityNames = new Map(cityRows.map((c) => [c.id, c.name]));
+    const soleCityId =
+      cityIds?.length === 1
+        ? cityIds[0]
+        : cityRows.length === 1
+          ? cityRows[0].id
+          : null;
+    const soleCityName = soleCityId
+      ? (cityNames.get(soleCityId) ?? null)
+      : null;
+
+    const resolveBranch = (input: {
+      cityId?: string | null;
+      cityName?: string | null;
+      orderCityId?: string | null;
+      orderCityName?: string | null;
+      authorCityId?: string | null;
+      authorCityName?: string | null;
+    }): { cityId: string | null; cityName: string } => {
+      const id =
+        input.cityId ||
+        input.orderCityId ||
+        input.authorCityId ||
+        soleCityId ||
+        null;
+      const name =
+        input.cityName ||
+        input.orderCityName ||
+        input.authorCityName ||
+        (id ? cityNames.get(id) : null) ||
+        soleCityName ||
+        'Без филиала';
+      return { cityId: id, cityName: name };
+    };
 
     const byCity = new Map<string, CityAgg>();
 
@@ -221,12 +283,26 @@ export class ReportsService {
       if (!row) {
         row = emptyAgg(id, cityName);
         byCity.set(key, row);
+      } else if (
+        row.cityName === 'Без филиала' &&
+        cityName &&
+        cityName !== 'Без филиала'
+      ) {
+        row.cityName = cityName;
       }
       return row;
     };
 
     for (const t of txs) {
-      const row = ensure(t.cityId, t.city?.name ?? 'Без города');
+      const branch = resolveBranch({
+        cityId: t.cityId,
+        cityName: t.city?.name,
+        orderCityId: t.order?.cityId,
+        orderCityName: t.order?.city?.name,
+        authorCityId: t.createdBy?.cityId,
+        authorCityName: t.createdBy?.city?.name,
+      });
+      const row = ensure(branch.cityId, branch.cityName);
       const amount = Number(t.amount);
 
       if (t.direction === CashDirection.INCOME) {
@@ -257,12 +333,19 @@ export class ReportsService {
     }
 
     for (const o of doneOrders) {
-      const row = ensure(o.cityId, o.city?.name ?? 'Без города');
+      const branch = resolveBranch({
+        cityId: o.cityId,
+        cityName: o.city?.name,
+      });
+      const row = ensure(branch.cityId, branch.cityName);
       row.masterSalary += Number(o.payment?.masterSalary ?? 0);
+      row.partsCost += Number(o.payment?.partsCost ?? 0);
     }
 
     for (const row of byCity.values()) {
-      row.balance = row.incomeTotal - row.expenseTotal - row.masterSalary;
+      // Приход по заявке в кассе уже «чистыми» (toCompany = оплата − запчасти − ЗП).
+      // ЗП и запчасти показываем справочно, в остаток повторно не вычитаем.
+      row.balance = row.incomeTotal - row.expenseTotal;
     }
 
     const cities = [...byCity.values()].sort((a, b) =>
@@ -279,6 +362,7 @@ export class ReportsService {
         expensePromo: acc.expensePromo + c.expensePromo,
         expenseCollection: acc.expenseCollection + c.expenseCollection,
         masterSalary: acc.masterSalary + c.masterSalary,
+        partsCost: acc.partsCost + c.partsCost,
         expenseAds: acc.expenseAds + c.expenseAds,
         expenseTotal: acc.expenseTotal + c.expenseTotal,
         balance: acc.balance + c.balance,
@@ -292,17 +376,27 @@ export class ReportsService {
           t.direction === CashDirection.EXPENSE ||
           t.direction === CashDirection.COLLECTION,
       )
-      .map((t) => ({
-        date: t.createdAt,
-        cityName: t.city?.name ?? 'Без города',
-        direction: t.direction,
-        expenseBasis: t.expenseBasis,
-        amount: Number(t.amount),
-        description: t.description,
-        orderPublicId: t.order?.publicId ?? null,
-        createdBy: t.createdBy?.fullName ?? null,
-        documentPath: t.documentPath,
-      }));
+      .map((t) => {
+        const branch = resolveBranch({
+          cityId: t.cityId,
+          cityName: t.city?.name,
+          orderCityId: t.order?.cityId,
+          orderCityName: t.order?.city?.name,
+          authorCityId: t.createdBy?.cityId,
+          authorCityName: t.createdBy?.city?.name,
+        });
+        return {
+          date: t.createdAt,
+          cityName: branch.cityName,
+          direction: t.direction,
+          expenseBasis: t.expenseBasis,
+          amount: Number(t.amount),
+          description: t.description,
+          orderPublicId: t.order?.publicId ?? null,
+          createdBy: t.createdBy?.fullName ?? null,
+          documentPath: t.documentPath,
+        };
+      });
 
     return {
       period: { from: start, to: end },
@@ -388,6 +482,70 @@ export class ReportsService {
       avgNet: Number(row.count) ? Number(row.net) / Number(row.count) : 0,
       avgWork: Number(row.count) ? Number(row.work) / Number(row.count) : 0,
     }));
+  }
+
+  /**
+   * Чистая прибыль (toCompany) по партнёрам — закрытые партнёрские заявки.
+   */
+  async partners(
+    userId: string,
+    role: Role | string,
+    requestedCityId: string | undefined,
+    from: string | undefined,
+    to: string | undefined,
+  ) {
+    const { start, end } = range(from, to);
+    const cityIds = this.branch.resolveCityIds(
+      await this.branch.allowedCityIds(userId, role),
+      requestedCityId,
+    );
+    const cityFilter = this.branch.cityWhere(cityIds);
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.DONE,
+        sourceKind: SourceKind.PARTNER,
+        updatedAt: { gte: start, lte: end },
+        cityId: cityFilter,
+      },
+      include: { payment: true, partner: true },
+    });
+
+    type Row = {
+      partnerId: string | null;
+      partnerName: string;
+      count: number;
+      net: number;
+      paid: number;
+      work: number;
+      salary: number;
+    };
+
+    const map = new Map<string, Row>();
+    for (const o of orders) {
+      const key = o.partnerId ?? '__none__';
+      const cur = map.get(key) ?? {
+        partnerId: o.partnerId,
+        partnerName: o.partner?.name ?? 'Без партнёра',
+        count: 0,
+        net: 0,
+        paid: 0,
+        work: 0,
+        salary: 0,
+      };
+      cur.count += 1;
+      cur.net += Number(o.payment?.toCompany ?? 0);
+      cur.paid += Number(o.payment?.paid ?? 0);
+      cur.work += Number(o.payment?.workSum ?? 0);
+      cur.salary += Number(o.payment?.masterSalary ?? 0);
+      map.set(key, cur);
+    }
+
+    return [...map.values()]
+      .map((row) => ({
+        ...row,
+        avgNet: row.count ? row.net / row.count : 0,
+      }))
+      .sort((a, b) => b.net - a.net);
   }
 
   async claims(

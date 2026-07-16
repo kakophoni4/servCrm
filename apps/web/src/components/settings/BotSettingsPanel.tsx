@@ -28,15 +28,8 @@ type WebhookResult = {
   description?: string | null;
 };
 
-const SOURCE_LABELS: Record<BotConfig['source'], string> = {
-  db: 'из админки (БД)',
-  env: 'из переменной окружения',
-  none: 'не задан',
-};
-
 export function BotSettingsPanel() {
   const [config, setConfig] = useState<BotConfig | null>(null);
-  const [token, setToken] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -60,13 +53,10 @@ export function BotSettingsPanel() {
     setMsg('');
     setSaving(true);
     try {
-      const body: Record<string, unknown> = { enabled };
-      if (token.trim()) body.token = token.trim();
       await api('/settings/bot', {
         method: 'PUT',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ enabled }),
       });
-      setToken('');
       setMsg('Настройки сохранены');
       await load();
     } catch (err) {
@@ -111,40 +101,36 @@ export function BotSettingsPanel() {
     }
   }
 
+  const botLink = config?.username
+    ? `https://t.me/${config.username}`
+    : null;
+  const statusLabel = !config?.hasToken
+    ? 'не настроен'
+    : config.enabled
+      ? 'включён'
+      : 'выключен';
+
   return (
     <div>
-      <div className="panel" style={{ marginBottom: 16 }}>
+      <form className="panel" onSubmit={save}>
         {config ? (
-          <>
-            <p className="muted">
-              Текущий токен: <strong>{config.tokenMasked || '—'}</strong> (
-              {SOURCE_LABELS[config.source]})
-              {config.username ? ` · @${config.username}` : ''} · бот{' '}
-              {config.enabled ? 'включён' : 'выключен'}
+          <div className="field" style={{ marginBottom: 16 }}>
+            <label>Текущий бот</label>
+            <p style={{ margin: '0.35rem 0 0' }}>
+              {botLink ? (
+                <a href={botLink} target="_blank" rel="noreferrer">
+                  @{config.username}
+                </a>
+              ) : (
+                <span className="muted">—</span>
+              )}
+              <span className="muted"> · статус: {statusLabel}</span>
             </p>
-            <p className="muted" style={{ marginBottom: 0 }}>
-              Webhook secret:{' '}
-              {config.hasWebhookSecret ? 'задан' : 'ещё не сгенерирован'}
-              {config.baseUrl
-                ? ` · BASE_URL=${config.baseUrl}`
-                : ' · BASE_URL не задан'}
-            </p>
-          </>
+          </div>
         ) : (
           <p className="muted">Загрузка…</p>
         )}
-      </div>
 
-      <form className="panel" onSubmit={save} style={{ marginBottom: 16 }}>
-        <div className="field">
-          <label>Новый токен бота (BotFather)</label>
-          <input
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="123456789:AA... (оставьте пустым, чтобы не менять)"
-            autoComplete="off"
-          />
-        </div>
         <label
           style={{
             display: 'flex',
@@ -198,18 +184,10 @@ export function BotSettingsPanel() {
               wordBreak: 'break-all',
             }}
           >
-            Webhook URL: {webhook.url}
+            Webhook установлен
           </p>
         ) : null}
       </form>
-
-      <div className="panel">
-        <p className="muted" style={{ margin: 0 }}>
-          Токен хранится в базе и имеет приоритет над переменной окружения
-          TELEGRAM_BOT_TOKEN. Для webhook задайте BASE_URL (публичный HTTPS
-          адрес API), затем нажмите «Установить webhook».
-        </p>
-      </div>
     </div>
   );
 }

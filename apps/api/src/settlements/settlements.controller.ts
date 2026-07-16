@@ -48,6 +48,22 @@ class PaySettlementDto {
   amount!: number;
 }
 
+class AcceptPaymentDto {
+  @IsString()
+  masterId!: string;
+
+  @IsDateString()
+  periodFrom!: string;
+
+  @IsDateString()
+  periodTo!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+}
+
 @Controller('settlements')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class SettlementsController {
@@ -73,6 +89,18 @@ export class SettlementsController {
     @Query('cityId') cityId?: string,
   ) {
     return this.settlements.preview(from, to, user.userId, user.role, cityId);
+  }
+
+  @Get('board')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('settlements.read')
+  board(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.settlements.board(from, to, user.userId, user.role, cityId);
   }
 
   @Get('amount')
@@ -101,6 +129,16 @@ export class SettlementsController {
     @CurrentUser() user: { userId: string; role: Role },
   ) {
     return this.settlements.create(dto, user.userId, user.role);
+  }
+
+  @Post('accept-payment')
+  @Roles(Role.OWNER)
+  @RequirePermissions('settlements.pay')
+  acceptPayment(
+    @Body() dto: AcceptPaymentDto,
+    @CurrentUser() user: { userId: string; role: Role },
+  ) {
+    return this.settlements.acceptPayment(dto, user.userId, user.role);
   }
 
   @Post(':id/confirm')

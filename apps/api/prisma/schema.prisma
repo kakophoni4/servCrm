@@ -293,6 +293,12 @@ model Order {
   createdById   String?     @map("created_by_id")
   cancelFault   String?     @map("cancel_fault")
   docsViaAdmin  Boolean     @default(false) @map("docs_via_admin")
+  /// Админ нажал «Ознакомился» или сменил статус — эскалация не нужна.
+  notifyAckedAt DateTime?   @map("notify_acked_at")
+  /// Уже отправили эскалацию директору/владельцу.
+  notifyEscalatedAt DateTime? @map("notify_escalated_at")
+  /// Когда заявка впервые переведена в «Готов» (для расчётов мастера).
+  completedAt   DateTime?   @map("completed_at")
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
@@ -311,6 +317,8 @@ model Order {
   @@unique([seqPrefix, seq])
   @@index([status])
   @@index([createdAt])
+  @@index([completedAt])
+  @@index([masterId, completedAt])
   @@map("orders")
 }
 
@@ -333,19 +341,25 @@ model OrderPayment {
 }
 
 model OrderDocument {
-  id         String   @id @default(cuid())
-  orderId    String   @map("order_id")
-  kind       DocKind  @default(OTHER)
-  fileName   String   @map("file_name")
-  filePath   String   @map("file_path")
-  mimeType   String?  @map("mime_type")
-  sizeBytes  Int?     @map("size_bytes")
-  uploadedBy String?  @map("uploaded_by")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String       @id @default(cuid())
+  orderId     String       @map("order_id")
+  kind        DocKind      @default(OTHER)
+  /// Статус заявки/цель загрузки на момент upload (для учёта по статусу).
+  forStatus   OrderStatus? @map("for_status")
+  /// SHA-256 содержимого — дубликаты в рамках заявки не сохраняются.
+  contentHash String?      @map("content_hash")
+  fileName    String       @map("file_name")
+  filePath    String       @map("file_path")
+  mimeType    String?      @map("mime_type")
+  sizeBytes   Int?         @map("size_bytes")
+  uploadedBy  String?      @map("uploaded_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@unique([orderId, contentHash])
   @@index([orderId])
+  @@index([orderId, forStatus])
   @@map("order_documents")
 }
 
@@ -358,6 +372,8 @@ model Claim {
   refundSum Decimal   @default(0) @map("refund_sum") @db.Decimal(12, 2)
   orderSum  Decimal   @default(0) @map("order_sum") @db.Decimal(12, 2)
   cityId    String?   @map("city_id")
+  notifyAckedAt     DateTime? @map("notify_acked_at")
+  notifyEscalatedAt DateTime? @map("notify_escalated_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)

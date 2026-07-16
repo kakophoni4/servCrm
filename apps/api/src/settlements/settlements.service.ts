@@ -8,6 +8,22 @@ import { OrderStatus, Role } from '@prisma/client';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** Границы календарного месяца (локальное время сервера). */
+export function calendarMonthBounds(d: Date) {
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const fromDate = new Date(year, month, 1, 0, 0, 0, 0);
+  const toDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const lastDay = toDate.getDate();
+  return {
+    fromDate,
+    toDate,
+    from: `${year}-${pad(month + 1)}-01`,
+    to: `${year}-${pad(month + 1)}-${pad(lastDay)}`,
+  };
+}
+
 @Injectable()
 export class SettlementsService {
   constructor(
@@ -25,7 +41,7 @@ export class SettlementsService {
     });
   }
 
-  /** Суммы к сдаче (Σ toCompany) по мастерам за период. */
+  /** Суммы к сдаче (Σ toCompany) по мастерам за период — по дате закрытия (Готов). */
   async preview(
     from: string,
     to: string,
@@ -39,9 +55,16 @@ export class SettlementsService {
     const orders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
-        createdAt: { gte: fromDate, lte: toDate },
         masterId: { not: null },
         cityId: this.branch.cityWhere(cityIds),
+        OR: [
+          { completedAt: { gte: fromDate, lte: toDate } },
+          // старые заявки до миграции completedAt
+          {
+            completedAt: null,
+            updatedAt: { gte: fromDate, lte: toDate },
+          },
+        ],
       },
       include: { payment: true, master: { include: { user: true } } },
     });
@@ -62,6 +85,78 @@ export class SettlementsService {
       map.set(o.masterId, cur);
     }
     return [...map.values()];
+  }
+
+  /**
+   * Доска расчёта: мастера за период с суммой к сдаче, оплачено и остатком.
+   * «К сдаче» — живая сумма из заявок; «оплачено» — из расчётов за тот же период.
+   */
+  async board(
+    from: string,
+    to: string,
+    userId: string,
+    role: Role,
+    requestedCityId?: string,
+  ) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    const cityIds = this.branch.resolveCityIds(allowed, requestedCityId);
+    const dueRows = await this.preview(from, to, userId, role, requestedCityId);
+    const { fromDate, toDate } = this.periodBounds(from, to);
+
+    const settlements = await this.prisma.masterSettlement.findMany({
+      where: {
+        cityId: this.branch.cityWhere(cityIds),
+        periodFrom: { gte: fromDate },
+        periodTo: { lte: toDate },
+      },
+      include: { master: { include: { user: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const fromKey = from.slice(0, 10);
+    const toKey = to.slice(0, 10);
+    const paidByMaster = new Map<
+      string,
+      { paid: number; settlementId: string; name: string }
+    >();
+    for (const s of settlements) {
+      const pf = s.periodFrom.toISOString().slice(0, 10);
+      const pt = s.periodTo.toISOString().slice(0, 10);
+      if (pf !== fromKey || pt !== toKey) continue;
+      const cur = paidByMaster.get(s.masterId) ?? {
+        paid: 0,
+        settlementId: s.id,
+        name: s.master.user.fullName,
+      };
+      cur.paid += Number(s.paidAmount);
+      if (!paidByMaster.has(s.masterId)) cur.settlementId = s.id;
+      paidByMaster.set(s.masterId, cur);
+    }
+
+    const masterIds = new Set<string>([
+      ...dueRows.map((r) => r.masterId),
+      ...paidByMaster.keys(),
+    ]);
+
+    const rows = [...masterIds].map((masterId) => {
+      const dueRow = dueRows.find((r) => r.masterId === masterId);
+      const paidRow = paidByMaster.get(masterId);
+      const due = Math.round((dueRow?.amount ?? 0) * 100) / 100;
+      const paid = Math.round((paidRow?.paid ?? 0) * 100) / 100;
+      const remaining = Math.max(0, Math.round((due - paid) * 100) / 100);
+      return {
+        masterId,
+        name: dueRow?.name ?? paidRow?.name ?? '—',
+        due,
+        paid,
+        remaining,
+        orderCount: dueRow?.count ?? 0,
+        settlementId: paidRow?.settlementId ?? null,
+      };
+    });
+
+    rows.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    return rows;
   }
 
   async amountForMaster(
@@ -89,8 +184,142 @@ export class SettlementsService {
     userId: string,
     role: Role,
   ) {
+    return this.ensurePeriodSettlement(
+      input.masterId,
+      input.periodFrom,
+      input.periodTo,
+      userId,
+      role,
+    );
+  }
+
+  /**
+   * После «Готов» / смены оплаты — создать или обновить месячный расчёт мастера.
+   */
+  async syncForCompletedOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { payment: true, master: true },
+    });
+    if (
+      !order ||
+      order.status !== OrderStatus.DONE ||
+      !order.masterId ||
+      !order.master
+    ) {
+      return null;
+    }
+
+    const when = order.completedAt ?? new Date();
+    return this.syncMasterMonth(
+      order.masterId,
+      when,
+      order.master.cityId ?? order.cityId,
+    );
+  }
+
+  /** Пересчитать сумму сдачи мастера за календарный месяц даты закрытия. */
+  async syncMasterMonth(
+    masterId: string,
+    when: Date,
+    cityId?: string | null,
+  ) {
     const master = await this.prisma.master.findUnique({
-      where: { id: input.masterId },
+      where: { id: masterId },
+    });
+    if (!master) return null;
+
+    const { from, to, fromDate, toDate } = calendarMonthBounds(when);
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.DONE,
+        masterId,
+        OR: [
+          { completedAt: { gte: fromDate, lte: toDate } },
+          {
+            completedAt: null,
+            updatedAt: { gte: fromDate, lte: toDate },
+          },
+        ],
+      },
+      include: { payment: true },
+    });
+    const amount =
+      Math.round(
+        orders.reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0) * 100,
+      ) / 100;
+
+    const periodFrom = new Date(from);
+    const periodTo = new Date(to);
+    const existing = await this.prisma.masterSettlement.findFirst({
+      where: { masterId, periodFrom, periodTo },
+    });
+
+    if (existing?.confirmedTwice) return existing;
+
+    if (amount <= 0) {
+      if (existing && Number(existing.paidAmount) <= 0) {
+        await this.prisma.masterSettlement.delete({ where: { id: existing.id } });
+      }
+      return null;
+    }
+
+    const nextAmount = Math.max(amount, Number(existing?.paidAmount ?? 0));
+
+    if (existing) {
+      return this.prisma.masterSettlement.update({
+        where: { id: existing.id },
+        data: { amount: nextAmount },
+      });
+    }
+
+    return this.prisma.masterSettlement.create({
+      data: {
+        masterId,
+        cityId: cityId ?? master.cityId,
+        amount: nextAmount,
+        periodFrom,
+        periodTo,
+      },
+    });
+  }
+
+  /**
+   * Приём сдачи: найти/создать расчёт за период, синхронизировать сумму, внести оплату.
+   */
+  async acceptPayment(
+    input: {
+      masterId: string;
+      periodFrom: string;
+      periodTo: string;
+      amount: number;
+    },
+    userId: string,
+    role: Role,
+  ) {
+    if (role !== Role.OWNER) {
+      throw new ForbiddenException('Вносить оплату может только владелец');
+    }
+
+    const settlement = await this.ensurePeriodSettlement(
+      input.masterId,
+      input.periodFrom,
+      input.periodTo,
+      userId,
+      role,
+    );
+    return this.pay(settlement.id, input.amount, userId, role);
+  }
+
+  private async ensurePeriodSettlement(
+    masterId: string,
+    periodFrom: string,
+    periodTo: string,
+    userId: string,
+    role: Role,
+  ) {
+    const master = await this.prisma.master.findUnique({
+      where: { id: masterId },
     });
     if (!master) throw new NotFoundException('Мастер не найден');
 
@@ -104,27 +333,46 @@ export class SettlementsService {
     }
 
     const calc = await this.amountForMaster(
-      input.masterId,
-      input.periodFrom,
-      input.periodTo,
+      masterId,
+      periodFrom,
+      periodTo,
       userId,
       role,
     );
-    // Сумма сдачи всегда из заявок (toCompany), ручной ввод не принимаем.
-    const amount = calc.amount;
-    if (amount <= 0) {
+    const due = Math.round(calc.amount * 100) / 100;
+    if (due <= 0) {
       throw new BadRequestException(
-        'Нет суммы к сдаче за период (нет закрытых заявок или toCompany = 0)',
+        'Нет суммы к сдаче за период: нужны заявки со статусом «Готов», назначенным мастером и toCompany > 0',
       );
+    }
+
+    const periodFromDate = new Date(periodFrom);
+    const periodToDate = new Date(periodTo);
+    const existing = await this.prisma.masterSettlement.findFirst({
+      where: {
+        masterId,
+        periodFrom: periodFromDate,
+        periodTo: periodToDate,
+      },
+    });
+
+    if (existing) {
+      const paid = Number(existing.paidAmount);
+      const nextAmount = Math.max(due, paid);
+      return this.prisma.masterSettlement.update({
+        where: { id: existing.id },
+        data: { amount: nextAmount },
+        include: { master: { include: { user: true } } },
+      });
     }
 
     return this.prisma.masterSettlement.create({
       data: {
-        masterId: input.masterId,
+        masterId,
         cityId: master.cityId,
-        amount,
-        periodFrom: new Date(input.periodFrom),
-        periodTo: new Date(input.periodTo),
+        amount: due,
+        periodFrom: periodFromDate,
+        periodTo: periodToDate,
       },
       include: { master: { include: { user: true } } },
     });

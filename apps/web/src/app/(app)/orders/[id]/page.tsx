@@ -3,14 +3,23 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { api, downloadFile, getStoredUser, uploadFiles } from '@/lib/api';
+import { BranchSelect } from '@/components/BranchSelect';
+import {
+  api,
+  fetchAuthorizedBlob,
+  getStoredUser,
+  uploadFiles,
+} from '@/lib/api';
 import {
   DOC_KIND_LABELS,
   ORDER_UPLOAD_DOC_KINDS,
+  SD_UPLOAD_DOC_KIND,
   STATUS_LABELS,
   TYPE_LABELS,
   isAdminRole,
+  requiredOrderDocKinds,
 } from '@/lib/labels';
+import { downloadFilesAsZipOrSingle } from '@/lib/zip-store';
 
 type Master = { id: string; user: { fullName: string } };
 type City = { id: string; name: string };
@@ -18,9 +27,27 @@ type City = { id: string; name: string };
 type OrderDocument = {
   id: string;
   kind: string;
+  forStatus?: string | null;
   fileName: string;
   filePath: string;
+  mimeType?: string | null;
   createdAt: string;
+};
+
+type DocGroup = {
+  kind: string;
+  docs: OrderDocument[];
+  latestAt: string;
+};
+
+type DocPreview = {
+  kind: string;
+  docs: OrderDocument[];
+  index: number;
+  id: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
 };
 
 type Order = {
@@ -39,6 +66,7 @@ type Order = {
   cityId?: string | null;
   docsViaAdmin?: boolean;
   cancelFault?: 'master' | 'admin' | null;
+  createdBy?: { id: string; fullName: string; role: string } | null;
   client: {
     id: string;
     name: string;
@@ -75,6 +103,17 @@ const CLAIM_TYPES: Record<string, string> = {
   PRICE_DISSATISFIED: 'Недоволен ценой',
 };
 
+function guessMimeFromName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.heic')) return 'image/heic';
+  return 'application/octet-stream';
+}
+
 function toLocalInput(iso?: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -103,12 +142,12 @@ export default function OrderDetailPage() {
   const [status, setStatus] = useState('');
   const [masterId, setMasterId] = useState('');
   const [address, setAddress] = useState('');
-  const [comment, setComment] = useState('');
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [paid, setPaid] = useState('0');
   const [partsCost, setPartsCost] = useState('0');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
+  const [isProfile, setIsProfile] = useState(true);
 
   const [showClaimForm, setShowClaimForm] = useState(false);
   const [claimForm, setClaimForm] = useState({
@@ -120,6 +159,13 @@ export default function OrderDetailPage() {
   const [docKind, setDocKind] = useState<string>(ORDER_UPLOAD_DOC_KINDS[0]);
   const [docFiles, setDocFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<DocPreview | null>(null);
+  const [previewLoadingKind, setPreviewLoadingKind] = useState<string | null>(
+    null,
+  );
+  const [downloadLoadingKind, setDownloadLoadingKind] = useState<string | null>(
+    null,
+  );
 
   async function load() {
     const data = await api<Order>(`/orders/${id}`);
@@ -127,7 +173,6 @@ export default function OrderDetailPage() {
     setStatus(data.status);
     setMasterId(data.masterId ?? '');
     setAddress(data.address ?? '');
-    setComment(data.comment ?? '');
     setTypeTech(data.typeTech ?? '');
     setScheduledAt(toLocalInput(data.scheduledAt));
     setPaid(String(data.payment?.paid ?? 0));
@@ -137,6 +182,7 @@ export default function OrderDetailPage() {
         ? data.cancelFault
         : '',
     );
+    setIsProfile(Boolean(data.isProfile));
     setClaimForm((f) => ({
       ...f,
       cityId: f.cityId || data.cityId || '',
@@ -160,23 +206,55 @@ export default function OrderDetailPage() {
   }, [id]);
 
   const paidNum = Number(paid);
+  const partsCostNum = Number(partsCost);
   const needsDocs = paidNum > 500;
   const presentKinds = useMemo(
     () => new Set((order?.documents ?? []).map((d) => d.kind)),
     [order?.documents],
   );
-  const missingKinds = ORDER_UPLOAD_DOC_KINDS.filter((k) => !presentKinds.has(k));
+  const requiredKinds = useMemo(
+    () => requiredOrderDocKinds(partsCostNum),
+    [partsCostNum],
+  );
+  const checklistKinds = useMemo(() => {
+    if (status === 'IN_PROGRESS_SD') {
+      return [...ORDER_UPLOAD_DOC_KINDS, SD_UPLOAD_DOC_KIND];
+    }
+    return [...ORDER_UPLOAD_DOC_KINDS];
+  }, [status]);
+  const uploadKinds = checklistKinds;
+  const missingKinds = requiredKinds.filter((k) => !presentKinds.has(k));
+  const sdMissing =
+    status === 'IN_PROGRESS_SD' && !presentKinds.has(SD_UPLOAD_DOC_KIND);
   const hasAllDocs = missingKinds.length === 0;
   const doneBlocked = status === 'DONE' && needsDocs && !hasAllDocs;
+  const sdBlocked = sdMissing;
+
+  useEffect(() => {
+    if (
+      docKind === SD_UPLOAD_DOC_KIND &&
+      status !== 'IN_PROGRESS_SD'
+    ) {
+      setDocKind(ORDER_UPLOAD_DOC_KINDS[0]);
+    }
+  }, [status, docKind]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (status === 'DONE' && !masterId) {
+      setError('Для статуса «Готов» назначьте мастера');
+      return;
+    }
     if (doneBlocked) {
       setError(
         `Для статуса «Готов» при сумме > 500 ₽ нужны все документы: ${missingKinds
           .map((k) => DOC_KIND_LABELS[k])
           .join(', ')}.`,
       );
+      return;
+    }
+    if (sdBlocked) {
+      setError('Для статуса «В работе СД» загрузите сохранную расписку.');
       return;
     }
     setError('');
@@ -187,13 +265,13 @@ export default function OrderDetailPage() {
         body.status = status;
         body.masterId = masterId || null;
         body.address = address;
-        body.comment = comment || null;
         body.typeTech = typeTech || null;
         body.scheduledAt = scheduledAt
           ? new Date(scheduledAt).toISOString()
           : null;
         body.paid = Number(paid);
         body.partsCost = Number(partsCost);
+        body.isProfile = isProfile;
         if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
           body.cancelFault = cancelFault || null;
         }
@@ -240,10 +318,20 @@ export default function OrderDetailPage() {
     try {
       const fd = new FormData();
       Array.from(docFiles).forEach((f) => fd.append('files', f));
-      await uploadFiles(`/orders/${id}/documents?kind=${docKind}`, fd);
+      const qs = new URLSearchParams({ kind: docKind });
+      if (docKind === SD_UPLOAD_DOC_KIND) {
+        qs.set('forStatus', 'IN_PROGRESS_SD');
+      }
+      const res = await uploadFiles<{
+        created?: unknown[];
+        skipped?: number;
+      }>(`/orders/${id}/documents?${qs}`, fd);
       setDocFiles(null);
       (e.target as HTMLFormElement).reset();
-      setMsg('Документы загружены');
+      // Дубликаты по хешу пропускаются без уведомлений
+      if ((res?.created?.length ?? 0) > 0) {
+        setMsg('Документы загружены');
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
@@ -252,13 +340,147 @@ export default function OrderDetailPage() {
     }
   }
 
-  async function download(docId: string, fileName: string) {
+  const docGroups = useMemo((): DocGroup[] => {
+    const docs = order?.documents ?? [];
+    const byKind = new Map<string, OrderDocument[]>();
+    for (const d of docs) {
+      const list = byKind.get(d.kind) ?? [];
+      list.push(d);
+      byKind.set(d.kind, list);
+    }
+    const kindOrder = [
+      ...ORDER_UPLOAD_DOC_KINDS,
+      SD_UPLOAD_DOC_KIND,
+      ...[...byKind.keys()].filter(
+        (k) =>
+          !(ORDER_UPLOAD_DOC_KINDS as readonly string[]).includes(k) &&
+          k !== SD_UPLOAD_DOC_KIND,
+      ),
+    ];
+    return kindOrder
+      .filter((k) => byKind.has(k))
+      .map((kind) => {
+        const list = [...(byKind.get(kind) ?? [])].sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+        return {
+          kind,
+          docs: list,
+          latestAt: list[list.length - 1]?.createdAt ?? '',
+        };
+      });
+  }, [order?.documents]);
+
+  async function downloadGroup(group: DocGroup) {
+    setError('');
+    setDownloadLoadingKind(group.kind);
     try {
-      await downloadFile(`/orders/${id}/documents/${docId}/download`, fileName);
+      const files = await Promise.all(
+        group.docs.map(async (d, i) => {
+          const blob = await fetchAuthorizedBlob(
+            `/orders/${id}/documents/${d.id}/download`,
+          );
+          const ext =
+            d.fileName.includes('.')
+              ? d.fileName.slice(d.fileName.lastIndexOf('.'))
+              : '';
+          return {
+            name:
+              group.docs.length === 1
+                ? d.fileName
+                : `${i + 1}${ext || ''}`,
+            blob,
+          };
+        }),
+      );
+      const label = DOC_KIND_LABELS[group.kind] ?? group.kind;
+      await downloadFilesAsZipOrSingle(
+        files,
+        `${order?.publicId ?? 'docs'}-${label}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка скачивания');
+    } finally {
+      setDownloadLoadingKind(null);
     }
   }
+
+  function closePreview() {
+    setPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }
+
+  async function loadPreviewAt(
+    kind: string,
+    docs: OrderDocument[],
+    index: number,
+  ) {
+    const doc = docs[index];
+    if (!doc) return;
+    setError('');
+    setPreviewLoadingKind(kind);
+    try {
+      const blob = await fetchAuthorizedBlob(
+        `/orders/${id}/documents/${doc.id}/download`,
+      );
+      const mime =
+        doc.mimeType || blob.type || guessMimeFromName(doc.fileName);
+      const url = URL.createObjectURL(
+        blob.type ? blob : new Blob([blob], { type: mime }),
+      );
+      setPreview((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return {
+          kind,
+          docs,
+          index,
+          id: doc.id,
+          fileName: doc.fileName,
+          mimeType: mime,
+          url,
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка предпросмотра');
+    } finally {
+      setPreviewLoadingKind(null);
+    }
+  }
+
+  function openPreviewGroup(group: DocGroup) {
+    void loadPreviewAt(group.kind, group.docs, 0);
+  }
+
+  function previewStep(delta: number) {
+    if (!preview || preview.docs.length < 2) return;
+    const next =
+      (preview.index + delta + preview.docs.length) % preview.docs.length;
+    void loadPreviewAt(preview.kind, preview.docs, next);
+  }
+
+  useEffect(() => {
+    if (!preview) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setPreview((prev) => {
+          if (prev?.url) URL.revokeObjectURL(prev.url);
+          return null;
+        });
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        previewStep(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        previewStep(1);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
 
   async function makeRepeat() {
     setError('');
@@ -301,7 +523,10 @@ export default function OrderDetailPage() {
     <div>
       <h1 className="page-title">
         Заявка {order.publicId}{' '}
-        <span className="badge">{STATUS_LABELS[order.status]}</span>
+        <span className="badge">{STATUS_LABELS[order.status]}</span>{' '}
+        <span className={isProfile ? 'badge' : 'badge badge-warn'}>
+          {isProfile ? 'Профильная' : 'Непрофильная'}
+        </span>
       </h1>
 
       <div className="grid-2" style={{ alignItems: 'start' }}>
@@ -319,6 +544,28 @@ export default function OrderDetailPage() {
             <Link href={`/clients/${order.client.id}`}>Карточка клиента →</Link>
           </p>
           <p className="muted">{TYPE_LABELS[order.type]}</p>
+
+          {admin ? (
+            <label
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                marginBottom: 12,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isProfile}
+                onChange={(e) => setIsProfile(e.target.checked)}
+              />
+              Профильная заявка
+            </label>
+          ) : (
+            <p style={{ marginBottom: 12 }}>
+              <strong>{isProfile ? 'Профильная' : 'Непрофильная'}</strong> заявка
+            </p>
+          )}
 
           {admin ? (
             <div className="grid-2" style={{ marginBottom: 12 }}>
@@ -346,10 +593,20 @@ export default function OrderDetailPage() {
                 />
               </div>
               <div className="field">
-                <label>Комментарий</label>
+                <label>Диспетчер</label>
                 <input
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
+                  readOnly
+                  disabled
+                  value={order.createdBy?.fullName ?? '—'}
+                />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Комментарий диспетчера</label>
+                <textarea
+                  readOnly
+                  disabled
+                  rows={2}
+                  value={order.comment?.trim() ? order.comment : '—'}
                 />
               </div>
             </div>
@@ -361,6 +618,9 @@ export default function OrderDetailPage() {
                 {order.scheduledAt
                   ? ` · ${new Date(order.scheduledAt).toLocaleString('ru-RU')}`
                   : ''}
+              </p>
+              <p className="muted" style={{ marginBottom: 4 }}>
+                Диспетчер: {order.createdBy?.fullName ?? '—'}
               </p>
               {order.comment ? <p>{order.comment}</p> : null}
             </>
@@ -404,8 +664,15 @@ export default function OrderDetailPage() {
                 </div>
               ) : null}
               <div className="field">
-                <label>Мастер</label>
-                <select value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+                <label>
+                  Мастер
+                  {status === 'DONE' ? ' *' : ''}
+                </label>
+                <select
+                  value={masterId}
+                  onChange={(e) => setMasterId(e.target.value)}
+                  required={status === 'DONE'}
+                >
                   <option value="">Не назначен</option>
                   {masters.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -454,14 +721,6 @@ export default function OrderDetailPage() {
                 </div>
               ) : null}
 
-              {needsDocs ? (
-                <p className="error" style={{ fontSize: '0.9rem' }}>
-                  Сумма &gt; 500 ₽ — для статуса «Готов» обязательны все типы документов.
-                  {hasAllDocs
-                    ? ' Все документы загружены.'
-                    : ` Не хватает: ${missingKinds.map((k) => DOC_KIND_LABELS[k]).join(', ')}.`}
-                </p>
-              ) : null}
             </>
           ) : (
             <p className="muted">
@@ -515,22 +774,14 @@ export default function OrderDetailPage() {
                     ))}
                   </select>
                 </div>
-                <div className="field">
-                  <label>Филиал</label>
-                  <select
-                    value={claimForm.cityId}
-                    onChange={(e) =>
-                      setClaimForm({ ...claimForm, cityId: e.target.value })
-                    }
-                  >
-                    <option value="">—</option>
-                    {cities.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <BranchSelect
+                  cities={cities}
+                  value={claimForm.cityId}
+                  onChange={(cityId) =>
+                    setClaimForm({ ...claimForm, cityId })
+                  }
+                  allowEmpty
+                />
                 <div className="field">
                   <label>Сумма возврата</label>
                   <input
@@ -568,45 +819,83 @@ export default function OrderDetailPage() {
           <div className="panel">
             <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Документы</h2>
             <ul className="docs-checklist">
-              {ORDER_UPLOAD_DOC_KINDS.map((k) => {
+              {checklistKinds.map((k) => {
                 const ok = presentKinds.has(k);
+                const required =
+                  k === SD_UPLOAD_DOC_KIND
+                    ? status === 'IN_PROGRESS_SD'
+                    : requiredKinds.includes(k as (typeof ORDER_UPLOAD_DOC_KINDS)[number]);
                 return (
-                  <li key={k} className={ok ? 'ok' : 'miss'}>
-                    <span>{ok ? '✓' : '○'}</span>
-                    <span>{DOC_KIND_LABELS[k]}</span>
+                  <li
+                    key={k}
+                    className={ok ? 'ok' : required ? 'miss' : 'optional'}
+                  >
+                    <span>{ok ? '✓' : required ? '○' : '–'}</span>
+                    <span>
+                      {DOC_KIND_LABELS[k]}
+                      {!required && k !== SD_UPLOAD_DOC_KIND
+                        ? ' (опционально)'
+                        : ''}
+                    </span>
                   </li>
                 );
               })}
             </ul>
-            <table className="table">
+            <table className="table docs-table">
               <thead>
                 <tr>
                   <th>Тип</th>
-                  <th>Файл</th>
                   <th>Дата</th>
-                  <th></th>
+                  <th className="docs-col-actions">Действия</th>
                 </tr>
               </thead>
               <tbody>
-                {(order.documents ?? []).map((d) => (
-                  <tr key={d.id}>
-                    <td>{DOC_KIND_LABELS[d.kind] ?? d.kind}</td>
-                    <td>{d.fileName}</td>
-                    <td>{new Date(d.createdAt).toLocaleDateString('ru-RU')}</td>
+                {docGroups.map((g) => (
+                  <tr key={g.kind}>
                     <td>
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        onClick={() => download(d.id, d.fileName)}
-                      >
-                        Скачать
-                      </button>
+                      <span className="docs-kind">
+                        {DOC_KIND_LABELS[g.kind] ?? g.kind}
+                      </span>
+                      {g.docs.length > 1 ? (
+                        <span className="docs-count">{g.docs.length}</span>
+                      ) : null}
+                    </td>
+                    <td className="muted">
+                      {g.latestAt
+                        ? new Date(g.latestAt).toLocaleDateString('ru-RU')
+                        : '—'}
+                    </td>
+                    <td>
+                      <div className="docs-actions">
+                        <button
+                          type="button"
+                          className="btn-link"
+                          disabled={previewLoadingKind === g.kind}
+                          onClick={() => openPreviewGroup(g)}
+                        >
+                          {previewLoadingKind === g.kind
+                            ? '…'
+                            : 'Предпросмотр'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-link"
+                          disabled={downloadLoadingKind === g.kind}
+                          onClick={() => void downloadGroup(g)}
+                        >
+                          {downloadLoadingKind === g.kind
+                            ? '…'
+                            : g.docs.length > 1
+                              ? 'Скачать архив'
+                              : 'Скачать'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
-                {(order.documents ?? []).length === 0 ? (
+                {docGroups.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="muted">
+                    <td colSpan={3} className="muted">
                       Документов нет.
                     </td>
                   </tr>
@@ -614,12 +903,104 @@ export default function OrderDetailPage() {
               </tbody>
             </table>
 
+            {preview ? (
+              <div
+                className="doc-preview-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-label={DOC_KIND_LABELS[preview.kind] ?? 'Документ'}
+                onClick={closePreview}
+              >
+                <div
+                  className="doc-preview-card"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="doc-preview-head">
+                    <div>
+                      <strong>
+                        {DOC_KIND_LABELS[preview.kind] ?? 'Документ'}
+                      </strong>
+                      {preview.docs.length > 1 ? (
+                        <div className="doc-preview-counter">
+                          {preview.index + 1} / {preview.docs.length}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="docs-actions">
+                      {preview.docs.length > 1 ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            disabled={previewLoadingKind === preview.kind}
+                            onClick={() => previewStep(-1)}
+                          >
+                            ←
+                          </button>
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            disabled={previewLoadingKind === preview.kind}
+                            onClick={() => previewStep(1)}
+                          >
+                            →
+                          </button>
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => {
+                          const group = docGroups.find(
+                            (x) => x.kind === preview.kind,
+                          );
+                          if (group) void downloadGroup(group);
+                        }}
+                      >
+                        {preview.docs.length > 1 ? 'Скачать архив' : 'Скачать'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={closePreview}
+                      >
+                        Закрыть
+                      </button>
+                    </div>
+                  </div>
+                  <div className="doc-preview-body">
+                    {previewLoadingKind === preview.kind ? (
+                      <p className="muted">Загрузка…</p>
+                    ) : preview.mimeType.startsWith('image/') ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={preview.url}
+                        alt={DOC_KIND_LABELS[preview.kind] ?? 'Документ'}
+                        className="doc-preview-image"
+                      />
+                    ) : preview.mimeType === 'application/pdf' ||
+                      preview.fileName.toLowerCase().endsWith('.pdf') ? (
+                      <iframe
+                        title={DOC_KIND_LABELS[preview.kind] ?? 'Документ'}
+                        src={preview.url}
+                        className="doc-preview-frame"
+                      />
+                    ) : (
+                      <p className="muted" style={{ margin: '2rem 0' }}>
+                        Предпросмотр этого типа файла недоступен. Скачайте файл.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <form onSubmit={uploadDoc} style={{ marginTop: 12 }}>
               <div className="grid-2">
                 <div className="field">
                   <label>Тип документа</label>
                   <select value={docKind} onChange={(e) => setDocKind(e.target.value)}>
-                    {ORDER_UPLOAD_DOC_KINDS.map((k) => (
+                    {uploadKinds.map((k) => (
                       <option key={k} value={k}>
                         {DOC_KIND_LABELS[k]}
                       </option>

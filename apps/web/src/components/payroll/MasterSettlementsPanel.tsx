@@ -2,22 +2,16 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
+import { hasPermission } from '@/lib/permissions';
 
-type Master = { id: string; user: { fullName: string } };
-
-type Settlement = {
-  id: string;
+type BoardRow = {
   masterId: string;
-  amount: string | number;
-  paidAmount?: string | number;
-  periodFrom: string;
-  periodTo: string;
-  confirmedOnce: boolean;
-  confirmedTwice: boolean;
-  confirmedAt?: string | null;
-  createdAt: string;
-  master: { user: { fullName: string } };
-  confirmedBy?: { fullName: string } | null;
+  name: string;
+  due: number;
+  paid: number;
+  remaining: number;
+  orderCount: number;
+  settlementId: string | null;
 };
 
 const MONTH_LABELS = [
@@ -50,342 +44,288 @@ function money(n: number) {
 }
 
 export function MasterSettlementsPanel() {
-  const isOwner = (getStoredUser()?.role ?? '') === 'OWNER';
+  const user = getStoredUser();
+  const canPay =
+    (user?.role ?? '') === 'OWNER' &&
+    hasPermission(user?.role ?? '', user?.permissions, 'settlements.pay');
+
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const yearOptions = useMemo(
     () => Array.from({ length: 6 }, (_, i) => now.getFullYear() - 3 + i),
-    [now],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [masters, setMasters] = useState<Master[]>([]);
+  const [rows, setRows] = useState<BoardRow[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const [masterId, setMasterId] = useState('');
-  const [calcAmount, setCalcAmount] = useState<number | null>(null);
-  const [calcCount, setCalcCount] = useState(0);
-  const [calcLoading, setCalcLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [payId, setPayId] = useState<string | null>(null);
+  const [payRow, setPayRow] = useState<BoardRow | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const [payStep, setPayStep] = useState<1 | 2>(1);
+  const [paying, setPaying] = useState(false);
 
   const { from, to } = monthBounds(year, month);
 
-  const unpaidForForm = useMemo(() => {
-    if (!masterId || !isOwner) return null;
-    return (
-      settlements.find((s) => {
-        if (s.masterId !== masterId) return false;
-        const due = Number(s.amount);
-        const paid = Number(s.paidAmount ?? 0);
-        if (due - paid <= 0) return false;
-        return (
-          s.periodFrom.slice(0, 10) === from && s.periodTo.slice(0, 10) === to
-        );
-      }) ?? null
-    );
-  }, [settlements, masterId, isOwner, from, to]);
-
   async function load() {
-    const [list, m] = await Promise.all([
-      api<Settlement[]>('/settlements'),
-      api<Master[]>('/masters'),
-    ]);
-    setSettlements(list);
-    setMasters(m);
-    if (!masterId && m[0]) setMasterId(m[0].id);
+    setLoading(true);
+    setError('');
+    try {
+      const list = await api<BoardRow[]>(
+        `/settlements/board?from=${from}&to=${to}`,
+      );
+      setRows(list);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [from, to]);
 
-  useEffect(() => {
-    if (!masterId) {
-      setCalcAmount(null);
-      setCalcCount(0);
+  function openPay(row: BoardRow) {
+    setError('');
+    setMsg('');
+    setPayRow(row);
+    setPayAmount(String(row.remaining));
+    setPayStep(1);
+  }
+
+  function closePay() {
+    if (paying) return;
+    setPayRow(null);
+    setPayAmount('');
+    setPayStep(1);
+  }
+
+  function onPayNext(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    const amount = Number(payAmount);
+    if (!(amount > 0)) {
+      setError('Укажите сумму больше 0');
       return;
     }
-    setCalcLoading(true);
-    api<{ amount: number; count: number }>(
-      `/settlements/amount?masterId=${encodeURIComponent(masterId)}&from=${from}&to=${to}`,
-    )
-      .then((r) => {
-        setCalcAmount(r.amount);
-        setCalcCount(r.count);
-      })
-      .catch(() => {
-        setCalcAmount(null);
-        setCalcCount(0);
-      })
-      .finally(() => setCalcLoading(false));
-  }, [masterId, from, to]);
+    if (payRow && amount > payRow.remaining + 0.001) {
+      setError(`Нельзя больше остатка (${money(payRow.remaining)} ₽)`);
+      return;
+    }
+    setPayStep(2);
+  }
 
-  async function onCreate(e: FormEvent) {
+  async function onPayConfirm(e: FormEvent) {
     e.preventDefault();
+    if (!payRow) return;
     setError('');
     setMsg('');
+    setPaying(true);
     try {
-      await api('/settlements', {
+      await api('/settlements/accept-payment', {
         method: 'POST',
         body: JSON.stringify({
-          masterId,
+          masterId: payRow.masterId,
           periodFrom: from,
           periodTo: to,
+          amount: Number(payAmount),
         }),
       });
-      setMsg('Расчёт создан');
+      setPayRow(null);
+      setPayStep(1);
+      setMsg('Оплата принята');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
-    }
-  }
-
-  async function confirm(id: string, once: boolean) {
-    setError('');
-    setMsg('');
-    try {
-      await api(`/settlements/${id}/confirm`, { method: 'POST', body: '{}' });
-      setMsg(
-        !once
-          ? 'Первое подтверждение выполнено'
-          : 'Второе подтверждение выполнено — расчёт закрыт',
-      );
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
-    }
-  }
-
-  function openPay(s: Settlement) {
-    const due = Number(s.amount);
-    const paid = Number(s.paidAmount ?? 0);
-    const remaining = Math.max(0, Math.round((due - paid) * 100) / 100);
-    setPayId(s.id);
-    setPayAmount(String(remaining));
-  }
-
-  async function submitPay(e: FormEvent) {
-    e.preventDefault();
-    if (!payId) return;
-    setError('');
-    setMsg('');
-    try {
-      await api(`/settlements/${payId}/pay`, {
-        method: 'POST',
-        body: JSON.stringify({ amount: Number(payAmount) }),
-      });
-      setPayId(null);
-      setMsg('Оплата внесена в кассу');
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      setPayStep(1);
+    } finally {
+      setPaying(false);
     }
   }
 
   return (
     <div>
-      <form className="panel" onSubmit={onCreate} style={{ marginBottom: 16 }}>
-        <div className="grid-2">
-          <div className="field">
-            <label>Мастер</label>
-            <select
-              value={masterId}
-              onChange={(e) => setMasterId(e.target.value)}
-              required
-            >
-              {masters.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.user.fullName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Месяц</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Год</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Сумма сдачи, ₽</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-              <input
-                readOnly
-                disabled
-                style={{ flex: 1 }}
-                value={
-                  calcLoading
-                    ? '…'
-                    : calcAmount == null
-                      ? '—'
-                      : `${money(calcAmount)}${calcCount ? ` (${calcCount} заявок)` : ''}`
-                }
-              />
-              {isOwner && unpaidForForm ? (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => openPay(unpaidForForm)}
-                >
-                  Внести оплату
-                </button>
-              ) : null}
-            </div>
-          </div>
+      <div
+        className="panel"
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          gap: 12,
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+        }}
+      >
+        <div className="field" style={{ margin: 0, minWidth: 140 }}>
+          <label>Месяц</label>
+          <select
+            value={month}
+            onChange={(e) => setMonth(Number(e.target.value))}
+          >
+            {MONTH_LABELS.map((label, i) => (
+              <option key={label} value={i + 1}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
-        <button className="btn" type="submit" disabled={!calcAmount}>
-          Создать расчёт
-        </button>
-      </form>
+        <div className="field" style={{ margin: 0, minWidth: 100 }}>
+          <label>Год</label>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+          >
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <div className="panel">
-        {error ? <p className="error">{error}</p> : null}
+        {error && !payRow ? <p className="error">{error}</p> : null}
         {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+        {loading ? <p className="muted">Загрузка…</p> : null}
 
-        {payId ? (
-          <form
-            onSubmit={submitPay}
-            className="panel"
-            style={{
-              marginBottom: 16,
-              background: '#f0fdfa',
-              padding: '0.85rem 1rem',
-            }}
-          >
-            <p style={{ margin: '0 0 0.75rem', fontWeight: 600 }}>
-              Внести оплату от мастера
-            </p>
-            <div className="grid-2">
-              <div className="field">
-                <label>Сумма, ₽</label>
-                <input
-                  required
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" type="submit">
-                Принять в кассу
-              </button>
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => setPayId(null)}
-              >
-                Отмена
-              </button>
-            </div>
-          </form>
-        ) : null}
-
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Мастер</th>
-              <th>Период</th>
-              <th>К сдаче</th>
-              <th>Оплачено</th>
-              <th>Остаток</th>
-              <th>Подтверждения</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {settlements.map((s) => {
-              const due = Number(s.amount);
-              const paid = Number(s.paidAmount ?? 0);
-              const remaining = Math.max(
-                0,
-                Math.round((due - paid) * 100) / 100,
-              );
-              return (
-                <tr key={s.id}>
-                  <td>{s.master.user.fullName}</td>
+        {!loading ? (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Мастер</th>
+                <th>К сдаче</th>
+                <th>Оплачено</th>
+                <th>Остаток</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.masterId}>
                   <td>
-                    {new Date(s.periodFrom).toLocaleDateString('ru-RU')} —{' '}
-                    {new Date(s.periodTo).toLocaleDateString('ru-RU')}
-                  </td>
-                  <td>{money(due)}</td>
-                  <td>{money(paid)}</td>
-                  <td>{money(remaining)}</td>
-                  <td>
-                    {s.confirmedOnce ? '✓1' : '○1'}{' '}
-                    {s.confirmedTwice ? '✓2' : '○2'}
-                    {s.confirmedBy ? (
-                      <span className="muted"> · {s.confirmedBy.fullName}</span>
+                    {row.name}
+                    {row.orderCount > 0 ? (
+                      <div className="muted">
+                        {row.orderCount}{' '}
+                        {row.orderCount === 1
+                          ? 'заявка'
+                          : row.orderCount < 5
+                            ? 'заявки'
+                            : 'заявок'}
+                      </div>
                     ) : null}
                   </td>
+                  <td>{money(row.due)}</td>
+                  <td>{money(row.paid)}</td>
+                  <td>{money(row.remaining)}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {isOwner && remaining > 0 ? (
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => openPay(s)}
-                        >
-                          Внести оплату
-                        </button>
-                      ) : null}
-                      {!s.confirmedOnce ? (
-                        <button
-                          type="button"
-                          className="btn secondary"
-                          onClick={() => confirm(s.id, false)}
-                        >
-                          Подтвердить (1)
-                        </button>
-                      ) : !s.confirmedTwice ? (
-                        <button
-                          type="button"
-                          className="btn secondary"
-                          onClick={() => confirm(s.id, true)}
-                        >
-                          Подтвердить (2)
-                        </button>
-                      ) : (
-                        <span className="muted">Закрыт</span>
-                      )}
-                    </div>
+                    {canPay && row.remaining > 0 ? (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => openPay(row)}
+                      >
+                        Принять оплату
+                      </button>
+                    ) : row.remaining <= 0 && row.due > 0 ? (
+                      <span className="muted">Сдано</span>
+                    ) : null}
                   </td>
                 </tr>
-              );
-            })}
-            {settlements.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="muted">
-                  Расчётов пока нет.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+              ))}
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    Нет закрытых заявок мастеров за этот месяц.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        ) : null}
       </div>
+
+      {payRow ? (
+        <div
+          className="notify-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pay-modal-title"
+        >
+          <div className="notify-card">
+            <h2 id="pay-modal-title" className="notify-title">
+              Принять оплату
+            </h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {payRow.name} · остаток {money(payRow.remaining)} ₽
+            </p>
+
+            {error ? <p className="error">{error}</p> : null}
+
+            {payStep === 1 ? (
+              <form onSubmit={onPayNext}>
+                <div className="field">
+                  <label>Сумма, ₽</label>
+                  <input
+                    required
+                    inputMode="decimal"
+                    autoFocus
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn" type="submit">
+                    Далее
+                  </button>
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    onClick={closePay}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={onPayConfirm}>
+                <p style={{ margin: '0 0 1rem' }}>
+                  Подтвердите ещё раз: принять{' '}
+                  <strong>{money(Number(payAmount) || 0)} ₽</strong> от{' '}
+                  <strong>{payRow.name}</strong>?
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" type="submit" disabled={paying}>
+                    {paying ? 'Сохранение…' : 'Подтверждаю'}
+                  </button>
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    disabled={paying}
+                    onClick={() => setPayStep(1)}
+                  >
+                    Назад
+                  </button>
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    disabled={paying}
+                    onClick={closePay}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

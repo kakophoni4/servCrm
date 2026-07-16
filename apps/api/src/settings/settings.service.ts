@@ -27,6 +27,19 @@ function payRange(from?: string, to?: string) {
   return { start, end };
 }
 
+/** Календарный день YYYY-MM-DD в локальной таймзоне сервера. */
+function localDateKey(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** День смены (workDate хранится как UTC date). */
+function shiftDateKey(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
 function roundMoney(n: number) {
   return Math.round(n * 100) / 100;
 }
@@ -379,7 +392,8 @@ export class SettingsService {
 
   /**
    * Расчёт ЗП диспетчера за период:
-   * оклад + % от оборота + бонус за листовки (ставка за каждые 100 шт.) + % от своих закрытых.
+   * месячный оклад + бонус за листовки
+   * + % от чистой прибыли (toCompany) по заявкам, закрытым в дни смен диспетчера.
    */
   async calcDispatcherPay(userId: string, from?: string, to?: string) {
     const user = await this.prisma.user.findUnique({
@@ -417,9 +431,18 @@ export class SettingsService {
     });
 
     const salaryBase = Number(settings?.salaryBase ?? 0);
-    const dailyTurnoverPct = Number(settings?.dailyTurnoverPct ?? 0);
     const leafletBonusRate = Number(settings?.leafletBonus ?? 0);
     const closedOrdersBonusPct = Number(settings?.closedOrdersBonusPct ?? 0);
+
+    // Смены диспетчера за период — база для листовок и бонуса за закрытые.
+    const shifts = await this.prisma.dispatcherShift.findMany({
+      where: {
+        userId: user.id,
+        workDate: { gte: start, lte: end },
+      },
+      select: { workDate: true, cityId: true },
+    });
+    const shiftDays = new Set(shifts.map((s) => shiftDateKey(s.workDate)));
 
     const closedOrders = await this.prisma.order.findMany({
       where: {
@@ -430,23 +453,11 @@ export class SettingsService {
       include: { payment: true },
     });
 
-    const turnover = closedOrders.reduce(
-      (s, o) => s + Number(o.payment?.toCompany ?? 0),
-      0,
-    );
-
-    const ownClosedNet = closedOrders
-      .filter((o) => o.createdById === user.id)
+    // Чистая прибыль (toCompany) только по заявкам, закрытым в дни смен.
+    const shiftClosedNet = closedOrders
+      .filter((o) => shiftDays.has(localDateKey(o.updatedAt)))
       .reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
 
-    // Листовки за дни смен диспетчера; если графика нет — отчёты, которые он создал.
-    const shifts = await this.prisma.dispatcherShift.findMany({
-      where: {
-        userId: user.id,
-        workDate: { gte: start, lte: end },
-      },
-      select: { workDate: true },
-    });
     const adReports =
       shifts.length > 0
         ? await this.prisma.adDailyReport.findMany({
@@ -465,31 +476,28 @@ export class SettingsService {
           });
     const leaflets = adReports.reduce((s, r) => s + r.leafletsSpread, 0);
 
-    const dailyTurnoverPay = roundMoney(dailyTurnoverPct * turnover);
     // leafletBonus — ₽ за каждые 100 розданных листовок в смену
     const leafletsPay = roundMoney(leafletBonusRate * (leaflets / 100));
-    const closedOrdersBonus = roundMoney(closedOrdersBonusPct * ownClosedNet);
-    const salary = roundMoney(salaryBase);
-    const total = roundMoney(
-      salary + dailyTurnoverPay + leafletsPay + closedOrdersBonus,
+    const closedOrdersBonus = roundMoney(
+      closedOrdersBonusPct * shiftClosedNet,
     );
+    const salary = roundMoney(salaryBase);
+    const total = roundMoney(salary + leafletsPay + closedOrdersBonus);
 
     return {
       userId: user.id,
       fullName: user.fullName,
       period: { from: start, to: end },
       salaryBase: salary,
-      dailyTurnoverPay,
       leafletsPay,
       closedOrdersBonus,
       total,
       meta: {
-        turnover: roundMoney(turnover),
         leaflets,
-        ownClosedNet: roundMoney(ownClosedNet),
+        shiftClosedNet: roundMoney(shiftClosedNet),
+        shiftDays: shiftDays.size,
         settings: {
           salaryBase,
-          dailyTurnoverPct,
           leafletBonus: leafletBonusRate,
           closedOrdersBonusPct,
         },

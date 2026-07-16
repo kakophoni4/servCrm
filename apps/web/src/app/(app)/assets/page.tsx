@@ -1,6 +1,8 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { BranchSelect } from '@/components/BranchSelect';
+import { OpsShell } from '@/components/ops/OpsShell';
 import { api, getStoredUser } from '@/lib/api';
 import { ASSET_STATUS_LABELS } from '@/lib/labels';
 
@@ -85,9 +87,8 @@ export default function AssetsPage() {
   }
 
   return (
+    <OpsShell>
     <div>
-      <h1 className="page-title">Имущество</h1>
-
       <div
         style={{
           display: 'flex',
@@ -152,20 +153,12 @@ export default function AssetsPage() {
                 onChange={(e) => setForm({ ...form, condition: e.target.value })}
               />
             </div>
-            <div className="field">
-              <label>Филиал</label>
-              <select
-                value={form.cityId}
-                onChange={(e) => setForm({ ...form, cityId: e.target.value })}
-              >
-                <option value="">—</option>
-                {cities.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <BranchSelect
+              cities={cities}
+              value={form.cityId}
+              onChange={(cityId) => setForm({ ...form, cityId })}
+              allowEmpty
+            />
           </div>
           <button className="btn" type="submit">
             Добавить имущество
@@ -246,5 +239,6 @@ export default function AssetsPage() {
         </table>
       </div>
     </div>
+    </OpsShell>
   );
 }

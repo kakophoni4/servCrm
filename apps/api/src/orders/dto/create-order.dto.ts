@@ -33,9 +33,9 @@ export class CreateOrderDto {
   @IsNotEmpty()
   partnerId?: string;
 
-  @IsOptional()
+  /** Плановое время визита — обязательно при создании. */
   @IsDateString()
-  scheduledAt?: string;
+  scheduledAt!: string;
 
   @IsString()
   @IsNotEmpty()

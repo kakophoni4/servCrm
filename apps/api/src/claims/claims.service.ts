@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ClaimType, Role } from '@prisma/client';
+import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,6 +13,7 @@ export class ClaimsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,
+    private readonly bot: BotService,
   ) {}
 
   async list(userId: string, role: Role, requestedCityId?: string) {
@@ -73,6 +75,10 @@ export class ClaimsService {
       }),
     ]);
 
+    void this.bot
+      .notifyAdminsNewClaim(claim.id)
+      .catch(() => undefined);
+
     return claim;
   }
 
@@ -94,11 +100,16 @@ export class ClaimsService {
       throw new ForbiddenException('Заявка вне вашего филиала');
     }
 
-    return this.prisma.claim.update({
+    const closed = await this.prisma.claim.update({
       where: { id },
-      data: { closedAt: closedAt ? new Date(closedAt) : new Date() },
+      data: {
+        closedAt: closedAt ? new Date(closedAt) : new Date(),
+        notifyAckedAt: existing.notifyAckedAt ?? new Date(),
+      },
       include: { order: true, city: true },
     });
+
+    return closed;
   }
 
   async update(

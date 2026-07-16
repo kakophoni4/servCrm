@@ -8,6 +8,7 @@ import {
   USER_STATUS_LABELS,
   DOC_KIND_LABELS,
   ORDER_UPLOAD_DOC_KINDS,
+  requiredOrderDocKinds,
   CASH_DIRECTION_LABELS,
   CASH_INCOME_BASIS_LABELS,
   CASH_EXPENSE_BASIS_LABELS,
@@ -82,16 +83,27 @@ describe('DOC_KIND_LABELS', () => {
     expect(DOC_KIND_LABELS.OTHER).toBe('Прочее');
   });
 
-  it('ORDER_UPLOAD_DOC_KINDS не содержит устаревшие типы', () => {
+  it('ORDER_UPLOAD_DOC_KINDS без сохранной и без устаревших типов', () => {
     expect(ORDER_UPLOAD_DOC_KINDS).toEqual([
       'CONTRACT',
       'RECEIPT_SERVICE',
       'RECEIPT_PARTS',
       'PARTS_PHOTO',
-      'RECEIPT_SD',
     ]);
+    expect(ORDER_UPLOAD_DOC_KINDS).not.toContain('RECEIPT_SD');
     expect(ORDER_UPLOAD_DOC_KINDS).not.toContain('AD_SCREEN');
     expect(ORDER_UPLOAD_DOC_KINDS).not.toContain('CASH_DOC');
+  });
+
+  it('requiredOrderDocKinds зависит от суммы комплектующих, без сохранной', () => {
+    expect(requiredOrderDocKinds(0)).toEqual([
+      'CONTRACT',
+      'RECEIPT_SERVICE',
+    ]);
+    expect(requiredOrderDocKinds(50)).toEqual(
+      expect.arrayContaining(['RECEIPT_PARTS', 'PARTS_PHOTO']),
+    );
+    expect(requiredOrderDocKinds(50)).not.toContain('RECEIPT_SD');
   });
 });
 

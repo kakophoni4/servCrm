@@ -55,6 +55,16 @@ export class ReportsController {
     return this.reports.masters(user.userId, user.role, cityId, from, to);
   }
 
+  @Get('partners')
+  partners(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.reports.partners(user.userId, user.role, cityId, from, to);
+  }
+
   @Get('claims')
   claims(
     @CurrentUser() user: { userId: string; role: Role },

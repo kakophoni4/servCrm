@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { ChatService } from '../chat/chat.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import {
   isOfficeRole,
@@ -64,6 +65,7 @@ export class UsersService {
     private readonly storage: StorageService,
     private readonly crypto: CryptoService,
     private readonly branch: BranchScopeService,
+    private readonly chat: ChatService,
   ) {}
 
   async list(
@@ -156,6 +158,24 @@ export class UsersService {
         : [];
     const cityId = input.cityId?.trim() || null;
 
+    if (
+      (input.role === Role.ADMIN || input.role === Role.DISPATCHER) &&
+      !cityId
+    ) {
+      throw new BadRequestException(
+        'Для администратора и диспетчера укажите филиал назначения',
+      );
+    }
+    if (
+      input.role === Role.DIRECTOR &&
+      !cityId &&
+      managedCityIds.length === 0
+    ) {
+      throw new BadRequestException(
+        'Для директора укажите филиал или филиалы под управлением',
+      );
+    }
+
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
@@ -199,6 +219,21 @@ export class UsersService {
       }
       return created;
     });
+
+    // Telegram ID диспетчера — канал CRM-чата (не мастерские заявки).
+    if (
+      input.role === Role.DISPATCHER &&
+      user.telegramId
+    ) {
+      await this.chat
+        .ensureTelegramThread({
+          telegramId: user.telegramId,
+          title: user.fullName,
+          cityId: user.cityId,
+        })
+        .catch(() => undefined);
+    }
+
     return this.toPublic(user);
   }
 

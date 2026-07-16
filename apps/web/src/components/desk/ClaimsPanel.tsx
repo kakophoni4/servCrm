@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { BranchSelect } from '@/components/BranchSelect';
+import { api, getStoredUser } from '@/lib/api';
+import { hasPermission } from '@/lib/permissions';
 
 const CLAIM_TYPES: Record<string, string> = {
   POLICE: 'Полиция',
@@ -32,6 +34,18 @@ type OrderHit = {
 type City = { id: string; name: string };
 
 export function ClaimsPanel() {
+  const user = getStoredUser();
+  const canRead = hasPermission(
+    user?.role ?? '',
+    user?.permissions,
+    'claims.read',
+  );
+  const canWrite = hasPermission(
+    user?.role ?? '',
+    user?.permissions,
+    'claims.write',
+  );
+
   const [claims, setClaims] = useState<Claim[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
@@ -50,9 +64,10 @@ export function ClaimsPanel() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
   async function load() {
+    if (!canRead) return;
     const [c, cityList] = await Promise.all([
       api<Claim[]>('/claims'),
-      api<City[]>('/cities'),
+      canWrite ? api<City[]>('/cities') : Promise.resolve([] as City[]),
     ]);
     setClaims(c);
     setCities(cityList);
@@ -62,9 +77,13 @@ export function ClaimsPanel() {
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+    if (!canRead) return;
+    load().catch((e) => {
+      const msg = e instanceof Error ? e.message : 'Ошибка';
+      if (msg !== 'Недостаточно прав') setError(msg);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canRead]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -150,10 +169,8 @@ export function ClaimsPanel() {
 
   return (
     <section className="desk-panel">
-      <div className="desk-panel-head">
-        <h2 className="desk-panel-title">Претензии</h2>
-      </div>
       <div className="desk-panel-body">
+        {canWrite ? (
         <form onSubmit={onCreate} className="desk-claims-form">
           <div className="field">
             <label>Заявка</label>
@@ -178,7 +195,7 @@ export function ClaimsPanel() {
                   value={orderQuery}
                   onChange={(e) => setOrderQuery(e.target.value)}
                   onFocus={() => orderHits.length && setShowHits(true)}
-                  placeholder="Номер или телефон"
+                  placeholder="номер заявки/телефон клиента"
                   autoComplete="off"
                 />
                 {searching ? (
@@ -232,24 +249,17 @@ export function ClaimsPanel() {
               }
             />
           </div>
-          <div className="field">
-            <label>Филиал</label>
-            <select
-              value={form.cityId}
-              onChange={(e) => setForm({ ...form, cityId: e.target.value })}
-            >
-              <option value="">—</option>
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <BranchSelect
+            cities={cities}
+            value={form.cityId}
+            onChange={(cityId) => setForm({ ...form, cityId })}
+            allowEmpty
+          />
           <button className="btn" type="submit">
             Создать
           </button>
         </form>
+        ) : null}
 
         {error ? <p className="error">{error}</p> : null}
 

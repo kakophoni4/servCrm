@@ -8,6 +8,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from 'fs';
 import { extname, join, normalize, resolve, sep } from 'path';
@@ -91,5 +92,15 @@ export class StorageService {
     const abs = this.absolute(relPath);
     if (!existsSync(abs)) throw new NotFoundException('Файл не найден');
     return readFileSync(abs);
+  }
+
+  /** Удалить файл с диска (тихо, если уже нет). */
+  remove(relPath: string) {
+    try {
+      const abs = this.absolute(relPath);
+      if (existsSync(abs)) unlinkSync(abs);
+    } catch {
+      /* ignore */
+    }
   }
 }

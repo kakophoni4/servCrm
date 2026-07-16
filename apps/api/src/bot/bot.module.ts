@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { ChatModule } from '../chat/chat.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { SettingsModule } from '../settings/settings.module';
+import { SettlementsModule } from '../settlements/settlements.module';
 import { BotController } from './bot.controller';
 import { BotService } from './bot.service';
 
@@ -10,6 +11,7 @@ import { BotService } from './bot.service';
     forwardRef(() => ChatModule),
     SettingsModule,
     DocumentsModule,
+    SettlementsModule,
   ],
   controllers: [BotController],
   providers: [BotService],

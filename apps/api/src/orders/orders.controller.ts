@@ -45,6 +45,16 @@ export class OrdersController {
     return this.orders.recent(user.userId, user.role, after, cityId);
   }
 
+  @Get('urgent-unassigned')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('orders.recent')
+  urgentUnassigned(
+    @CurrentUser() user: { userId: string; role: Role },
+    @Query('cityId') cityId?: string,
+  ) {
+    return this.orders.urgentUnassigned(user.userId, user.role, cityId);
+  }
+
   @Get('search')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('orders.read')

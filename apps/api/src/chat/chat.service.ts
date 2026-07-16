@@ -6,7 +6,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { ChatChannel, ChatStatus, Role } from '@prisma/client';
+import { ChatChannel, ChatStatus, Role, UserStatus } from '@prisma/client';
 import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -74,6 +74,41 @@ export class ChatService {
     }
   }
 
+  /**
+   * Тред CRM ↔ Telegram для сотрудника (диспетчер и т.п.) по telegramId.
+   * Создаётся при сохранении Telegram ID, чтобы можно было писать из CRM сразу.
+   */
+  async ensureTelegramThread(input: {
+    telegramId: string;
+    title: string;
+    cityId?: string | null;
+  }) {
+    const externalId = input.telegramId.trim();
+    if (!externalId) return null;
+
+    const existing = await this.prisma.chatThread.findFirst({
+      where: { channel: ChatChannel.TELEGRAM, externalId },
+    });
+    if (existing) {
+      return this.prisma.chatThread.update({
+        where: { id: existing.id },
+        data: {
+          title: input.title.trim() || existing.title,
+          cityId: input.cityId ?? existing.cityId,
+          status: ChatStatus.OPEN,
+        },
+      });
+    }
+    return this.prisma.chatThread.create({
+      data: {
+        channel: ChatChannel.TELEGRAM,
+        externalId,
+        title: input.title.trim() || externalId,
+        cityId: input.cityId ?? null,
+      },
+    });
+  }
+
   /** Входящее из бота / веб. */
   async ingest(input: {
     channel: ChatChannel;
@@ -81,6 +116,22 @@ export class ChatService {
     title?: string;
     body: string;
   }) {
+    let staff:
+      | { fullName: string; cityId: string | null; role: Role }
+      | null = null;
+    if (input.externalId && input.channel === ChatChannel.TELEGRAM) {
+      staff = await this.prisma.user.findFirst({
+        where: {
+          telegramId: input.externalId,
+          status: UserStatus.ACTIVE,
+          role: {
+            in: [Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER],
+          },
+        },
+        select: { fullName: true, cityId: true, role: true },
+      });
+    }
+
     let thread = input.externalId
       ? await this.prisma.chatThread.findFirst({
           where: { channel: input.channel, externalId: input.externalId },
@@ -91,7 +142,17 @@ export class ChatService {
         data: {
           channel: input.channel,
           externalId: input.externalId,
-          title: input.title ?? input.externalId ?? 'Чат',
+          title:
+            staff?.fullName ?? input.title ?? input.externalId ?? 'Чат',
+          cityId: staff?.cityId ?? null,
+        },
+      });
+    } else if (staff) {
+      thread = await this.prisma.chatThread.update({
+        where: { id: thread.id },
+        data: {
+          title: staff.fullName,
+          cityId: staff.cityId ?? thread.cityId,
         },
       });
     }
@@ -120,6 +181,16 @@ export class ChatService {
     if (userId !== undefined && role !== undefined) {
       await this.assertThreadAccess(thread, userId, role);
     }
+
+    if (thread.channel === ChatChannel.TELEGRAM && thread.externalId) {
+      const sent = await this.bot.sendMessage(thread.externalId, body);
+      if (!sent) {
+        throw new BadRequestException(
+          'Не удалось отправить в Telegram. Проверьте, что бот включён.',
+        );
+      }
+    }
+
     await this.prisma.chatMessage.create({
       data: {
         threadId,
@@ -128,6 +199,7 @@ export class ChatService {
         authorId,
       },
     });
+
     return this.get(threadId);
   }
 

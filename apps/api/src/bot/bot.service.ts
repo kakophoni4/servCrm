@@ -4,6 +4,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   UnauthorizedException,
   forwardRef,
 } from '@nestjs/common';
@@ -11,10 +13,12 @@ import {
   CashDirection,
   CashIncomeBasis,
   ChatChannel,
+  ClaimType,
   DocKind,
   OrderStatus,
   Prisma,
   Role,
+  UserStatus,
 } from '@prisma/client';
 import { extname } from 'path';
 import { ChatService } from '../chat/chat.service';
@@ -25,6 +29,7 @@ import {
 } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { SettlementsService } from '../settlements/settlements.service';
 
 const STATUS_BUTTONS: { status: OrderStatus; label: string }[] = [
   { status: OrderStatus.ON_THE_WAY, label: 'В пути' },
@@ -89,7 +94,7 @@ type TgCallbackQuery = {
   id: string;
   data?: string;
   from?: TgFrom;
-  message?: { chat?: TgChat };
+  message?: { chat?: TgChat; message_id?: number };
 };
 
 type TgUpdate = {
@@ -100,15 +105,26 @@ type TgUpdate = {
 type DocUploadSession = {
   orderId: string;
   expectedKind: DocKind;
+  targetStatus: OrderStatus;
+};
+
+const ESCALATE_AFTER_MS = 10 * 60 * 1000;
+const ESCALATE_POLL_MS = 60 * 1000;
+
+const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
+  [ClaimType.POLICE]: 'Полиция',
+  [ClaimType.MASTER_BROKE]: 'Мастер сломал технику',
+  [ClaimType.PRICE_DISSATISFIED]: 'Недоволен ценой',
 };
 
 /**
  * Слой для Telegram-бота. Токен берётся из настроек (админка) с fallback на env.
  */
 @Injectable()
-export class BotService {
+export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
   private readonly docSessions = new Map<string, DocUploadSession>();
+  private escalateTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -116,7 +132,20 @@ export class BotService {
     private readonly chat: ChatService,
     private readonly settings: SettingsService,
     private readonly documents: DocumentsService,
+    private readonly settlements: SettlementsService,
   ) {}
+
+  onModuleInit() {
+    this.escalateTimer = setInterval(() => {
+      void this.processEscalations().catch((e) =>
+        this.logger.error(`escalation poll: ${String(e)}`),
+      );
+    }, ESCALATE_POLL_MS);
+  }
+
+  onModuleDestroy() {
+    if (this.escalateTimer) clearInterval(this.escalateTimer);
+  }
 
   /** Вызов метода Telegram Bot API токеном из настроек. */
   async telegram<T = unknown>(
@@ -232,38 +261,52 @@ export class BotService {
       throw new NotFoundException('Заявка не найдена у мастера');
     }
 
-    if (status === OrderStatus.DONE) {
-      const missing = await this.documents.missingRequiredKinds(orderId);
+    if (
+      status === OrderStatus.DONE ||
+      status === OrderStatus.IN_PROGRESS_SD
+    ) {
+      const missing = await this.documents.missingKindsForStatus(
+        orderId,
+        status,
+      );
       if (missing.length) {
+        const label = STATUS_LABELS[status] ?? status;
         throw new BadRequestException(
-          `Для статуса «Готов» недостаёт документов: ${missing
+          `Для статуса «${label}» недостаёт документов: ${missing
             .map((k) => DOC_KIND_RU[k])
             .join(', ')}`,
         );
       }
     }
 
-    if (status === OrderStatus.IN_PROGRESS_SD) {
-      const sdDocs = await this.prisma.orderDocument.count({
-        where: { orderId, kind: DocKind.RECEIPT_SD },
-      });
-      if (!sdDocs) {
-        throw new BadRequestException(
-          'Для статуса «В работе СД» нужна сохранная расписка',
-        );
-      }
-    }
+    const becameDone =
+      status === OrderStatus.DONE && order.status !== OrderStatus.DONE;
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.order.update({
         where: { id: orderId },
         data: {
           status,
-          ...(status === OrderStatus.DONE ? { docsViaAdmin: false } : {}),
+          ...(status === OrderStatus.DONE
+            ? {
+                docsViaAdmin: false,
+                ...(becameDone || !order.completedAt
+                  ? { completedAt: order.completedAt ?? new Date() }
+                  : {}),
+              }
+            : {}),
         },
       });
 
       if (status === OrderStatus.DONE) {
+        const paid = Number(order.payment?.paid ?? 0);
+        const partsCost = Number(order.payment?.partsCost ?? 0);
+        const masterSalary = Number(order.payment?.masterSalary ?? 0);
+        const toCompany =
+          order.payment?.toCompany != null
+            ? Number(order.payment.toCompany)
+            : Math.max(0, paid - partsCost - masterSalary);
+
         const exists = await tx.cashTx.findFirst({
           where: {
             orderId,
@@ -271,23 +314,37 @@ export class BotService {
           },
           select: { id: true },
         });
+        const cashData = {
+          amount: toCompany,
+          cityId: order.cityId ?? undefined,
+          description: 'Приход по заявке (чистыми)',
+        };
         if (!exists) {
           await tx.cashTx.create({
             data: {
               direction: CashDirection.INCOME,
               incomeBasis: CashIncomeBasis.ORDER,
-              amount: Number(order.payment?.paid ?? 0),
               orderId,
-              cityId: order.cityId ?? undefined,
               createdById: user.id,
-              description: 'Приход по заявке',
+              ...cashData,
             },
+          });
+        } else if (becameDone) {
+          await tx.cashTx.update({
+            where: { id: exists.id },
+            data: cashData,
           });
         }
       }
 
-      return updated;
+      return row;
     });
+
+    if (status === OrderStatus.DONE) {
+      await this.settlements.syncForCompletedOrder(orderId).catch(() => undefined);
+    }
+
+    return updated;
   }
 
   incomingMessage(externalId: string, text: string, title?: string) {
@@ -370,7 +427,10 @@ export class BotService {
     );
   }
 
-  /** Уведомить всех активных админов о новой заявке (для назначения мастера). */
+  /**
+   * Сразу — только ADMIN (с кнопкой «Ознакомился»).
+   * Через 10 мин без ack/смены статуса — DIRECTOR + OWNER.
+   */
   async notifyAdminsNewOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -378,31 +438,182 @@ export class BotService {
     });
     if (!order) return null;
 
-    const branchFilter: Prisma.UserWhereInput[] = order.cityId
-      ? [
-          { role: Role.OWNER },
-          {
-            role: { in: [Role.ADMIN, Role.DIRECTOR] },
-            OR: [
-              { cityId: order.cityId },
-              { managedBranches: { some: { cityId: order.cityId } } },
+    const text = this.formatNewOrderText(order, false);
+    const recipients = await this.officeRecipients(order.cityId, [Role.ADMIN]);
+    if (!recipients.length) {
+      this.logger.log(
+        `notifyAdminsNewOrder: нет ADMIN с TG для ${order.publicId}`,
+      );
+      return null;
+    }
+
+    this.logger.log(
+      `notifyAdminsNewOrder → ${recipients.length} ADMIN, заявка ${order.publicId}`,
+    );
+
+    return Promise.allSettled(
+      recipients.map((a) =>
+        this.sendMessage(a.telegramId as string, text, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Ознакомился', callback_data: `ack:o:${orderId}` }],
             ],
           },
-        ]
-      : [{ role: { in: [Role.ADMIN, Role.DIRECTOR, Role.OWNER] } }];
+        }),
+      ),
+    );
+  }
 
-    const admins = await this.prisma.user.findMany({
-      where: {
-        status: 'ACTIVE',
-        telegramId: { not: null },
-        OR: branchFilter,
+  async notifyAdminsNewClaim(claimId: string) {
+    const claim = await this.prisma.claim.findUnique({
+      where: { id: claimId },
+      include: {
+        order: { include: { client: true } },
+        city: true,
       },
-      select: { telegramId: true },
     });
-    if (!admins.length) return null;
+    if (!claim) return null;
 
+    const text = this.formatNewClaimText(claim, false);
+    const recipients = await this.officeRecipients(claim.cityId, [Role.ADMIN]);
+    if (!recipients.length) return null;
+
+    this.logger.log(
+      `notifyAdminsNewClaim → ${recipients.length} ADMIN, претензия ${claimId}`,
+    );
+
+    return Promise.allSettled(
+      recipients.map((a) =>
+        this.sendMessage(a.telegramId as string, text, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Ознакомился', callback_data: `ack:c:${claimId}` }],
+            ],
+          },
+        }),
+      ),
+    );
+  }
+
+  /** Эскалации: заявки и претензии старше 10 мин без ack. */
+  async processEscalations() {
+    const cutoff = new Date(Date.now() - ESCALATE_AFTER_MS);
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        createdAt: { lte: cutoff },
+        notifyAckedAt: null,
+        notifyEscalatedAt: null,
+      },
+      select: { id: true },
+      take: 40,
+    });
+    for (const o of orders) {
+      await this.escalateOrder(o.id);
+    }
+
+    const claims = await this.prisma.claim.findMany({
+      where: {
+        createdAt: { lte: cutoff },
+        notifyAckedAt: null,
+        notifyEscalatedAt: null,
+      },
+      select: { id: true },
+      take: 40,
+    });
+    for (const c of claims) {
+      await this.escalateClaim(c.id);
+    }
+  }
+
+  private async escalateOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { client: true, city: true },
+    });
+    if (!order || order.notifyAckedAt || order.notifyEscalatedAt) return;
+
+    const recipients = await this.officeRecipients(order.cityId, [
+      Role.DIRECTOR,
+      Role.OWNER,
+    ]);
+    const text = this.formatNewOrderText(order, true);
+    if (recipients.length) {
+      await Promise.allSettled(
+        recipients.map((a) =>
+          this.sendMessage(a.telegramId as string, text, {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Ознакомился', callback_data: `ack:o:${orderId}` }],
+              ],
+            },
+          }),
+        ),
+      );
+      this.logger.log(
+        `escalateOrder → ${recipients.length} DIR/OWNER, ${order.publicId}`,
+      );
+    }
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { notifyEscalatedAt: new Date() },
+    });
+  }
+
+  private async escalateClaim(claimId: string) {
+    const claim = await this.prisma.claim.findUnique({
+      where: { id: claimId },
+      include: {
+        order: { include: { client: true } },
+        city: true,
+      },
+    });
+    if (!claim || claim.notifyAckedAt || claim.notifyEscalatedAt) return;
+
+    const recipients = await this.officeRecipients(claim.cityId, [
+      Role.DIRECTOR,
+      Role.OWNER,
+    ]);
+    const text = this.formatNewClaimText(claim, true);
+    if (recipients.length) {
+      await Promise.allSettled(
+        recipients.map((a) =>
+          this.sendMessage(a.telegramId as string, text, {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Ознакомился', callback_data: `ack:c:${claimId}` }],
+              ],
+            },
+          }),
+        ),
+      );
+      this.logger.log(
+        `escalateClaim → ${recipients.length} DIR/OWNER, claim ${claimId}`,
+      );
+    }
+
+    await this.prisma.claim.update({
+      where: { id: claimId },
+      data: { notifyEscalatedAt: new Date() },
+    });
+  }
+
+  private formatNewOrderText(
+    order: {
+      publicId: string;
+      address: string;
+      typeTech?: string | null;
+      scheduledAt?: Date | null;
+      client: { name: string; phoneNormalized: string };
+      city?: { name: string } | null;
+    },
+    escalated: boolean,
+  ) {
     const lines = [
-      `🆕 Новая заявка ${order.publicId}`,
+      escalated
+        ? `⏰ Эскалация: заявка ${order.publicId} без реакции админа 10+ мин`
+        : `🆕 Новая заявка ${order.publicId}`,
       `Клиент: ${order.client.name}`,
       `Тел: ${order.client.phoneNormalized}`,
       `Адрес: ${order.address}`,
@@ -413,15 +624,81 @@ export class BotService {
       lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
     }
     lines.push('Назначьте мастера в CRM.');
-    const text = lines.join('\n');
+    return lines.join('\n');
+  }
 
-    this.logger.log(
-      `notifyAdminsNewOrder → ${admins.length} адм., заявка ${order.publicId}`,
-    );
+  private formatNewClaimText(
+    claim: {
+      type: ClaimType;
+      refundSum: unknown;
+      order: {
+        publicId: string;
+        client: { name: string; phoneNormalized: string };
+      };
+      city?: { name: string } | null;
+    },
+    escalated: boolean,
+  ) {
+    const lines = [
+      escalated
+        ? `⏰ Эскалация: претензия по заявке ${claim.order.publicId}`
+        : `⚠️ Новая претензия по заявке ${claim.order.publicId}`,
+      `Тип: ${CLAIM_TYPE_LABELS[claim.type] ?? claim.type}`,
+      `Клиент: ${claim.order.client.name}`,
+      `Тел: ${claim.order.client.phoneNormalized}`,
+      `Возврат: ${Number(claim.refundSum)} ₽`,
+    ];
+    if (claim.city?.name) lines.push(`Филиал: ${claim.city.name}`);
+    lines.push('Откройте претензию в CRM.');
+    return lines.join('\n');
+  }
 
-    return Promise.allSettled(
-      admins.map((a) => this.sendMessage(a.telegramId as string, text)),
-    );
+  private async officeRecipients(
+    cityId: string | null | undefined,
+    roles: Role[],
+  ) {
+    const hasOwner = roles.includes(Role.OWNER);
+    const branchRoles = roles.filter((r) => r !== Role.OWNER);
+
+    const branchFilter: Prisma.UserWhereInput[] = [];
+    if (hasOwner) branchFilter.push({ role: Role.OWNER });
+    if (branchRoles.length) {
+      if (cityId) {
+        branchFilter.push({
+          role: { in: branchRoles },
+          OR: [
+            { cityId },
+            { managedBranches: { some: { cityId } } },
+          ],
+        });
+      } else {
+        branchFilter.push({ role: { in: branchRoles } });
+      }
+    }
+    if (!branchFilter.length) return [];
+
+    return this.prisma.user.findMany({
+      where: {
+        status: UserStatus.ACTIVE,
+        telegramId: { not: null },
+        OR: branchFilter,
+      },
+      select: { telegramId: true, role: true },
+    });
+  }
+
+  async ackOrderNotify(orderId: string) {
+    await this.prisma.order.updateMany({
+      where: { id: orderId, notifyAckedAt: null },
+      data: { notifyAckedAt: new Date() },
+    });
+  }
+
+  async ackClaimNotify(claimId: string) {
+    await this.prisma.claim.updateMany({
+      where: { id: claimId, notifyAckedAt: null },
+      data: { notifyAckedAt: new Date() },
+    });
   }
 
   async notifyAdminsDocsViaAdmin(orderId: string) {
@@ -496,10 +773,23 @@ export class BotService {
     }
 
     if (msg.text) {
+      const text = msg.text.trim();
+      if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
+        await this.sendMessage(
+          chatId,
+          [
+            `Ваш ID для подключения: ${telegramId}`,
+            '',
+            'Передайте этот ID администратору для подключения к чату и уведомлениям.',
+          ].join('\n'),
+        );
+        return { ok: true };
+      }
+
       const from = msg.from;
       const title =
         from?.username || from?.first_name || String(msg.chat.id);
-      await this.incomingMessage(chatId, msg.text, title);
+      await this.incomingMessage(chatId, text, title);
     }
 
     return { ok: true };
@@ -510,18 +800,57 @@ export class BotService {
     telegramId: string,
     orderId: string,
     missing: DocKind[],
+    targetStatus: OrderStatus = OrderStatus.DONE,
   ) {
     if (!missing.length) return;
     this.docSessions.set(telegramId, {
       orderId,
       expectedKind: missing[0],
+      targetStatus,
     });
+    const statusLabel = STATUS_LABELS[targetStatus] ?? targetStatus;
     await this.sendMessage(
       chatId,
-      'Для статуса «Готов» нужны документы. Пришлите фото или PDF. Каждый тип — отдельным сообщением (или несколько файлов подряд одного типа).',
+      `Для статуса «${statusLabel}» нужны документы. Пришлите фото или PDF. После загрузки всех файлов статус применится автоматически.`,
     );
     for (const kind of missing) {
       await this.sendDocKindPrompt(chatId, orderId, kind);
+    }
+  }
+
+  /** Если для целевого статуса хватает файлов — сразу ставим статус. */
+  private async tryApplyStatusAfterDocs(
+    chatId: string,
+    telegramId: string,
+    orderId: string,
+    targetStatus: OrderStatus,
+  ): Promise<boolean> {
+    const missing = await this.documents.missingKindsForStatus(
+      orderId,
+      targetStatus,
+    );
+    if (missing.length) return false;
+    try {
+      await this.setStatus(telegramId, orderId, targetStatus, true);
+      this.docSessions.delete(telegramId);
+      await this.sendMessage(
+        chatId,
+        `Статус обновлён: ${STATUS_LABELS[targetStatus] ?? targetStatus}`,
+      );
+      return true;
+    } catch (e) {
+      const text =
+        e instanceof BadRequestException || e instanceof NotFoundException
+          ? String(
+              (e.getResponse() as { message?: string | string[] })?.message ??
+                e.message,
+            )
+          : 'Не удалось сменить статус';
+      await this.sendMessage(
+        chatId,
+        Array.isArray(text) ? text.join('; ') : text,
+      );
+      return true;
     }
   }
 
@@ -579,13 +908,15 @@ export class BotService {
       return;
     }
 
+    let uploadResult: { created: unknown[]; skipped: number };
     try {
       const file = await this.downloadTgFile(msg);
-      await this.documents.uploadMany(
+      uploadResult = await this.documents.uploadMany(
         session.orderId,
         session.expectedKind,
         [file],
         order.master.user.id,
+        session.targetStatus,
       );
     } catch (e) {
       const text =
@@ -598,6 +929,36 @@ export class BotService {
       await this.sendMessage(
         chatId,
         Array.isArray(text) ? text.join('; ') : text,
+      );
+      return;
+    }
+
+    // Дубликат по хешу — без уведомлений
+    if (!uploadResult.created.length) {
+      return;
+    }
+
+    const applied = await this.tryApplyStatusAfterDocs(
+      chatId,
+      telegramId,
+      session.orderId,
+      session.targetStatus,
+    );
+    if (applied) return;
+
+    const missing = await this.documents.missingKindsForStatus(
+      session.orderId,
+      session.targetStatus,
+    );
+    if (!missing.includes(session.expectedKind) && missing[0]) {
+      this.docSessions.set(telegramId, {
+        orderId: session.orderId,
+        expectedKind: missing[0],
+        targetStatus: session.targetStatus,
+      });
+      await this.sendMessage(
+        chatId,
+        `Принято: «${DOC_KIND_TG[session.expectedKind]}». Далее: «${DOC_KIND_TG[missing[0]]}».`,
       );
       return;
     }
@@ -669,6 +1030,22 @@ export class BotService {
 
     if (!chatId || !telegramId) return;
 
+    if (data.startsWith('ack:o:')) {
+      const orderId = data.slice(6);
+      await this.ackOrderNotify(orderId);
+      await this.clearInlineKeyboard(chatId, cq.message?.message_id);
+      await this.sendMessage(chatId, 'Ознакомление зафиксировано.');
+      return;
+    }
+
+    if (data.startsWith('ack:c:')) {
+      const claimId = data.slice(6);
+      await this.ackClaimNotify(claimId);
+      await this.clearInlineKeyboard(chatId, cq.message?.message_id);
+      await this.sendMessage(chatId, 'Ознакомление зафиксировано.');
+      return;
+    }
+
     if (data === 'n') {
       await this.sendMessage(chatId, 'Отменено');
       return;
@@ -710,42 +1087,52 @@ export class BotService {
       if (sep <= 0) return;
       const orderId = rest.slice(0, sep);
       const kind = rest.slice(sep + 1) as DocKind;
-      if (!REQUIRED_ORDER_DOC_KINDS.includes(kind)) return;
+      if (
+        !REQUIRED_ORDER_DOC_KINDS.includes(kind) &&
+        kind !== DocKind.RECEIPT_SD
+      ) {
+        return;
+      }
 
-      const missing = await this.documents.missingRequiredKinds(orderId);
+      const session = this.docSessions.get(telegramId);
+      const targetStatus =
+        session?.orderId === orderId
+          ? session.targetStatus
+          : OrderStatus.DONE;
+
+      const missing = await this.documents.missingKindsForStatus(
+        orderId,
+        targetStatus,
+      );
       if (missing.includes(kind)) {
         await this.sendMessage(
           chatId,
           `Ещё не загружен файл для «${DOC_KIND_TG[kind]}». Пришлите фото или PDF.`,
         );
-        this.docSessions.set(telegramId, { orderId, expectedKind: kind });
+        this.docSessions.set(telegramId, {
+          orderId,
+          expectedKind: kind,
+          targetStatus,
+        });
         return;
       }
 
       const next = missing[0];
       if (!next) {
-        this.docSessions.delete(telegramId);
-        await this.sendMessage(
+        await this.tryApplyStatusAfterDocs(
           chatId,
-          'Все документы загружены. Подтвердите статус «Готов» ещё раз.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: 'Подтвердить «Готов»',
-                    callback_data: `c:${orderId}:${OrderStatus.DONE}`,
-                  },
-                  { text: 'Отмена', callback_data: 'n' },
-                ],
-              ],
-            },
-          },
+          telegramId,
+          orderId,
+          targetStatus,
         );
         return;
       }
 
-      this.docSessions.set(telegramId, { orderId, expectedKind: next });
+      this.docSessions.set(telegramId, {
+        orderId,
+        expectedKind: next,
+        targetStatus,
+      });
       await this.sendMessage(
         chatId,
         `Следующий документ: «${DOC_KIND_TG[next]}». Пришлите фото или PDF.`,
@@ -787,33 +1174,22 @@ export class BotService {
       const orderId = rest.slice(0, sep);
       const status = rest.slice(sep + 1) as OrderStatus;
 
-      if (status === OrderStatus.DONE) {
-        const missing = await this.documents.missingRequiredKinds(orderId);
+      if (
+        status === OrderStatus.DONE ||
+        status === OrderStatus.IN_PROGRESS_SD
+      ) {
+        const missing = await this.documents.missingKindsForStatus(
+          orderId,
+          status,
+        );
         if (missing.length) {
           await this.requestMissingDocuments(
             chatId,
             telegramId,
             orderId,
             missing,
+            status,
           );
-          return;
-        }
-      }
-
-      if (status === OrderStatus.IN_PROGRESS_SD) {
-        const sdDocs = await this.prisma.orderDocument.count({
-          where: { orderId, kind: DocKind.RECEIPT_SD },
-        });
-        if (!sdDocs) {
-          this.docSessions.set(telegramId, {
-            orderId,
-            expectedKind: DocKind.RECEIPT_SD,
-          });
-          await this.sendMessage(
-            chatId,
-            'Для статуса «В работе СД» нужна сохранная расписка.',
-          );
-          await this.sendDocKindPrompt(chatId, orderId, DocKind.RECEIPT_SD);
           return;
         }
       }
@@ -839,5 +1215,14 @@ export class BotService {
         );
       }
     }
+  }
+
+  private clearInlineKeyboard(chatId: string, messageId?: number) {
+    if (messageId == null) return Promise.resolve(null);
+    return this.telegram('editMessageReplyMarkup', {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
   }
 }

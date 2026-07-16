@@ -30,7 +30,7 @@ describe('SettingsService — ЗП диспетчеров', () => {
   const paySettings = {
     userId,
     salaryBase: 10000,
-    dailyTurnoverPct: 0.05,
+    dailyTurnoverPct: 0,
     leafletBonus: 2.5,
     closedOrdersBonusPct: 0.1,
   };
@@ -38,16 +38,23 @@ describe('SettingsService — ЗП диспетчеров', () => {
   const closedOrders = [
     {
       createdById: userId,
+      updatedAt: new Date(2026, 0, 10, 15, 0, 0),
       payment: { toCompany: 10000 },
     },
     {
       createdById: 'other-user',
+      updatedAt: new Date(2026, 0, 10, 16, 0, 0),
       payment: { toCompany: 5000 },
     },
     {
       createdById: userId,
+      updatedAt: new Date(2026, 0, 20, 12, 0, 0), // день без смены
       payment: { toCompany: 3000.333 },
     },
+  ];
+
+  const shifts = [
+    { workDate: new Date('2026-01-10T00:00:00.000Z'), cityId: 'A' },
   ];
 
   const adReports = [{ leafletsSpread: 100 }, { leafletsSpread: 50 }];
@@ -57,6 +64,7 @@ describe('SettingsService — ЗП диспетчеров', () => {
     settings?: typeof paySettings | null;
     orders?: typeof closedOrders;
     ads?: typeof adReports;
+    shifts?: typeof shifts;
   }) {
     prisma.user.findUnique.mockResolvedValue(
       overrides?.user !== undefined ? overrides.user : dispatcher,
@@ -70,7 +78,9 @@ describe('SettingsService — ЗП диспетчеров', () => {
     prisma.adDailyReport.findMany.mockResolvedValue(
       overrides?.ads !== undefined ? overrides.ads : adReports,
     );
-    prisma.dispatcherShift.findMany.mockResolvedValue([]);
+    prisma.dispatcherShift.findMany.mockResolvedValue(
+      overrides?.shifts !== undefined ? overrides.shifts : shifts,
+    );
   }
 
   beforeEach(() => {
@@ -103,22 +113,29 @@ describe('SettingsService — ЗП диспетчеров', () => {
       );
     });
 
-    it('calculates total with leaflet bonus as rate per 100 leaflets', async () => {
+    it('calculates closed-orders bonus from net profit on shift days only', async () => {
       mockCalcChain();
 
       const result = await svc.calcDispatcherPay(userId, '2026-01-01', '2026-01-31');
 
-      // turnover = 10000 + 5000 + 3000.333 = 18000.333
-      // ownClosedNet = 10000 + 3000.333 = 13000.333
+      // shiftClosedNet = 10000 + 5000 (только 10.01, смена) = 15000
       // leaflets = 150 → 2.5 ₽ × (150/100) = 3.75
       expect(result.salaryBase).toBe(10000);
-      expect(result.dailyTurnoverPay).toBe(900.02); // 0.05 * 18000.333
       expect(result.leafletsPay).toBe(3.75);
-      expect(result.closedOrdersBonus).toBe(1300.03); // 0.1 * 13000.333
-      expect(result.total).toBe(12203.8);
-      expect(result.meta.turnover).toBe(18000.33);
-      expect(result.meta.ownClosedNet).toBe(13000.33);
+      expect(result.closedOrdersBonus).toBe(1500); // 0.1 * 15000
+      expect(result.total).toBe(11503.75);
+      expect(result.meta.shiftClosedNet).toBe(15000);
       expect(result.meta.leaflets).toBe(150);
+      expect(result).not.toHaveProperty('dailyTurnoverPay');
+    });
+
+    it('gives zero closed-orders bonus when dispatcher has no shifts', async () => {
+      mockCalcChain({ shifts: [] });
+
+      const result = await svc.calcDispatcherPay(userId, '2026-01-01', '2026-01-31');
+
+      expect(result.closedOrdersBonus).toBe(0);
+      expect(result.meta.shiftClosedNet).toBe(0);
     });
 
     it('passes cityId filter to order.findMany when dispatcher has cityId', async () => {

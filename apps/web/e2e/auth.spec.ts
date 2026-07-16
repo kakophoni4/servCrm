@@ -29,6 +29,6 @@ test.describe('Авторизация', () => {
 
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByText('Неверный логин или пароль')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Field CRM' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'СРМ Сервис' })).toBeVisible();
   });
 });

@@ -5,8 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 /**
  * Скоуп доступа по филиалам (городам).
  * - OWNER видит все филиалы (null = без ограничения);
- * - DIRECTOR — свой город + все филиалы из branch_directors;
- * - ADMIN/DISPATCHER — только свой город (user.cityId);
+ * - DIRECTOR / ADMIN / DISPATCHER — свой город + managedBranches;
  * - MASTER — только свои заявки (скоуп не применяется).
  */
 @Injectable()

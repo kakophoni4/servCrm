@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
 import { api } from '@/lib/api';
 
 type Dict = { id: string; name?: string; label?: string };
@@ -10,7 +11,7 @@ export default function NewOrderPage() {
   const router = useRouter();
   const [partners, setPartners] = useState<Dict[]>([]);
   const [ages, setAges] = useState<Dict[]>([]);
-  const [cities, setCities] = useState<Dict[]>([]);
+  const [cities, setCities] = useState<BranchCity[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -27,13 +28,14 @@ export default function NewOrderPage() {
     isProfile: true,
     typeTech: '',
     cityId: '',
+    scheduledAt: '',
   });
 
   useEffect(() => {
     Promise.all([
       api<Dict[]>('/partners'),
       api<Dict[]>('/cities/age-categories'),
-      api<Dict[]>('/cities'),
+      api<BranchCity[]>('/cities'),
     ])
       .then(([p, a, c]) => {
         setPartners(p);
@@ -54,6 +56,17 @@ export default function NewOrderPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    if (!form.scheduledAt) {
+      setError('Укажите время по заказу');
+      setLoading(false);
+      return;
+    }
+    const scheduledIso = new Date(form.scheduledAt).toISOString();
+    if (Number.isNaN(Date.parse(scheduledIso))) {
+      setError('Некорректное время по заказу');
+      setLoading(false);
+      return;
+    }
     try {
       const body = {
         clientName: form.clientName,
@@ -62,6 +75,7 @@ export default function NewOrderPage() {
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
         partnerId: form.sourceKind === 'PARTNER' ? form.partnerId : undefined,
+        scheduledAt: scheduledIso,
         address: form.address,
         ageCategoryId: form.ageCategoryId || undefined,
         comment: form.comment || undefined,
@@ -136,15 +150,22 @@ export default function NewOrderPage() {
             <div className="field">
               <label>Партнёр</label>
               <select
+                required
                 value={form.partnerId}
                 onChange={(e) => set('partnerId', e.target.value)}
               >
+                <option value="">— выберите партнёра —</option>
                 {partners.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
               </select>
+              {partners.length === 0 ? (
+                <p className="muted" style={{ margin: '4px 0 0' }}>
+                  Список пуст — добавьте партнёра в Настройки → Партнёры.
+                </p>
+              ) : null}
             </div>
           )}
           <div className="field">
@@ -160,18 +181,19 @@ export default function NewOrderPage() {
               ))}
             </select>
           </div>
+          <BranchSelect
+            cities={cities}
+            value={form.cityId}
+            onChange={(cityId) => set('cityId', cityId)}
+          />
           <div className="field">
-            <label>Филиал</label>
-            <select
-              value={form.cityId}
-              onChange={(e) => set('cityId', e.target.value)}
-            >
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <label>Время по заказу</label>
+            <input
+              type="datetime-local"
+              required
+              value={form.scheduledAt}
+              onChange={(e) => set('scheduledAt', e.target.value)}
+            />
           </div>
         </div>
         <div className="field">

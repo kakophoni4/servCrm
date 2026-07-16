@@ -28,6 +28,7 @@ type ReportTab =
   | 'cancels'
   | 'cash'
   | 'masters'
+  | 'partners'
   | 'claims'
   | 'ads';
 
@@ -36,6 +37,7 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: 'cancels', label: 'Отмены' },
   { id: 'cash', label: 'Касса' },
   { id: 'masters', label: 'Мастера' },
+  { id: 'partners', label: 'Партнёры' },
   { id: 'claims', label: 'Претензии' },
   { id: 'ads', label: 'Реклама' },
 ];
@@ -45,8 +47,13 @@ const FIELD_LABELS: Record<string, string> = {
   closed: 'Закрыто',
   ours: 'Наши',
   partner: 'Партнёрские',
+  ourNetSum: 'Чистыми наши',
+  partnerNetSum: 'Чистыми партнёры',
   claimsPercent: '% претензий',
   netSum: 'Чистая сумма',
+  partnerId: 'ID партнёра',
+  partnerName: 'Партнёр',
+  paid: 'Оплачено клиентом',
   avgCheckHandover: 'Ср. чек сдачи',
   avgCheckSalary: 'Ср. чек ЗП',
   avgCheckTotal: 'Ср. чек общий',
@@ -56,8 +63,11 @@ const FIELD_LABELS: Record<string, string> = {
   adsExpenseSum: 'Расход на рекламу',
   ordersInPeriod: 'Заявок за период',
   total: 'Всего',
+  refusal: 'Отказ',
+  cancelledCc: 'Отмена КЦ',
   byMasterFault: 'По вине мастера',
   byAdminFault: 'По вине администратора',
+  faultUnset: 'Вина не указана',
   our: 'Наши',
   leafletsStock: 'Остаток листовок',
   cardsStock: 'Остаток визиток',
@@ -67,7 +77,6 @@ const FIELD_LABELS: Record<string, string> = {
   avitoOrders: 'Заявок с Авито',
   kpiLeaflets: 'KPI листовки',
   kpiAvito: 'KPI Авито',
-  masterId: 'ID мастера',
   master: 'Мастер',
   turnover: 'Оборот',
   salary: 'Зарплата',
@@ -92,6 +101,7 @@ const FIELD_LABELS: Record<string, string> = {
   expensePromo: 'Расход промоутеров',
   expenseCollection: 'Расход инкасс',
   masterSalary: 'ЗП мастерам',
+  partsCost: 'Запчасти',
   expenseAds: 'Расход по объявлениям',
   expenseTotal: 'Общий расход',
   balance: 'Остаток',
@@ -128,6 +138,7 @@ const CASH_CITY_COLUMNS: { key: string; label: string }[] = [
   { key: 'expensePromo', label: 'Расход промоутеров' },
   { key: 'expenseCollection', label: 'Расход инкасс' },
   { key: 'masterSalary', label: 'ЗП мастерам' },
+  { key: 'partsCost', label: 'Запчасти' },
   { key: 'expenseAds', label: 'Расход по объявлениям' },
   { key: 'expenseTotal', label: 'Общий расход' },
   { key: 'balance', label: 'Остаток' },
@@ -167,6 +178,8 @@ export default function ReportsPage() {
       else if (tab === 'cancels') path = `/reports/cancels?from=${from}&to=${to}`;
       else if (tab === 'cash') path = `/reports/cash?from=${from}&to=${to}`;
       else if (tab === 'masters') path = `/reports/masters?from=${from}&to=${to}`;
+      else if (tab === 'partners')
+        path = `/reports/partners?from=${from}&to=${to}`;
       else if (tab === 'claims') path = `/reports/claims?from=${from}&to=${to}`;
       else path = `/reports/ads?from=${from}&to=${to}`;
 
@@ -208,8 +221,11 @@ export default function ReportsPage() {
         key === 'net' ||
         key === 'work' ||
         key === 'parts' ||
+        key === 'paid' ||
         key === 'pct4' ||
         key === 'forecastTurnover' ||
+        key === 'ourNetSum' ||
+        key === 'partnerNetSum' ||
         key === 'kpiLeaflets' ||
         key === 'kpiAvito')
     ) {
@@ -246,10 +262,11 @@ export default function ReportsPage() {
 
   function renderTable(rows: Record<string, unknown>[], skipKeys: string[] = []) {
     if (!rows.length) return <p className="muted">Нет данных за период.</p>;
-    const keys = Object.keys(rows[0]).filter((k) => !skipKeys.includes(k));
+    const hidden = new Set(['masterId', ...skipKeys]);
+    const keys = Object.keys(rows[0]).filter((k) => !hidden.has(k));
     return (
       <div className="table-scroll">
-        <table className="table">
+        <table className="table table-compact">
           <thead>
             <tr>
               {keys.map((k) => (
@@ -271,31 +288,33 @@ export default function ReportsPage() {
     );
   }
 
-  /** Одна строка метрик: заголовки сверху, значения в ряд. */
-  function renderHorizontal(
+  /** Метрики плитками — без горизонтального скролла. */
+  function renderMetrics(
     obj: Record<string, unknown>,
     skipKeys: string[] = [],
   ) {
-    const entries = Object.entries(obj).filter(([k]) => !skipKeys.includes(k));
-    if (!entries.length) return <p className="muted">Нет данных за период.</p>;
+    const period = obj.period;
+    const entries = Object.entries(obj).filter(
+      ([k]) => k !== 'period' && !skipKeys.includes(k),
+    );
+    if (!entries.length && !period) {
+      return <p className="muted">Нет данных за период.</p>;
+    }
     return (
-      <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              {entries.map(([k]) => (
-                <th key={k}>{labelOf(k)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              {entries.map(([k, v]) => (
-                <td key={k}>{formatCell(v, k)}</td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+      <div>
+        {period ? (
+          <p className="muted report-period">
+            Период: {formatCell(period, 'period')}
+          </p>
+        ) : null}
+        <div className="report-metrics">
+          {entries.map(([k, v]) => (
+            <div key={k} className="report-metric">
+              <div className="report-metric-label">{labelOf(k)}</div>
+              <div className="report-metric-value">{formatCell(v, k)}</div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -322,7 +341,7 @@ export default function ReportsPage() {
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table">
+            <table className="table table-compact">
               <thead>
                 <tr>
                   {CASH_CITY_COLUMNS.map((c) => (
@@ -385,13 +404,13 @@ export default function ReportsPage() {
       if (Array.isArray(obj.rows) && tab === 'ads') {
         return (
           <div>
-            {renderHorizontal(obj, ['rows'])}
+            {renderMetrics(obj, ['rows'])}
             <h3 style={{ margin: '16px 0 8px', fontSize: 16 }}>Детализация</h3>
             {renderTable(obj.rows as Record<string, unknown>[])}
           </div>
         );
       }
-      return renderHorizontal(obj, ['rows', 'byCity', 'totals', 'expenseNotes']);
+      return renderMetrics(obj, ['rows', 'byCity', 'totals', 'expenseNotes']);
     }
 
     return <pre>{String(data)}</pre>;

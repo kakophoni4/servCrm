@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { OpsShell } from '@/components/ops/OpsShell';
 import { api, downloadFile, uploadFiles } from '@/lib/api';
 
 type AdReport = {
@@ -116,9 +117,8 @@ export default function AdsPage() {
   }
 
   return (
+    <OpsShell>
     <div>
-      <h1 className="page-title">Реклама</h1>
-
       <form className="panel ads-form" onSubmit={onSubmit} style={{ marginBottom: 16 }}>
         <div className="ads-form-meta">
           <div className="field">
@@ -296,5 +296,6 @@ export default function AdsPage() {
         </table>
       </div>
     </div>
+    </OpsShell>
   );
 }

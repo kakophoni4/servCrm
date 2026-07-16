@@ -38,23 +38,31 @@ describe('OrdersService', () => {
       findUniqueOrThrow: jest.Mock;
     };
     orderPayment: { upsert: jest.Mock };
+    master: { findUnique: jest.Mock };
     cashTx: {
       findFirst: jest.Mock;
       create: jest.Mock;
+      update: jest.Mock;
     };
   };
   let salary: { percentFor: jest.Mock };
   let documents: {
     hasRequiredReceipts: jest.Mock;
     missingRequiredKinds: jest.Mock;
+    missingKindsForStatus: jest.Mock;
     hasRequiredOrderDocs: jest.Mock;
   };
   let bot: {
     notifyAdminsNewOrder: jest.Mock;
     notifyMasterOrder: jest.Mock;
     notifyMasterStatusChanged: jest.Mock;
+    ackOrderNotify: jest.Mock;
   };
   let branch: { allowedCityIds: jest.Mock };
+  let settlements: {
+    syncForCompletedOrder: jest.Mock;
+    syncMasterMonth: jest.Mock;
+  };
 
   const userId = 'user-1';
   const orderId = 'order-1';
@@ -66,6 +74,7 @@ describe('OrdersService', () => {
     sourceKind: SourceKind.OUR,
     sourceOur: SourceOur.AVITO,
     address: 'ул. Тестовая 1',
+    scheduledAt: '2026-07-20T10:00:00.000Z',
   });
 
   const orderIncludeShape = {
@@ -114,8 +123,10 @@ describe('OrdersService', () => {
 
     txMock.order.update.mockResolvedValue({});
     txMock.orderPayment.upsert.mockResolvedValue({});
+    txMock.master.findUnique.mockResolvedValue({ cityId: 'A' });
     txMock.cashTx.findFirst.mockResolvedValue(null);
     txMock.cashTx.create.mockResolvedValue({ id: 'cash-1' });
+    txMock.cashTx.update.mockResolvedValue({ id: 'cash-1' });
     txMock.order.findUniqueOrThrow.mockResolvedValue(resultOrder);
 
     prisma.$transaction.mockImplementation(async (cb: (tx: typeof txMock) => unknown) =>
@@ -147,9 +158,11 @@ describe('OrdersService', () => {
         findUniqueOrThrow: jest.fn(),
       },
       orderPayment: { upsert: jest.fn() },
+      master: { findUnique: jest.fn() },
       cashTx: {
         findFirst: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
       },
     };
 
@@ -170,13 +183,19 @@ describe('OrdersService', () => {
       hasRequiredReceipts: jest.fn().mockResolvedValue(true),
       hasRequiredOrderDocs: jest.fn().mockResolvedValue(true),
       missingRequiredKinds: jest.fn().mockResolvedValue([]),
+      missingKindsForStatus: jest.fn().mockResolvedValue([]),
     };
     bot = {
       notifyAdminsNewOrder: jest.fn().mockResolvedValue(undefined),
       notifyMasterOrder: jest.fn().mockResolvedValue(undefined),
       notifyMasterStatusChanged: jest.fn().mockResolvedValue(undefined),
+      ackOrderNotify: jest.fn().mockResolvedValue(undefined),
     };
     branch = { allowedCityIds: jest.fn().mockResolvedValue(['A']) };
+    settlements = {
+      syncForCompletedOrder: jest.fn().mockResolvedValue(null),
+      syncMasterMonth: jest.fn().mockResolvedValue(null),
+    };
 
     service = new OrdersService(
       prisma as never,
@@ -184,6 +203,7 @@ describe('OrdersService', () => {
       documents as never,
       bot as never,
       branch as never,
+      settlements as never,
     );
   });
 
@@ -226,19 +246,15 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Некорректный телефон');
     });
 
-    it('sets status NOT_SCHEDULED when scheduledAt is absent', async () => {
-      setupCreateTransaction();
+    it('throws BadRequestException when scheduledAt is absent', async () => {
+      const dto = { ...baseCreateDto(), scheduledAt: undefined as unknown as string };
 
-      await service.create(baseCreateDto(), userId, Role.OWNER);
-
-      expect(txMock.order.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: OrderStatus.NOT_SCHEDULED,
-            scheduledAt: null,
-          }),
-        }),
-      );
+      await expect(
+        service.create(dto, userId, Role.DISPATCHER),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.create(dto, userId, Role.DISPATCHER),
+      ).rejects.toThrow('Укажите время по заказу');
     });
 
     it('sets status WAITING when scheduledAt is provided by OWNER', async () => {
@@ -258,20 +274,18 @@ describe('OrdersService', () => {
       );
     });
 
-    it('ignores scheduledAt from DISPATCHER on create', async () => {
+    it('accepts scheduledAt from DISPATCHER on create', async () => {
       setupCreateTransaction();
-      const dto = {
-        ...baseCreateDto(),
-        scheduledAt: '2026-07-20T10:00:00.000Z',
-      };
+      const scheduledAt = '2026-07-20T10:00:00.000Z';
+      const dto = { ...baseCreateDto(), scheduledAt };
 
       await service.create(dto, userId, Role.DISPATCHER);
 
       expect(txMock.order.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: OrderStatus.NOT_SCHEDULED,
-            scheduledAt: null,
+            status: OrderStatus.WAITING,
+            scheduledAt: new Date(scheduledAt),
           }),
         }),
       );
@@ -412,7 +426,20 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Виновника отмены указывает администратор');
     });
 
+    it('throws BadRequestException when DONE without master', async () => {
+      mockExistingOrder({ masterId: null });
+      const dto: UpdateOrderDto = { status: OrderStatus.DONE, paid: 100 };
+
+      await expect(
+        service.update(orderId, dto, userId, Role.ADMIN),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.update(orderId, dto, userId, Role.ADMIN),
+      ).rejects.toThrow('Для статуса «Готов» назначьте мастера');
+    });
+
     it('throws BadRequestException when DONE with paid>500 and missing required receipts', async () => {
+      mockExistingOrder({ masterId: 'm-1' });
       documents.missingRequiredKinds.mockResolvedValue(['CONTRACT' as any]);
       documents.hasRequiredReceipts.mockResolvedValue(false);
       const dto: UpdateOrderDto = {
@@ -430,9 +457,12 @@ describe('OrdersService', () => {
     });
 
     it('passes when DONE with paid>500 and required receipts exist', async () => {
+      mockExistingOrder({ masterId: 'm-1' });
       documents.missingRequiredKinds.mockResolvedValue([]);
       documents.hasRequiredReceipts.mockResolvedValue(true);
-      setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
+      setupUpdateTransaction({
+        resultOrder: { status: OrderStatus.DONE, masterId: 'm-1' },
+      });
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
         paid: 600,
@@ -443,11 +473,16 @@ describe('OrdersService', () => {
       expect(documents.missingRequiredKinds).toHaveBeenCalledWith(orderId);
       expect(result).toBeDefined();
       expect(prisma.$transaction).toHaveBeenCalled();
+      expect(settlements.syncForCompletedOrder).toHaveBeenCalledWith(orderId);
     });
 
-    it('does not create duplicate cashTx when ORDER income already exists on DONE', async () => {
-      setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
+    it('updates existing ORDER cashTx amount to toCompany on DONE', async () => {
+      mockExistingOrder({ masterId: 'm-1' });
+      setupUpdateTransaction({
+        resultOrder: { status: OrderStatus.DONE, masterId: 'm-1' },
+      });
       txMock.cashTx.findFirst.mockResolvedValue({ id: 'existing-cash' });
+      // percentFor = 0.5 → toCompany = paid - parts - masterSalary = 1000 - 0 - 500
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
         paid: 1000,
@@ -455,35 +490,38 @@ describe('OrdersService', () => {
 
       await service.update(orderId, dto, userId, Role.ADMIN);
 
-      expect(txMock.cashTx.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            orderId,
-            incomeBasis: CashIncomeBasis.ORDER,
-          }),
-        }),
-      );
       expect(txMock.cashTx.create).not.toHaveBeenCalled();
+      expect(txMock.cashTx.update).toHaveBeenCalledWith({
+        where: { id: 'existing-cash' },
+        data: expect.objectContaining({
+          amount: 500,
+          description: 'Приход по заявке (чистыми)',
+        }),
+      });
     });
 
-    it('creates cashTx when DONE and no existing ORDER income', async () => {
-      setupUpdateTransaction({ resultOrder: { status: OrderStatus.DONE } });
+    it('creates cashTx with toCompany when DONE and no existing ORDER income', async () => {
+      mockExistingOrder({ masterId: 'm-1' });
+      setupUpdateTransaction({
+        resultOrder: { status: OrderStatus.DONE, masterId: 'm-1' },
+      });
       txMock.cashTx.findFirst.mockResolvedValue(null);
       const dto: UpdateOrderDto = {
         status: OrderStatus.DONE,
         paid: 1000,
+        partsCost: 200,
       };
 
       await service.update(orderId, dto, userId, Role.ADMIN);
 
-      expect(txMock.cashTx.findFirst).toHaveBeenCalled();
-      expect(txMock.cashTx.create).toHaveBeenCalledTimes(1);
+      // workSum=800, master=400, toCompany=400
       expect(txMock.cashTx.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             orderId,
             incomeBasis: CashIncomeBasis.ORDER,
-            amount: 1000,
+            amount: 400,
+            cityId: 'A',
           }),
         }),
       );

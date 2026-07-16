@@ -28,6 +28,7 @@ function validOrderBody(overrides: Record<string, unknown> = {}) {
     sourceKind: SourceKind.OUR,
     sourceOur: SourceOur.AVITO,
     address: 'ул. Тестовая, 1',
+    scheduledAt: '2026-07-20T10:00:00.000Z',
     ...overrides,
   };
 }
@@ -93,6 +94,10 @@ describe('Orders (e2e)', () => {
         phoneNormalized: '79001234567',
       });
       expect(res.body.cityId).toBe(seed.cities.a.id);
+      expect(res.body.status).toBe(OrderStatus.WAITING);
+      expect(new Date(res.body.scheduledAt).toISOString()).toBe(
+        body.scheduledAt,
+      );
 
       const clientCount = await prisma.client.count({
         where: { phoneNormalized: '79001234567' },

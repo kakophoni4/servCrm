@@ -3,23 +3,50 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DocKind, OrderStatus } from '@prisma/client';
+import { createHash } from 'crypto';
+import { DocKind, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   StorageService,
   UploadedMemoryFile,
 } from '../common/storage/storage.service';
 
-/** Обязательные типы документов для статуса «Готов». */
+/** Типы для обычной загрузки / «Готов» (без сохранной расписки). */
 export const REQUIRED_ORDER_DOC_KINDS: DocKind[] = [
   DocKind.CONTRACT,
   DocKind.RECEIPT_SERVICE,
   DocKind.RECEIPT_PARTS,
   DocKind.PARTS_PHOTO,
-  DocKind.RECEIPT_SD,
 ];
 
-const UPLOAD_ALLOWED_KINDS = new Set<DocKind>(REQUIRED_ORDER_DOC_KINDS);
+/** Всегда обязательны для «Готов» (при paid > 500). */
+const ALWAYS_REQUIRED_DOC_KINDS: DocKind[] = [
+  DocKind.CONTRACT,
+  DocKind.RECEIPT_SERVICE,
+];
+
+/** Нужны только если сумма комплектующих > 0. */
+const PARTS_DEPENDENT_DOC_KINDS: DocKind[] = [
+  DocKind.RECEIPT_PARTS,
+  DocKind.PARTS_PHOTO,
+];
+
+/**
+ * Обязательные документы для «Готов».
+ * Сохранная расписка сюда не входит — только для статуса «В работе СД».
+ * Чек/фото комплектующих — только при заполненной сумме комплектующих.
+ */
+export function requiredOrderDocKinds(partsCost: number): DocKind[] {
+  if (Number(partsCost) > 0) {
+    return [...ALWAYS_REQUIRED_DOC_KINDS, ...PARTS_DEPENDENT_DOC_KINDS];
+  }
+  return [...ALWAYS_REQUIRED_DOC_KINDS];
+}
+
+const UPLOAD_ALLOWED_KINDS = new Set<DocKind>([
+  ...REQUIRED_ORDER_DOC_KINDS,
+  DocKind.RECEIPT_SD,
+]);
 
 export const DOC_KIND_RU: Record<DocKind, string> = {
   [DocKind.CONTRACT]: 'договор',
@@ -30,6 +57,19 @@ export const DOC_KIND_RU: Record<DocKind, string> = {
   [DocKind.AD_SCREEN]: 'скрин рекламы',
   [DocKind.CASH_DOC]: 'кассовый документ',
   [DocKind.OTHER]: 'прочее',
+};
+
+export type UploadManyResult = {
+  created: Array<{
+    id: string;
+    orderId: string;
+    kind: DocKind;
+    forStatus: OrderStatus | null;
+    contentHash: string | null;
+    fileName: string;
+    filePath: string;
+  }>;
+  skipped: number;
 };
 
 @Injectable()
@@ -52,37 +92,91 @@ export class DocumentsService {
     return order;
   }
 
-  /** Реальная загрузка одного или нескольких файлов одного типа. */
+  /**
+   * Загрузка файлов одного типа.
+   * Дубликаты по SHA-256 в рамках заявки пропускаются без записи и без ошибок.
+   * forStatus: явная привязка к статусу; иначе — текущий статус заявки.
+   */
   async uploadMany(
     orderId: string,
     kind: DocKind,
     files: UploadedMemoryFile[],
     uploadedBy?: string,
-  ) {
-    await this.ensureOrder(orderId);
+    forStatus?: OrderStatus | null,
+  ): Promise<UploadManyResult> {
+    const order = await this.ensureOrder(orderId);
     if (!UPLOAD_ALLOWED_KINDS.has(kind)) {
       throw new BadRequestException('Недопустимый тип документа для заявки');
     }
     if (!files?.length) throw new NotFoundException('Файлы не переданы');
-    const created = [];
-    for (const file of files) {
-      const { relPath } = this.storage.save(`orders/${orderId}`, file);
-      created.push(
-        await this.prisma.orderDocument.create({
-          data: {
-            orderId,
-            kind,
-            fileName: file.originalname,
-            filePath: relPath,
-            mimeType: file.mimetype,
-            sizeBytes: file.size,
-            uploadedBy,
-          },
-        }),
-      );
+
+    const statusTag = forStatus ?? order.status;
+    if (kind === DocKind.RECEIPT_SD) {
+      const sdOk =
+        statusTag === OrderStatus.IN_PROGRESS_SD ||
+        order.status === OrderStatus.IN_PROGRESS_SD;
+      if (!sdOk) {
+        throw new BadRequestException(
+          'Сохранная расписка загружается только для статуса «В работе СД»',
+        );
+      }
     }
-    await this.autoFillScheduledAtIfComplete(orderId);
-    return created;
+    const created: UploadManyResult['created'] = [];
+    let skipped = 0;
+
+    for (const file of files) {
+      if (!file.buffer?.length) {
+        skipped += 1;
+        continue;
+      }
+      const contentHash = createHash('sha256')
+        .update(file.buffer)
+        .digest('hex');
+
+      const dup = await this.prisma.orderDocument.findFirst({
+        where: { orderId, contentHash },
+        select: { id: true },
+      });
+      if (dup) {
+        skipped += 1;
+        continue;
+      }
+
+      const { relPath } = this.storage.save(`orders/${orderId}`, file);
+      try {
+        created.push(
+          await this.prisma.orderDocument.create({
+            data: {
+              orderId,
+              kind,
+              forStatus: statusTag,
+              contentHash,
+              fileName: file.originalname,
+              filePath: relPath,
+              mimeType: file.mimetype,
+              sizeBytes: file.size,
+              uploadedBy,
+            },
+          }),
+        );
+      } catch (e) {
+        // Гонка уникального индекса — тихий skip
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002'
+        ) {
+          this.storage.remove(relPath);
+          skipped += 1;
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    if (created.length) {
+      await this.autoFillScheduledAtIfComplete(orderId);
+    }
+    return { created, skipped };
   }
 
   /**
@@ -128,12 +222,36 @@ export class DocumentsService {
   }
 
   async missingRequiredKinds(orderId: string): Promise<DocKind[]> {
-    const docs = await this.prisma.orderDocument.findMany({
-      where: { orderId, kind: { in: REQUIRED_ORDER_DOC_KINDS } },
-      select: { kind: true },
-    });
+    const [docs, payment] = await Promise.all([
+      this.prisma.orderDocument.findMany({
+        where: { orderId, kind: { in: REQUIRED_ORDER_DOC_KINDS } },
+        select: { kind: true },
+      }),
+      this.prisma.orderPayment.findUnique({
+        where: { orderId },
+        select: { partsCost: true },
+      }),
+    ]);
     const present = new Set(docs.map((d) => d.kind));
-    return REQUIRED_ORDER_DOC_KINDS.filter((k) => !present.has(k));
+    const required = requiredOrderDocKinds(Number(payment?.partsCost ?? 0));
+    return required.filter((k) => !present.has(k));
+  }
+
+  /** Недостающие документы для перехода в целевой статус. */
+  async missingKindsForStatus(
+    orderId: string,
+    status: OrderStatus,
+  ): Promise<DocKind[]> {
+    if (status === OrderStatus.DONE) {
+      return this.missingRequiredKinds(orderId);
+    }
+    if (status === OrderStatus.IN_PROGRESS_SD) {
+      const n = await this.prisma.orderDocument.count({
+        where: { orderId, kind: DocKind.RECEIPT_SD },
+      });
+      return n > 0 ? [] : [DocKind.RECEIPT_SD];
+    }
+    return [];
   }
 
   async hasRequiredOrderDocs(orderId: string) {

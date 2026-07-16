@@ -1,6 +1,8 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { BranchSelect } from '@/components/BranchSelect';
+import { OpsShell } from '@/components/ops/OpsShell';
 import { api, appendFormFields, getStoredUser, uploadFiles } from '@/lib/api';
 import {
   CASH_DIRECTION_LABELS,
@@ -28,6 +30,40 @@ type City = { id: string; name: string };
 const MANUAL_INCOME_BASIS = Object.fromEntries(
   Object.entries(CASH_INCOME_BASIS_LABELS).filter(([k]) => k !== 'ORDER'),
 );
+
+const EXPENSE_GROUPS: { title: string; keys: string[] }[] = [
+  {
+    title: 'Зарплата',
+    keys: [
+      'SALARY_DIR',
+      'SALARY_DISP',
+      'SALARY_SENIOR_MASTER',
+      'SALARY_PROMO',
+      'BONUS',
+    ],
+  },
+  {
+    title: 'Аренда',
+    keys: ['RENT_APT', 'RENT_OFFICE'],
+  },
+  {
+    title: 'Реклама',
+    keys: ['LEAFLETS', 'HIRE_ADS', 'AVITO_ADS', 'CONTEST'],
+  },
+  {
+    title: 'Прочее',
+    keys: [
+      'OPERATING',
+      'OFFICE',
+      'CARDS',
+      'TRIP',
+      'COLLECTION_FEE',
+      'SELF_EMPLOYED_TAX',
+      'IP_EXPENSE',
+      'OTHER_EXPENSE',
+    ],
+  },
+];
 
 export default function CashPage() {
   const isOwner = (getStoredUser()?.role ?? '') === 'OWNER';
@@ -87,30 +123,6 @@ export default function CashPage() {
   useEffect(() => {
     if (!isOwner && tab === 'collection') setTab('income');
   }, [isOwner, tab]);
-
-  function branchSelect(
-    value: string,
-    onChange: (cityId: string) => void,
-    required = false,
-  ) {
-    return (
-      <div className="field">
-        <label>Филиал</label>
-        <select
-          required={required}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">—</option>
-          {cities.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
-    );
-  }
 
   function fileField(
     file: File | null,
@@ -213,14 +225,9 @@ export default function CashPage() {
   }
 
   return (
+    <OpsShell>
     <div>
-      <h1 className="page-title">Касса</h1>
-      <p className="muted" style={{ marginTop: -8, marginBottom: 16 }}>
-        Приход «По заявке» создаётся автоматически при статусе «Готов» — вручную
-        его записать нельзя.
-      </p>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="cash-tabs">
         {(
           [
             'income',
@@ -240,39 +247,55 @@ export default function CashPage() {
       </div>
 
       {tab === 'income' ? (
-        <form className="panel" onSubmit={submitIncome} style={{ marginBottom: 16 }}>
-          <div className="grid-2">
+        <form className="panel cash-form" onSubmit={submitIncome}>
+          <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
+                inputMode="decimal"
                 value={income.amount}
                 onChange={(e) => setIncome({ ...income, amount: e.target.value })}
               />
             </div>
-            <div className="field">
-              <label>Основание</label>
-              <select
-                value={income.incomeBasis}
-                onChange={(e) => setIncome({ ...income, incomeBasis: e.target.value })}
-              >
-                {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {branchSelect(income.cityId, (cityId) => setIncome({ ...income, cityId }))}
+            <BranchSelect
+              cities={cities}
+              value={income.cityId}
+              onChange={(cityId) => setIncome({ ...income, cityId })}
+            />
             {fileField(incomeFile, setIncomeFile, false)}
-            <div className="field">
-              <label>Комментарий</label>
-              <input
-                value={income.description}
-                onChange={(e) => setIncome({ ...income, description: e.target.value })}
-              />
+          </div>
+
+          <div className="field">
+            <label>Основание</label>
+            <div className="cash-chip-grid">
+              {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={
+                    income.incomeBasis === k
+                      ? 'cash-chip cash-chip-active'
+                      : 'cash-chip'
+                  }
+                  onClick={() => setIncome({ ...income, incomeBasis: k })}
+                >
+                  {v}
+                </button>
+              ))}
             </div>
           </div>
+
+          <div className="field">
+            <label>Комментарий</label>
+            <input
+              value={income.description}
+              onChange={(e) =>
+                setIncome({ ...income, description: e.target.value })
+              }
+            />
+          </div>
+
           <button className="btn" type="submit">
             Записать приход
           </button>
@@ -280,39 +303,77 @@ export default function CashPage() {
       ) : null}
 
       {tab === 'expense' ? (
-        <form className="panel" onSubmit={submitExpense} style={{ marginBottom: 16 }}>
-          <div className="grid-2">
+        <form className="panel cash-form" onSubmit={submitExpense}>
+          <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
+                inputMode="decimal"
                 value={expense.amount}
-                onChange={(e) => setExpense({ ...expense, amount: e.target.value })}
+                onChange={(e) =>
+                  setExpense({ ...expense, amount: e.target.value })
+                }
               />
             </div>
-            <div className="field">
-              <label>Статья расхода</label>
-              <select
-                value={expense.expenseBasis}
-                onChange={(e) => setExpense({ ...expense, expenseBasis: e.target.value })}
-              >
-                {Object.entries(CASH_EXPENSE_BASIS_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {branchSelect(expense.cityId, (cityId) => setExpense({ ...expense, cityId }))}
+            <BranchSelect
+              cities={cities}
+              value={expense.cityId}
+              onChange={(cityId) => setExpense({ ...expense, cityId })}
+            />
             {fileField(expenseFile, setExpenseFile, true)}
-            <div className="field">
-              <label>Комментарий</label>
-              <input
-                value={expense.description}
-                onChange={(e) => setExpense({ ...expense, description: e.target.value })}
-              />
+          </div>
+
+          <div className="field">
+            <label>Статья расхода</label>
+            <p className="muted cash-selected">
+              Выбрано:{' '}
+              <strong>
+                {CASH_EXPENSE_BASIS_LABELS[expense.expenseBasis] ??
+                  expense.expenseBasis}
+              </strong>
+            </p>
+            <div className="cash-expense-groups">
+              {EXPENSE_GROUPS.map((group) => (
+                <div key={group.title} className="cash-expense-group">
+                  <div className="cash-expense-group-title">{group.title}</div>
+                  <div className="cash-chip-grid">
+                    {group.keys.map((k) => {
+                      const label = CASH_EXPENSE_BASIS_LABELS[k];
+                      if (!label) return null;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          className={
+                            expense.expenseBasis === k
+                              ? 'cash-chip cash-chip-active'
+                              : 'cash-chip'
+                          }
+                          onClick={() =>
+                            setExpense({ ...expense, expenseBasis: k })
+                          }
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+
+          <div className="field">
+            <label>Комментарий</label>
+            <input
+              value={expense.description}
+              onChange={(e) =>
+                setExpense({ ...expense, description: e.target.value })
+              }
+            />
+          </div>
+
           <button className="btn" type="submit">
             Записать расход
           </button>
@@ -320,23 +381,25 @@ export default function CashPage() {
       ) : null}
 
       {tab === 'collection' && isOwner ? (
-        <form className="panel" onSubmit={submitCollection} style={{ marginBottom: 16 }}>
-          <div className="grid-2">
+        <form className="panel cash-form" onSubmit={submitCollection}>
+          <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
+                inputMode="decimal"
                 value={collection.amount}
                 onChange={(e) =>
                   setCollection({ ...collection, amount: e.target.value })
                 }
               />
             </div>
-            {branchSelect(
-              collection.cityId,
-              (cityId) => setCollection({ ...collection, cityId }),
-              true,
-            )}
+            <BranchSelect
+              cities={cities}
+              value={collection.cityId}
+              onChange={(cityId) => setCollection({ ...collection, cityId })}
+              required
+            />
             <div className="field">
               <label>Комментарий</label>
               <input
@@ -356,50 +419,55 @@ export default function CashPage() {
       <div className="panel">
         {error ? <p className="error">{error}</p> : null}
         {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Дата</th>
-              <th>Тип</th>
-              <th>Сумма</th>
-              <th>Филиал</th>
-              <th>Основание</th>
-              <th>Заявка</th>
-              <th>Документ</th>
-              <th>Кто</th>
-              <th>Комментарий</th>
-            </tr>
-          </thead>
-          <tbody>
-            {txs.map((t) => (
-              <tr key={t.id}>
-                <td>{new Date(t.createdAt).toLocaleString('ru-RU')}</td>
-                <td>{CASH_DIRECTION_LABELS[t.direction] ?? t.direction}</td>
-                <td>{String(t.amount)}</td>
-                <td>{t.city?.name ?? '—'}</td>
-                <td>
-                  {t.incomeBasis
-                    ? (CASH_INCOME_BASIS_LABELS[t.incomeBasis] ?? t.incomeBasis)
-                    : t.expenseBasis
-                      ? (CASH_EXPENSE_BASIS_LABELS[t.expenseBasis] ?? t.expenseBasis)
-                      : '—'}
-                </td>
-                <td>{t.order?.publicId ?? '—'}</td>
-                <td>{t.documentPath ? 'есть' : '—'}</td>
-                <td>{t.createdBy?.fullName ?? '—'}</td>
-                <td>{t.description ?? '—'}</td>
-              </tr>
-            ))}
-            {txs.length === 0 ? (
+        <div className="table-scroll">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={9} className="muted">
-                  Операций пока нет.
-                </td>
+                <th>Дата</th>
+                <th>Тип</th>
+                <th>Сумма</th>
+                <th>Филиал</th>
+                <th>Основание</th>
+                <th>Заявка</th>
+                <th>Документ</th>
+                <th>Кто</th>
+                <th>Комментарий</th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {txs.map((t) => (
+                <tr key={t.id}>
+                  <td>{new Date(t.createdAt).toLocaleString('ru-RU')}</td>
+                  <td>{CASH_DIRECTION_LABELS[t.direction] ?? t.direction}</td>
+                  <td>{String(t.amount)}</td>
+                  <td>{t.city?.name ?? '—'}</td>
+                  <td>
+                    {t.incomeBasis
+                      ? (CASH_INCOME_BASIS_LABELS[t.incomeBasis] ??
+                        t.incomeBasis)
+                      : t.expenseBasis
+                        ? (CASH_EXPENSE_BASIS_LABELS[t.expenseBasis] ??
+                          t.expenseBasis)
+                        : '—'}
+                  </td>
+                  <td>{t.order?.publicId ?? '—'}</td>
+                  <td>{t.documentPath ? 'есть' : '—'}</td>
+                  <td>{t.createdBy?.fullName ?? '—'}</td>
+                  <td>{t.description ?? '—'}</td>
+                </tr>
+              ))}
+              {txs.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="muted">
+                    Операций пока нет.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+    </OpsShell>
   );
 }
