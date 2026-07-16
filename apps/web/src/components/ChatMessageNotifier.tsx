@@ -69,23 +69,25 @@ export function ChatMessageNotifier() {
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
 
+    /** Два коротких «двойных» тона — не путать с тремя высокими бипами заявки. */
     const beep = () => {
       const ctx = audioCtxRef.current;
       if (!ctx) return;
       const now = ctx.currentTime;
-      for (let i = 0; i < 3; i++) {
+      const tones = [523.25, 659.25]; // C5 → E5
+      tones.forEach((freq, i) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        const t = now + i * 0.28;
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        const t = now + i * 0.16;
         gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+        gain.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
         osc.connect(gain).connect(ctx.destination);
         osc.start(t);
-        osc.stop(t + 0.24);
-      }
+        osc.stop(t + 0.16);
+      });
     };
 
     let stopped = false;
