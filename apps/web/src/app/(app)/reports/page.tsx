@@ -57,7 +57,7 @@ const FIELD_LABELS: Record<string, string> = {
   avgCheckSalary: 'Ср. чек ЗП',
   avgCheckTotal: 'Ср. чек общий',
   avgWorkSum: 'Ср. сумма работы',
-  forecastTurnover: 'Прогноз оборота (текущий + остаток месяца)',
+  forecastTurnover: 'Прогноз оборота',
   orderPrice: 'Цена заявки',
   adsExpenseSum: 'Расход на рекламу',
   ordersInPeriod: 'Заявок за период',
