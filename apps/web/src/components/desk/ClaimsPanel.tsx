@@ -290,6 +290,7 @@ export function ClaimsPanel() {
                 <tr>
                   <th>Заявка</th>
                   <th>Тип</th>
+                  <th className="desk-col-center">Дата</th>
                   <th className="desk-col-center">Возврат</th>
                   <th className="desk-col-center">Статус</th>
                   <th className="desk-col-center">Действие</th>
@@ -316,25 +317,23 @@ export function ClaimsPanel() {
                           </div>
                           <div className="desk-cell-sub">
                             {c.order.client.name}
+                            {c.city?.name ? ` · ${c.city.name}` : ''}
                           </div>
-                          {c.city?.name ? (
-                            <div className="desk-cell-sub">{c.city.name}</div>
-                          ) : null}
                         </div>
                       </td>
                       <td>
-                        <div className="desk-cell">
-                          <div className="desk-cell-main">
-                            {CLAIM_TYPES[c.type] ?? c.type}
-                          </div>
-                          <div className="desk-cell-sub">
-                            {new Date(c.createdAt).toLocaleDateString('ru-RU', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                            })}
-                          </div>
+                        <div className="desk-cell-main">
+                          {CLAIM_TYPES[c.type] ?? c.type}
                         </div>
+                      </td>
+                      <td className="desk-col-center">
+                        <span className="desk-cell-sub">
+                          {new Date(c.createdAt).toLocaleDateString('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
+                        </span>
                       </td>
                       <td className="desk-col-center">
                         <span className="desk-money">
@@ -351,7 +350,7 @@ export function ClaimsPanel() {
                         </span>
                       </td>
                       <td className="desk-col-center">
-                        {!closed ? (
+                        {!closed && canWrite ? (
                           <button
                             type="button"
                             className="btn secondary"
@@ -368,7 +367,7 @@ export function ClaimsPanel() {
                 })}
                 {claims.length === 0 && !error ? (
                   <tr>
-                    <td colSpan={5} className="muted desk-col-center">
+                    <td colSpan={6} className="muted desk-col-center">
                       Претензий пока нет.
                     </td>
                   </tr>

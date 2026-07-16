@@ -35,6 +35,7 @@ type CityAgg = {
   cityName: string;
   incomeTotal: number;
   incomeOrders: number;
+  incomeFines: number;
   incomeOther: number;
   expensePromo: number;
   expenseCollection: number;
@@ -51,6 +52,7 @@ function emptyAgg(cityId: string | null, cityName: string): CityAgg {
     cityName,
     incomeTotal: 0,
     incomeOrders: 0,
+    incomeFines: 0,
     incomeOther: 0,
     expensePromo: 0,
     expenseCollection: 0,
@@ -389,6 +391,8 @@ export class ReportsService {
         row.incomeTotal += amount;
         if (t.incomeBasis === CashIncomeBasis.ORDER) {
           row.incomeOrders += amount;
+        } else if (t.incomeBasis === CashIncomeBasis.FINE) {
+          row.incomeFines += amount;
         } else {
           row.incomeOther += amount;
         }
@@ -438,6 +442,7 @@ export class ReportsService {
         cityName: 'Итого',
         incomeTotal: acc.incomeTotal + c.incomeTotal,
         incomeOrders: acc.incomeOrders + c.incomeOrders,
+        incomeFines: acc.incomeFines + c.incomeFines,
         incomeOther: acc.incomeOther + c.incomeOther,
         expensePromo: acc.expensePromo + c.expensePromo,
         expenseCollection: acc.expenseCollection + c.expenseCollection,
@@ -543,9 +548,13 @@ export class ReportsService {
         count: 0,
         micro: 0,
       };
+      // paid = оборот (что заплатил клиент)
+      // workSum = работы = paid − запчасти
+      // toCompany = чистыми в компанию = workSum − ЗП мастера
+      const paid = Number(o.payment?.paid ?? 0);
       const toCompany = Number(o.payment?.toCompany ?? 0);
       const work = Number(o.payment?.workSum ?? 0);
-      cur.turnover += toCompany;
+      cur.turnover += paid;
       cur.salary += Number(o.payment?.masterSalary ?? 0);
       cur.net += toCompany;
       cur.work += work;
@@ -694,19 +703,35 @@ export class ReportsService {
         cityId: cityFilter,
       },
     });
-    const leaflets =
-      reports.reduce((s, r) => s + r.leafletsSpread + r.cardsSpread, 0) || 0;
-    const avitoAds = reports.reduce((s, r) => s + r.avitoAdsCount, 0);
+    const sum = (pick: (r: (typeof reports)[number]) => number) =>
+      reports.reduce((s, r) => s + pick(r), 0);
+
+    const leafletsIssued = sum((r) => r.leafletsIssued);
+    const leafletsSpread = sum((r) => r.leafletsSpread);
+    const cardsIssued = sum((r) => r.cardsIssued);
+    const cardsSpread = sum((r) => r.cardsSpread);
+    const stickersIssued = sum((r) => r.stickersIssued);
+    const stickersSpread = sum((r) => r.stickersSpread);
+    const avitoAds = sum((r) => r.avitoAdsCount);
+    const promoters = sum((r) => r.promotersCount);
+    /** Материалы на 1 заявку с листовок (листовки + визитки разнесённые). */
+    const materialsSpread = leafletsSpread + cardsSpread;
     const last = reports[0];
     return {
       period: { from: start, to: end },
+      leafletsIssued,
+      leafletsSpread,
+      cardsIssued,
+      cardsSpread,
+      stickersIssued,
+      stickersSpread,
       leafletsStock: last?.leafletsStock ?? 0,
       cardsStock: last?.cardsStock ?? 0,
       avitoAds,
-      promoters: reports.reduce((s, r) => s + r.promotersCount, 0),
+      promoters,
       leafletOrders,
       avitoOrders,
-      kpiLeaflets: leafletOrders ? leaflets / leafletOrders : 0,
+      kpiLeaflets: leafletOrders ? materialsSpread / leafletOrders : 0,
       kpiAvito: avitoAds ? avitoOrders / avitoAds : 0,
       rows: reports,
     };

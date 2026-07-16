@@ -66,8 +66,8 @@ describe('BotService', () => {
   const orderId = 'order-1';
 
   const allDocs = [
-    DocKind.CONTRACT,
     DocKind.RECEIPT_SERVICE,
+    DocKind.CONTRACT,
     DocKind.RECEIPT_PARTS,
     DocKind.PARTS_PHOTO,
   ];
@@ -115,6 +115,7 @@ describe('BotService', () => {
   function mockOrder(
     overrides: Partial<{
       masterId: string;
+      status: OrderStatus;
       partsYesNo: boolean;
       paid: number;
       partsCost: number;
@@ -127,8 +128,12 @@ describe('BotService', () => {
     const masterSalary = overrides.masterSalary ?? 0;
     prisma.order.findUnique.mockResolvedValue({
       id: orderId,
+      publicId: 'ORD-1',
+      address: 'ул. Тест',
       masterId: overrides.masterId ?? 'master-1',
+      status: overrides.status ?? OrderStatus.IN_PROGRESS,
       cityId: 'city-1',
+      client: { name: 'Клиент', phoneNormalized: '+7999' },
       payment: {
         paid,
         partsCost,
@@ -184,7 +189,7 @@ describe('BotService', () => {
 
     it('throws BadRequestException for IN_PROGRESS_SD without RECEIPT_SD', async () => {
       mockMaster();
-      mockOrder();
+      mockOrder({ status: OrderStatus.IN_PROGRESS });
       prisma.orderDocument.count.mockResolvedValue(0);
 
       await expect(
@@ -193,6 +198,33 @@ describe('BotService', () => {
       await expect(
         svc.setStatus(telegramId, orderId, OrderStatus.IN_PROGRESS_SD, true),
       ).rejects.toThrow(/сохранная расписка/);
+    });
+
+    it('rejects status jump (WAITING → DONE)', async () => {
+      mockMaster();
+      mockOrder({ status: OrderStatus.WAITING });
+      documents.missingRequiredKinds.mockResolvedValue([]);
+
+      await expect(
+        svc.setStatus(telegramId, orderId, OrderStatus.DONE, true),
+      ).rejects.toThrow(/Нельзя перейти/);
+    });
+
+    it('buttonsForStatus returns sequential steps', () => {
+      expect(svc.buttonsForStatus(OrderStatus.WAITING)).toEqual([
+        { status: OrderStatus.ON_THE_WAY, label: 'В пути' },
+      ]);
+      expect(svc.buttonsForStatus(OrderStatus.ON_THE_WAY)).toEqual([
+        { status: OrderStatus.IN_PROGRESS, label: 'В работе' },
+      ]);
+      expect(svc.buttonsForStatus(OrderStatus.IN_PROGRESS)).toEqual([
+        { status: OrderStatus.DONE, label: 'Готов' },
+        { status: OrderStatus.IN_PROGRESS_SD, label: 'В работе СД' },
+      ]);
+      expect(svc.buttonsForStatus(OrderStatus.IN_PROGRESS_SD)).toEqual([
+        { status: OrderStatus.DONE, label: 'Готов' },
+      ]);
+      expect(svc.buttonsForStatus(OrderStatus.DONE)).toEqual([]);
     });
 
     it('creates ORDER cash income on successful DONE as toCompany', async () => {
@@ -428,11 +460,18 @@ describe('BotService', () => {
       );
     });
 
-    it('requests missing docs instead of setStatus for DONE', async () => {
-      documents.missingRequiredKinds.mockResolvedValue([DocKind.CONTRACT]);
+    it('requests missing docs one-by-one instead of setStatus for DONE', async () => {
+      documents.missingRequiredKinds.mockResolvedValue([
+        DocKind.RECEIPT_SERVICE,
+        DocKind.CONTRACT,
+      ]);
+      documents.missingKindsForStatus.mockResolvedValue([
+        DocKind.RECEIPT_SERVICE,
+        DocKind.CONTRACT,
+      ]);
       const sendMessageSpy = jest
         .spyOn(svc, 'sendMessage')
-        .mockResolvedValue(null);
+        .mockResolvedValue({ ok: true, result: { message_id: 1 } } as any);
       const setStatusSpy = jest.spyOn(svc, 'setStatus');
 
       await (svc as any).handleCallbackQuery({
@@ -444,11 +483,11 @@ describe('BotService', () => {
 
       expect(setStatusSpy).not.toHaveBeenCalled();
       expect(sendMessageSpy).toHaveBeenCalled();
-      expect(
-        sendMessageSpy.mock.calls.some((c) =>
-          String(c[1]).includes('автоматически'),
-        ),
-      ).toBe(true);
+      const prompts = sendMessageSpy.mock.calls.filter((c) =>
+        String(c[1]).includes('Загрузите:'),
+      );
+      expect(prompts).toHaveLength(1);
+      expect(String(prompts[0][1])).toContain('Чек за услугу');
     });
 
     it('auto-applies DONE via dn: when all docs present', async () => {
@@ -485,13 +524,14 @@ describe('BotService', () => {
       );
     });
 
-    it('sets docsViaAdmin on ad:orderId', async () => {
+    it('sets docsViaAdmin and starts viaAdminDump on ad:orderId', async () => {
       mockMaster();
       prisma.order.update.mockResolvedValue({ id: orderId });
       jest.spyOn(svc, 'notifyAdminsDocsViaAdmin').mockResolvedValue(null);
+      jest.spyOn(svc as any, 'clearEphemeral').mockResolvedValue(undefined);
       const sendMessageSpy = jest
         .spyOn(svc, 'sendMessage')
-        .mockResolvedValue(null);
+        .mockResolvedValue({ ok: true, result: { message_id: 9 } } as any);
 
       await (svc as any).handleCallbackQuery({
         id: 'cq-ad',
@@ -504,18 +544,91 @@ describe('BotService', () => {
         where: { id: orderId },
         data: { docsViaAdmin: true },
       });
+      expect((svc as any).docSessions.get('111')).toMatchObject({
+        orderId,
+        viaAdminDump: true,
+      });
       expect(sendMessageSpy).toHaveBeenCalledWith(
         '222',
-        expect.stringContaining('администратор'),
+        expect.stringContaining('пачкой'),
+        expect.any(Object),
       );
     });
 
-    it('calls setStatus for c:orderId:STATUS when docs present', async () => {
+    it('uploads viaAdminDump files as pendingReview OTHER', async () => {
+      mockMaster();
+      prisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        publicId: 'ORD-1',
+        master: { user: { id: 'user-1', telegramId: '111', fullName: 'М' } },
+      });
+      documents.uploadMany.mockResolvedValue({
+        created: [{ fileName: 'photo.jpg' }],
+        skipped: 0,
+      });
+      jest.spyOn(svc as any, 'downloadTgFile').mockResolvedValue({
+        originalname: 'photo.jpg',
+        mimetype: 'image/jpeg',
+        size: 10,
+        buffer: Buffer.from('x'),
+      });
+      jest.spyOn(svc as any, 'clearEphemeral').mockResolvedValue(undefined);
+      jest.spyOn(svc, 'incomingMessage').mockResolvedValue(null as any);
+      const sendMessageSpy = jest
+        .spyOn(svc, 'sendMessage')
+        .mockResolvedValue({ ok: true, result: { message_id: 3 } } as any);
+
+      (svc as any).docSessions.set('111', {
+        orderId,
+        expectedKind: DocKind.OTHER,
+        targetStatus: null,
+        viaAdminDump: true,
+      });
+
+      await (svc as any).handleIncomingFile('111', '222', {
+        photo: [{ file_id: 'f1' }],
+      });
+
+      expect(documents.uploadMany).toHaveBeenCalledWith(
+        orderId,
+        DocKind.OTHER,
+        expect.any(Array),
+        'user-1',
+        null,
+        { pendingReview: true },
+      );
+      expect(svc.incomingMessage).toHaveBeenCalledWith(
+        '111',
+        expect.stringContaining('ORD-1'),
+        'М',
+      );
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        '222',
+        expect.stringContaining('Принято'),
+        expect.any(Object),
+      );
+      expect((svc as any).docSessions.get('111')?.viaAdminDump).toBe(true);
+    });
+
+    it('calls setStatus and refreshes card when docs present', async () => {
       documents.missingRequiredKinds.mockResolvedValue([]);
       const setStatusSpy = jest
         .spyOn(svc, 'setStatus')
         .mockResolvedValue({ id: orderId, status: OrderStatus.DONE } as any);
-      jest.spyOn(svc, 'sendMessage').mockResolvedValue(null);
+      jest.spyOn(svc, 'sendMessage').mockResolvedValue({
+        ok: true,
+        result: { message_id: 5 },
+      } as any);
+      prisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        publicId: 'ORD-1',
+        address: 'ул. Тест',
+        status: OrderStatus.DONE,
+        masterTgChatId: null,
+        masterTgMessageId: null,
+        client: { name: 'К', phoneNormalized: '+7' },
+      });
+      prisma.order.update.mockResolvedValue({});
 
       await (svc as any).handleCallbackQuery({
         id: 'cq-3',

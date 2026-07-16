@@ -30,11 +30,21 @@ type OrderDocument = {
   id: string;
   kind: string;
   forStatus?: string | null;
+  pendingReview?: boolean;
   fileName: string;
   filePath: string;
   mimeType?: string | null;
   createdAt: string;
 };
+
+const CLASSIFY_DOC_KINDS = [
+  'RECEIPT_SERVICE',
+  'CONTRACT',
+  'RECEIPT_PARTS',
+  'PARTS_PHOTO',
+  'RECEIPT_SD',
+  'OTHER',
+] as const;
 
 type DocGroup = {
   kind: string;
@@ -279,7 +289,16 @@ export default function OrderDetailPage() {
   const partsCostNum = Number(partsCost);
   const needsDocs = paidNum > 500;
   const presentKinds = useMemo(
-    () => new Set((order?.documents ?? []).map((d) => d.kind)),
+    () =>
+      new Set(
+        (order?.documents ?? [])
+          .filter((d) => !d.pendingReview)
+          .map((d) => d.kind),
+      ),
+    [order?.documents],
+  );
+  const pendingDocs = useMemo(
+    () => (order?.documents ?? []).filter((d) => d.pendingReview),
     [order?.documents],
   );
   const requiredKinds = useMemo(
@@ -433,8 +452,33 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function classifyPendingDoc(docId: string, kind: string) {
+    setError('');
+    try {
+      await api(`/orders/${id}/documents/${docId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ kind }),
+      });
+      await load({ preserveMoney: true });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Не удалось назначить тип',
+      );
+    }
+  }
+
+  async function removePendingDoc(docId: string) {
+    setError('');
+    try {
+      await api(`/orders/${id}/documents/${docId}`, { method: 'DELETE' });
+      await load({ preserveMoney: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось удалить файл');
+    }
+  }
+
   const docGroups = useMemo((): DocGroup[] => {
-    const docs = order?.documents ?? [];
+    const docs = (order?.documents ?? []).filter((d) => !d.pendingReview);
     const byKind = new Map<string, OrderDocument[]>();
     for (const d of docs) {
       const list = byKind.get(d.kind) ?? [];
@@ -627,8 +671,10 @@ export default function OrderDetailPage() {
         <form className="panel order-card" onSubmit={save}>
           {order.docsViaAdmin ? (
             <div className="banner-warn">
-              Мастер попросил загрузить документы через администратора и закрыть
-              заявку.
+              Мастер попросил закрыть заявку через администратора.
+              {pendingDocs.length
+                ? ` Во «Входящих» ${pendingDocs.length} файл(ов) — назначьте типы.`
+                : ' Мастер может прислать фото в бот — они появятся во «Входящих» ниже.'}
             </div>
           ) : null}
 
@@ -968,6 +1014,76 @@ export default function OrderDetailPage() {
           {admin ? (
           <div className="panel order-docs-panel">
             <h2 className="order-side-title">Документы</h2>
+            {pendingDocs.length || order.docsViaAdmin ? (
+              <div className="docs-inbox">
+                <h3 className="docs-inbox-title">Входящие от мастера</h3>
+                {!pendingDocs.length ? (
+                  <p className="muted docs-inbox-empty">
+                    Пока пусто. Файлы из бота появятся здесь.
+                  </p>
+                ) : (
+                  <ul className="docs-inbox-list">
+                    {pendingDocs.map((d) => (
+                      <li key={d.id} className="docs-inbox-item">
+                        <div className="docs-inbox-meta">
+                          <span className="docs-inbox-name" title={d.fileName}>
+                            {d.fileName}
+                          </span>
+                          <span className="muted">
+                            {new Date(d.createdAt).toLocaleString('ru-RU', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                        <div className="docs-inbox-actions">
+                          <select
+                            className="docs-inbox-select"
+                            defaultValue=""
+                            onChange={(e) => {
+                              const kind = e.target.value;
+                              if (!kind) return;
+                              void classifyPendingDoc(d.id, kind);
+                            }}
+                          >
+                            <option value="" disabled>
+                              Назначить тип…
+                            </option>
+                            {CLASSIFY_DOC_KINDS.map((k) => (
+                              <option key={k} value={k}>
+                                {DOC_KIND_LABELS[k] ?? k}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="btn-link"
+                            onClick={() =>
+                              openPreviewGroup({
+                                kind: d.kind,
+                                docs: [d],
+                                latestAt: d.createdAt,
+                              })
+                            }
+                          >
+                            Просмотр
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-link docs-inbox-remove"
+                            onClick={() => void removePendingDoc(d.id)}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
             <ul className="docs-checklist">
               {checklistKinds.map((k) => {
                 const ok = presentKinds.has(k);

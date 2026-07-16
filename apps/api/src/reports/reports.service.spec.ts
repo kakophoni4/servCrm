@@ -267,6 +267,20 @@ describe('ReportsService', () => {
         {
           cityId: 'A',
           city: { name: 'Альфа' },
+          direction: CashDirection.INCOME,
+          incomeBasis: CashIncomeBasis.FINE,
+          expenseBasis: null,
+          amount: 500,
+          createdAt,
+          description: 'fine',
+          order: null,
+          createdBy: { fullName: 'Кассир' },
+          documentPath: null,
+          masterId: 'master-1',
+        },
+        {
+          cityId: 'A',
+          city: { name: 'Альфа' },
           direction: CashDirection.EXPENSE,
           incomeBasis: null,
           expenseBasis: CashExpenseBasis.SALARY_PROMO,
@@ -325,8 +339,9 @@ describe('ReportsService', () => {
       expect(result.byCity[1].cityName).toBe('Бета');
 
       const alpha = result.byCity[0];
-      expect(alpha.incomeTotal).toBe(2000);
+      expect(alpha.incomeTotal).toBe(2500);
       expect(alpha.incomeOrders).toBe(0);
+      expect(alpha.incomeFines).toBe(500);
       expect(alpha.incomeOther).toBe(2000);
       expect(alpha.expensePromo).toBe(500);
       expect(alpha.expenseCollection).toBe(100);
@@ -335,11 +350,12 @@ describe('ReportsService', () => {
       expect(alpha.partsCost).toBe(200);
       // только кассовые расходы; ЗП/запчасти уже внутри чистого прихода
       expect(alpha.expenseTotal).toBe(600);
-      expect(alpha.balance).toBe(1400);
+      expect(alpha.balance).toBe(1900);
 
       const beta = result.byCity[1];
       expect(beta.incomeTotal).toBe(10000);
       expect(beta.incomeOrders).toBe(10000);
+      expect(beta.incomeFines).toBe(0);
       expect(beta.expenseAds).toBe(300);
       expect(beta.masterSalary).toBe(1200);
       expect(beta.partsCost).toBe(500);
@@ -347,11 +363,12 @@ describe('ReportsService', () => {
       expect(beta.balance).toBe(9700);
 
       expect(result.totals.cityName).toBe('Итого');
-      expect(result.totals.incomeTotal).toBe(12000);
+      expect(result.totals.incomeTotal).toBe(12500);
+      expect(result.totals.incomeFines).toBe(500);
       expect(result.totals.masterSalary).toBe(2000);
       expect(result.totals.partsCost).toBe(700);
       expect(result.totals.expenseTotal).toBe(900);
-      expect(result.totals.balance).toBe(11100);
+      expect(result.totals.balance).toBe(11600);
 
       expect(result.expenseNotes).toHaveLength(3);
 
@@ -436,6 +453,7 @@ describe('ReportsService', () => {
           masterId: 'm1',
           master: { user: { fullName: 'Иванов' } },
           payment: {
+            paid: 3500,
             toCompany: 10000,
             masterSalary: 2000,
             workSum: 3000,
@@ -446,6 +464,7 @@ describe('ReportsService', () => {
           masterId: 'm1',
           master: { user: { fullName: 'Иванов' } },
           payment: {
+            paid: 5300,
             toCompany: 8000,
             masterSalary: 1500,
             workSum: 5000,
@@ -456,6 +475,7 @@ describe('ReportsService', () => {
           masterId: 'm2',
           master: { user: { fullName: 'Петров' } },
           payment: {
+            paid: 2100,
             toCompany: 6000,
             masterSalary: 1000,
             workSum: 2000,
@@ -481,14 +501,14 @@ describe('ReportsService', () => {
       const ivanov = result.find((r) => r.masterId === 'm1');
       expect(ivanov).toMatchObject({
         master: 'Иванов',
-        turnover: 18000,
+        turnover: 8800, // paid
         salary: 3500,
-        net: 18000,
-        work: 8000,
+        net: 18000, // toCompany
+        work: 8000, // workSum
         parts: 800,
         count: 2,
         micro: 1,
-        pct4: 720,
+        pct4: 352,
         openSd: 2,
         avgNet: 9000,
         avgWork: 4000,
@@ -497,13 +517,14 @@ describe('ReportsService', () => {
       const petrov = result.find((r) => r.masterId === 'm2');
       expect(petrov).toMatchObject({
         master: 'Петров',
-        turnover: 6000,
+        turnover: 2100,
         salary: 1000,
+        net: 6000,
         work: 2000,
         parts: 100,
         count: 1,
         micro: 1,
-        pct4: 240,
+        pct4: 84,
         openSd: 1,
         avgNet: 6000,
         avgWork: 2000,
@@ -581,8 +602,12 @@ describe('ReportsService', () => {
       prisma.adDailyReport.findMany.mockResolvedValue([
         {
           reportDate: new Date('2026-06-05'),
+          leafletsIssued: 120,
           leafletsSpread: 100,
+          cardsIssued: 60,
           cardsSpread: 50,
+          stickersIssued: 10,
+          stickersSpread: 8,
           avitoAdsCount: 0,
           promotersCount: 2,
           leafletsStock: 500,
@@ -597,6 +622,10 @@ describe('ReportsService', () => {
       expect(result.kpiAvito).toBe(0);
       expect(result.leafletOrders).toBe(0);
       expect(result.avitoOrders).toBe(0);
+      expect(result.leafletsIssued).toBe(120);
+      expect(result.leafletsSpread).toBe(100);
+      expect(result.cardsIssued).toBe(60);
+      expect(result.stickersSpread).toBe(8);
     });
 
     it('computes kpi ratios when denominators are non-zero', async () => {
@@ -604,8 +633,12 @@ describe('ReportsService', () => {
       prisma.adDailyReport.findMany.mockResolvedValue([
         {
           reportDate: new Date('2026-06-05'),
+          leafletsIssued: 120,
           leafletsSpread: 100,
+          cardsIssued: 60,
           cardsSpread: 50,
+          stickersIssued: 10,
+          stickersSpread: 8,
           avitoAdsCount: 10,
           promotersCount: 2,
           leafletsStock: 500,
@@ -620,6 +653,7 @@ describe('ReportsService', () => {
 
       expect(result.kpiLeaflets).toBe(30);
       expect(result.kpiAvito).toBe(2);
+      expect(result.stickersIssued).toBe(10);
     });
   });
 

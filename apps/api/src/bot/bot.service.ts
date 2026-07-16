@@ -31,19 +31,40 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettlementsService } from '../settlements/settlements.service';
 
-const STATUS_BUTTONS: { status: OrderStatus; label: string }[] = [
-  { status: OrderStatus.ON_THE_WAY, label: 'В пути' },
-  { status: OrderStatus.IN_PROGRESS, label: 'В работе' },
-  { status: OrderStatus.DONE, label: 'Готов' },
-  { status: OrderStatus.IN_PROGRESS_SD, label: 'В работе СД' },
-];
-
 const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
+  [OrderStatus.NOT_SCHEDULED]: 'Не назначено',
+  [OrderStatus.WAITING]: 'Ожидание',
   [OrderStatus.ON_THE_WAY]: 'В пути',
   [OrderStatus.IN_PROGRESS]: 'В работе',
   [OrderStatus.DONE]: 'Готов',
   [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
 };
+
+/** Допустимые переходы статуса мастером в боте. */
+const STATUS_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  [OrderStatus.NOT_SCHEDULED]: [OrderStatus.ON_THE_WAY],
+  [OrderStatus.WAITING]: [OrderStatus.ON_THE_WAY],
+  [OrderStatus.ON_THE_WAY]: [OrderStatus.IN_PROGRESS],
+  [OrderStatus.IN_PROGRESS]: [OrderStatus.DONE, OrderStatus.IN_PROGRESS_SD],
+  [OrderStatus.IN_PROGRESS_SD]: [OrderStatus.DONE],
+};
+
+const STATUS_BTN_LABEL: Partial<Record<OrderStatus, string>> = {
+  [OrderStatus.ON_THE_WAY]: 'В пути',
+  [OrderStatus.IN_PROGRESS]: 'В работе',
+  [OrderStatus.DONE]: 'Готов',
+  [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
+};
+
+/** Виды для догрузки без смены статуса. */
+const EXTRA_DOC_KINDS: DocKind[] = [
+  DocKind.RECEIPT_SERVICE,
+  DocKind.CONTRACT,
+  DocKind.RECEIPT_PARTS,
+  DocKind.PARTS_PHOTO,
+  DocKind.RECEIPT_SD,
+  DocKind.OTHER,
+];
 
 const DOC_KIND_TG: Record<DocKind, string> = {
   [DocKind.CONTRACT]: 'Договор',
@@ -106,7 +127,11 @@ type TgUpdate = {
 type DocUploadSession = {
   orderId: string;
   expectedKind: DocKind;
-  targetStatus: OrderStatus;
+  /** null = догрузка без смены статуса */
+  targetStatus: OrderStatus | null;
+  extraOnly?: boolean;
+  /** Мастер скидывает все фото — админ разметит в CRM */
+  viaAdminDump?: boolean;
 };
 
 const ESCALATE_AFTER_MS = 10 * 60 * 1000;
@@ -473,6 +498,56 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Кнопки следующего шага по текущему статусу. */
+  buttonsForStatus(
+    status: OrderStatus,
+  ): { status: OrderStatus; label: string }[] {
+    const next = STATUS_TRANSITIONS[status] ?? [];
+    return next.map((s) => ({
+      status: s,
+      label: STATUS_BTN_LABEL[s] ?? STATUS_LABELS[s] ?? s,
+    }));
+  }
+
+  private assertStatusTransition(from: OrderStatus, to: OrderStatus) {
+    const allowed = STATUS_TRANSITIONS[from] ?? [];
+    if (!allowed.includes(to)) {
+      const fromL = STATUS_LABELS[from] ?? from;
+      const toL = STATUS_LABELS[to] ?? to;
+      throw new BadRequestException(
+        `Нельзя перейти из «${fromL}» в «${toL}». Сначала выполните предыдущий шаг.`,
+      );
+    }
+  }
+
+  /** Обновить карточку заявки у мастера после смены статуса. */
+  private async refreshMasterOrderCard(chatId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { client: true, payment: true, city: true },
+    });
+    if (!order) return;
+    if (order.masterTgChatId && order.masterTgMessageId != null) {
+      await this.deleteMessage(
+        order.masterTgChatId,
+        order.masterTgMessageId,
+      ).catch(() => undefined);
+    }
+    if (ESCALATE_SKIP_STATUSES.includes(order.status)) {
+      await this.sendMessage(
+        chatId,
+        `Заявка ${order.publicId} закрыта («${STATUS_LABELS[order.status] ?? order.status}»).`,
+        { reply_markup: this.masterReplyKeyboard() },
+      );
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { masterTgChatId: null, masterTgMessageId: null },
+      });
+      return;
+    }
+    await this.sendMasterOrderCard(chatId, order);
+  }
+
   private async sendMasterOrderCard(
     chatId: string,
     order: {
@@ -505,20 +580,29 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
     lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
 
-    const row1 = STATUS_BUTTONS.slice(0, 2).map((b) => ({
+    const statusBtns = this.buttonsForStatus(order.status).map((b) => ({
       text: b.label,
       callback_data: `s:${order.id}:${b.status}`,
     }));
-    const row2 = STATUS_BUTTONS.slice(2).map((b) => ({
-      text: b.label,
-      callback_data: `s:${order.id}:${b.status}`,
-    }));
-    const rowNav = [
-      { text: '« К списку', callback_data: 'ml' },
+    const statusRows: { text: string; callback_data: string }[][] = [];
+    for (let i = 0; i < statusBtns.length; i += 2) {
+      statusRows.push(statusBtns.slice(i, i + 2));
+    }
+
+    const isActive = MASTER_ACTIVE_STATUSES.includes(order.status);
+    const rowExtra = isActive
+      ? [{ text: '+ Документ', callback_data: `xd:${order.id}` }]
+      : [];
+    const rowNav = [{ text: '« К списку', callback_data: 'ml' }];
+
+    const inline_keyboard = [
+      ...statusRows,
+      ...(rowExtra.length ? [rowExtra] : []),
+      rowNav,
     ];
 
     const res = await this.sendMessage(chatId, lines.join('\n'), {
-      reply_markup: { inline_keyboard: [row1, row2, rowNav] },
+      reply_markup: { inline_keyboard },
     });
     const messageId = this.tgMessageId(res);
     if (messageId != null) {
@@ -594,6 +678,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         'Заявка больше не ваша. Откройте «Активные заявки».',
       );
     }
+
+    this.assertStatusTransition(order.status, status);
 
     if (
       status === OrderStatus.DONE ||
@@ -1096,6 +1182,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
     if (!order) return null;
 
+    const masterName = order.master?.user.fullName ?? 'мастер';
+    const chatText = [
+      `📎 Заявка ${order.publicId}`,
+      `Мастер ${masterName} просит загрузить документы через администратора и закрыть заявку.`,
+      `Клиент: ${order.client.name}`,
+      `Адрес: ${order.address}`,
+      `Мастер может прислать все фото пачкой — разложите типы в карточке заявки.`,
+    ].join('\n');
+
+    const masterTg = order.master?.user.telegramId;
+    if (masterTg) {
+      await this.incomingMessage(masterTg, chatText, masterName).catch(
+        () => undefined,
+      );
+    }
+
     const branchFilter: Prisma.UserWhereInput[] = order.cityId
       ? [
           { role: Role.OWNER },
@@ -1119,16 +1221,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
     if (!admins.length) return null;
 
-    const masterName = order.master?.user.fullName ?? 'мастер';
-    const text = [
-      `📎 Заявка ${order.publicId}`,
-      `Мастер ${masterName} просит загрузить документы через администратора и закрыть заявку.`,
-      `Клиент: ${order.client.name}`,
-      `Адрес: ${order.address}`,
-    ].join('\n');
-
     return Promise.allSettled(
-      admins.map((a) => this.sendMessage(a.telegramId as string, text)),
+      admins.map((a) => this.sendMessage(a.telegramId as string, chatText)),
     );
   }
 
@@ -1235,19 +1329,20 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     targetStatus: OrderStatus = OrderStatus.DONE,
   ) {
     if (!missing.length) return;
+    const kind = missing[0];
     this.docSessions.set(telegramId, {
       orderId,
-      expectedKind: missing[0],
+      expectedKind: kind,
       targetStatus,
     });
+    await this.clearEphemeral(chatId);
     const statusLabel = STATUS_LABELS[targetStatus] ?? targetStatus;
-    await this.sendMessage(
+    const intro = await this.sendMessage(
       chatId,
-      `Для статуса «${statusLabel}» нужны документы. Пришлите фото или PDF. После загрузки всех файлов статус применится автоматически.`,
+      `Для «${statusLabel}» нужен документ. Пришлите фото или PDF — по одному файлу за раз.`,
     );
-    for (const kind of missing) {
-      await this.sendDocKindPrompt(chatId, orderId, kind);
-    }
+    this.trackEphemeral(chatId, this.tgMessageId(intro));
+    await this.sendDocKindPrompt(chatId, orderId, kind);
   }
 
   /** Если для целевого статуса хватает файлов — сразу ставим статус. */
@@ -1255,8 +1350,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     chatId: string,
     telegramId: string,
     orderId: string,
-    targetStatus: OrderStatus,
+    targetStatus: OrderStatus | null,
   ): Promise<boolean> {
+    if (!targetStatus) return false;
     const missing = await this.documents.missingKindsForStatus(
       orderId,
       targetStatus,
@@ -1265,10 +1361,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.setStatus(telegramId, orderId, targetStatus, true);
       this.docSessions.delete(telegramId);
+      await this.clearEphemeral(chatId);
       await this.sendMessage(
         chatId,
         `Статус обновлён: ${STATUS_LABELS[targetStatus] ?? targetStatus}`,
       );
+      await this.refreshMasterOrderCard(chatId, orderId);
       return true;
     } catch (e) {
       const text =
@@ -1286,8 +1384,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private sendDocKindPrompt(chatId: string, orderId: string, kind: DocKind) {
-    return this.sendMessage(
+  private async sendDocKindPrompt(
+    chatId: string,
+    orderId: string,
+    kind: DocKind,
+  ) {
+    const res = await this.sendMessage(
       chatId,
       `Загрузите: «${DOC_KIND_TG[kind]}» (фото или PDF).`,
       {
@@ -1299,7 +1401,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
                 callback_data: `dn:${orderId}:${kind}`,
               },
               {
-                text: 'Загрузить через администратора',
+                text: 'Через администратора',
                 callback_data: `ad:${orderId}`,
               },
             ],
@@ -1307,6 +1409,39 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
+    this.trackEphemeral(chatId, this.tgMessageId(res));
+    return res;
+  }
+
+  private async sendExtraDocMenu(chatId: string, orderId: string) {
+    await this.clearEphemeral(chatId);
+    const rows = EXTRA_DOC_KINDS.map((kind) => [
+      {
+        text: DOC_KIND_TG[kind],
+        callback_data: `xk:${orderId}:${kind}`,
+      },
+    ]);
+    rows.push([{ text: 'Отмена', callback_data: `xf:${orderId}` }]);
+    const res = await this.sendMessage(
+      chatId,
+      'Какой документ загрузить? (без смены статуса)',
+      { reply_markup: { inline_keyboard: rows } },
+    );
+    this.trackEphemeral(chatId, this.tgMessageId(res));
+  }
+
+  /** Активная заявка с docsViaAdmin — продолжить приём фото после рестарта бота. */
+  private async resolveViaAdminDumpOrder(telegramId: string) {
+    const user = await this.masterByTelegram(telegramId);
+    return this.prisma.order.findFirst({
+      where: {
+        masterId: user.masterProfile!.id,
+        docsViaAdmin: true,
+        status: { in: MASTER_ACTIVE_STATUSES },
+      },
+      include: { master: { include: { user: true } } },
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   private async handleIncomingFile(
@@ -1314,17 +1449,36 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     chatId: string,
     msg: TgMessage,
   ) {
-    const session = this.docSessions.get(telegramId);
+    let session = this.docSessions.get(telegramId);
+    if (!session) {
+      try {
+        const viaOrder = await this.resolveViaAdminDumpOrder(telegramId);
+        if (viaOrder) {
+          session = {
+            orderId: viaOrder.id,
+            expectedKind: DocKind.OTHER,
+            targetStatus: null,
+            viaAdminDump: true,
+          };
+          this.docSessions.set(telegramId, session);
+        }
+      } catch {
+        /* мастер не найден — ниже */
+      }
+    }
+
     if (!session) {
       await this.sendMessage(
         chatId,
-        'Сначала выберите статус «Готов» — бот запросит нужные документы.',
+        'Откройте заявку и нажмите нужный статус или «+ Документ», затем пришлите файл.',
       );
       return;
     }
 
+    let masterUserId: string;
     try {
-      await this.masterByTelegram(telegramId);
+      const user = await this.masterByTelegram(telegramId);
+      masterUserId = user.id;
     } catch {
       await this.sendMessage(chatId, 'Мастер не найден');
       return;
@@ -1340,15 +1494,18 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    let uploadResult: { created: unknown[]; skipped: number };
+    let uploadResult: { created: Array<{ fileName: string }>; skipped: number };
     try {
       const file = await this.downloadTgFile(msg);
       uploadResult = await this.documents.uploadMany(
         session.orderId,
-        session.expectedKind,
+        session.viaAdminDump ? DocKind.OTHER : session.expectedKind,
         [file],
-        order.master.user.id,
-        session.targetStatus,
+        masterUserId,
+        session.viaAdminDump || session.extraOnly
+          ? null
+          : session.targetStatus,
+        session.viaAdminDump ? { pendingReview: true } : undefined,
       );
     } catch (e) {
       const text =
@@ -1370,6 +1527,50 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (session.viaAdminDump) {
+      const fileName = uploadResult.created[0]?.fileName ?? 'файл';
+      await this.incomingMessage(
+        telegramId,
+        `📷 Файл к заявке ${order.publicId}: ${fileName}`,
+        order.master?.user.fullName,
+      ).catch(() => undefined);
+      await this.clearEphemeral(chatId);
+      const res = await this.sendMessage(
+        chatId,
+        `Принято (${fileName}). Можете прислать ещё фото или нажать «Готово».`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Готово', callback_data: `ag:${session.orderId}` }],
+            ],
+          },
+        },
+      );
+      this.trackEphemeral(chatId, this.tgMessageId(res));
+      return;
+    }
+
+    if (session.extraOnly || !session.targetStatus) {
+      await this.clearEphemeral(chatId);
+      const res = await this.sendMessage(
+        chatId,
+        `Принято: «${DOC_KIND_TG[session.expectedKind]}». Загрузить ещё?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Ещё документ', callback_data: `xe:${session.orderId}` },
+                { text: 'Готово', callback_data: `xf:${session.orderId}` },
+              ],
+            ],
+          },
+        },
+      );
+      this.trackEphemeral(chatId, this.tgMessageId(res));
+      this.docSessions.delete(telegramId);
+      return;
+    }
+
     const applied = await this.tryApplyStatusAfterDocs(
       chatId,
       telegramId,
@@ -1388,17 +1589,21 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         expectedKind: missing[0],
         targetStatus: session.targetStatus,
       });
-      await this.sendMessage(
+      await this.clearEphemeral(chatId);
+      const ack = await this.sendMessage(
         chatId,
-        `Принято: «${DOC_KIND_TG[session.expectedKind]}». Далее: «${DOC_KIND_TG[missing[0]]}».`,
+        `Принято: «${DOC_KIND_TG[session.expectedKind]}».`,
       );
+      this.trackEphemeral(chatId, this.tgMessageId(ack));
+      await this.sendDocKindPrompt(chatId, session.orderId, missing[0]);
       return;
     }
 
-    await this.sendMessage(
+    const more = await this.sendMessage(
       chatId,
       `Принято: «${DOC_KIND_TG[session.expectedKind]}». Можно прислать ещё файлы этого типа или нажать «Далее».`,
     );
+    this.trackEphemeral(chatId, this.tgMessageId(more));
   }
 
   private async downloadTgFile(msg: TgMessage) {
@@ -1473,6 +1678,44 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (data.startsWith('xd:')) {
+      const orderId = data.slice(3);
+      await this.sendExtraDocMenu(chatId, orderId);
+      return;
+    }
+
+    if (data.startsWith('xk:')) {
+      const rest = data.slice(3);
+      const sep = rest.lastIndexOf(':');
+      if (sep <= 0) return;
+      const orderId = rest.slice(0, sep);
+      const kind = rest.slice(sep + 1) as DocKind;
+      if (!EXTRA_DOC_KINDS.includes(kind)) return;
+      this.docSessions.set(telegramId, {
+        orderId,
+        expectedKind: kind,
+        targetStatus: null,
+        extraOnly: true,
+      });
+      await this.clearEphemeral(chatId);
+      await this.sendDocKindPrompt(chatId, orderId, kind);
+      return;
+    }
+
+    if (data.startsWith('xe:')) {
+      const orderId = data.slice(3);
+      await this.sendExtraDocMenu(chatId, orderId);
+      return;
+    }
+
+    if (data.startsWith('xf:')) {
+      const orderId = data.slice(3);
+      this.docSessions.delete(telegramId);
+      await this.clearEphemeral(chatId);
+      await this.refreshMasterOrderCard(chatId, orderId);
+      return;
+    }
+
     if (data.startsWith('ack:o:')) {
       const orderId = data.slice(6);
       await this.ackOrderNotify(orderId);
@@ -1502,12 +1745,30 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           where: { id: orderId },
           data: { docsViaAdmin: true },
         });
-        this.docSessions.delete(telegramId);
+        this.docSessions.set(telegramId, {
+          orderId,
+          expectedKind: DocKind.OTHER,
+          targetStatus: null,
+          viaAdminDump: true,
+        });
+        await this.clearEphemeral(chatId);
         await this.notifyAdminsDocsViaAdmin(orderId);
-        await this.sendMessage(
+        const res = await this.sendMessage(
           chatId,
-          'Документы загрузит администратор и закроет заявку. Статус обновится автоматически.',
+          [
+            'Заявка передана администратору.',
+            'Пришлите все фото/PDF пачкой — типы документов разложит админ в CRM.',
+            'Когда закончите — нажмите «Готово».',
+          ].join('\n'),
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Готово', callback_data: `ag:${orderId}` }],
+              ],
+            },
+          },
         );
+        this.trackEphemeral(chatId, this.tgMessageId(res));
       } catch (e) {
         const text =
           e instanceof BadRequestException || e instanceof NotFoundException
@@ -1524,6 +1785,21 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (data.startsWith('ag:')) {
+      const orderId = data.slice(3);
+      const session = this.docSessions.get(telegramId);
+      if (session?.orderId === orderId) {
+        this.docSessions.delete(telegramId);
+      }
+      await this.clearEphemeral(chatId);
+      await this.sendMessage(
+        chatId,
+        'Спасибо! Администратор разложит документы и закроет заявку.',
+      );
+      await this.refreshMasterOrderCard(chatId, orderId).catch(() => undefined);
+      return;
+    }
+
     if (data.startsWith('dn:')) {
       const rest = data.slice(3);
       const sep = rest.lastIndexOf(':');
@@ -1532,12 +1808,21 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const kind = rest.slice(sep + 1) as DocKind;
       if (
         !REQUIRED_ORDER_DOC_KINDS.includes(kind) &&
-        kind !== DocKind.RECEIPT_SD
+        kind !== DocKind.RECEIPT_SD &&
+        kind !== DocKind.OTHER
       ) {
         return;
       }
 
       const session = this.docSessions.get(telegramId);
+      if (session?.extraOnly || session?.targetStatus == null) {
+        await this.sendMessage(
+          chatId,
+          `Пришлите файл для «${DOC_KIND_TG[kind]}» или нажмите «Готово».`,
+        );
+        return;
+      }
+
       const targetStatus =
         session?.orderId === orderId
           ? session.targetStatus
@@ -1576,10 +1861,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         expectedKind: next,
         targetStatus,
       });
-      await this.sendMessage(
-        chatId,
-        `Следующий документ: «${DOC_KIND_TG[next]}». Пришлите фото или PDF.`,
-      );
+      await this.clearEphemeral(chatId);
+      await this.sendDocKindPrompt(chatId, orderId, next);
       return;
     }
 
@@ -1640,10 +1923,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.setStatus(telegramId, orderId, status, true);
         this.docSessions.delete(telegramId);
+        await this.clearEphemeral(chatId);
         await this.sendMessage(
           chatId,
           `Статус обновлён: ${STATUS_LABELS[status] ?? status}`,
         );
+        await this.refreshMasterOrderCard(chatId, orderId);
       } catch (e) {
         const text =
           e instanceof BadRequestException || e instanceof NotFoundException

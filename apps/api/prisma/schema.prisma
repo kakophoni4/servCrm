@@ -353,6 +353,8 @@ model OrderDocument {
   kind        DocKind      @default(OTHER)
   /// Статус заявки/цель загрузки на момент upload (для учёта по статусу).
   forStatus   OrderStatus? @map("for_status")
+  /// Ждёт разметки админом (дамп «через администратора»).
+  pendingReview Boolean    @default(false) @map("pending_review")
   /// SHA-256 содержимого — дубликаты в рамках заявки не сохраняются.
   contentHash String?      @map("content_hash")
   fileName    String       @map("file_name")
@@ -367,6 +369,7 @@ model OrderDocument {
   @@unique([orderId, contentHash])
   @@index([orderId])
   @@index([orderId, forStatus])
+  @@index([orderId, pendingReview])
   @@map("order_documents")
 }
 

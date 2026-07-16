@@ -13,16 +13,16 @@ import {
 
 /** Типы для обычной загрузки / «Готов» (без сохранной расписки). */
 export const REQUIRED_ORDER_DOC_KINDS: DocKind[] = [
-  DocKind.CONTRACT,
   DocKind.RECEIPT_SERVICE,
+  DocKind.CONTRACT,
   DocKind.RECEIPT_PARTS,
   DocKind.PARTS_PHOTO,
 ];
 
-/** Всегда обязательны для «Готов» (при paid > 500). */
+/** Всегда обязательны для «Готов». Порядок = порядок запроса в боте (чек → договор). */
 const ALWAYS_REQUIRED_DOC_KINDS: DocKind[] = [
-  DocKind.CONTRACT,
   DocKind.RECEIPT_SERVICE,
+  DocKind.CONTRACT,
 ];
 
 /** Нужны только если сумма комплектующих > 0. */
@@ -46,6 +46,7 @@ export function requiredOrderDocKinds(partsCost: number): DocKind[] {
 const UPLOAD_ALLOWED_KINDS = new Set<DocKind>([
   ...REQUIRED_ORDER_DOC_KINDS,
   DocKind.RECEIPT_SD,
+  DocKind.OTHER,
 ]);
 
 export const DOC_KIND_RU: Record<DocKind, string> = {
@@ -65,12 +66,19 @@ export type UploadManyResult = {
     orderId: string;
     kind: DocKind;
     forStatus: OrderStatus | null;
+    pendingReview: boolean;
     contentHash: string | null;
     fileName: string;
     filePath: string;
   }>;
   skipped: number;
 };
+
+const CLASSIFY_ALLOWED_KINDS = new Set<DocKind>([
+  ...REQUIRED_ORDER_DOC_KINDS,
+  DocKind.RECEIPT_SD,
+  DocKind.OTHER,
+]);
 
 @Injectable()
 export class DocumentsService {
@@ -96,6 +104,7 @@ export class DocumentsService {
    * Загрузка файлов одного типа.
    * Дубликаты по SHA-256 в рамках заявки пропускаются без записи и без ошибок.
    * forStatus: явная привязка к статусу; иначе — текущий статус заявки.
+   * pendingReview: дамп «через администратора» — ждёт разметки в CRM.
    */
   async uploadMany(
     orderId: string,
@@ -103,6 +112,7 @@ export class DocumentsService {
     files: UploadedMemoryFile[],
     uploadedBy?: string,
     forStatus?: OrderStatus | null,
+    options?: { pendingReview?: boolean },
   ): Promise<UploadManyResult> {
     const order = await this.ensureOrder(orderId);
     if (!UPLOAD_ALLOWED_KINDS.has(kind)) {
@@ -110,11 +120,13 @@ export class DocumentsService {
     }
     if (!files?.length) throw new NotFoundException('Файлы не переданы');
 
-    const statusTag = forStatus ?? order.status;
-    if (kind === DocKind.RECEIPT_SD) {
+    const pendingReview = Boolean(options?.pendingReview);
+    const statusTag = forStatus === undefined ? order.status : forStatus;
+    if (kind === DocKind.RECEIPT_SD && !pendingReview) {
       const sdOk =
         statusTag === OrderStatus.IN_PROGRESS_SD ||
-        order.status === OrderStatus.IN_PROGRESS_SD;
+        order.status === OrderStatus.IN_PROGRESS_SD ||
+        forStatus === null;
       if (!sdOk) {
         throw new BadRequestException(
           'Сохранная расписка загружается только для статуса «В работе СД»',
@@ -150,6 +162,7 @@ export class DocumentsService {
               orderId,
               kind,
               forStatus: statusTag,
+              pendingReview,
               contentHash,
               fileName: file.originalname,
               filePath: relPath,
@@ -173,10 +186,34 @@ export class DocumentsService {
       }
     }
 
-    if (created.length) {
+    if (created.length && !pendingReview) {
       await this.autoFillScheduledAtIfComplete(orderId);
     }
     return { created, skipped };
+  }
+
+  /** Назначить тип документу из входящих (дамп через админа). */
+  async updateKind(orderId: string, docId: string, kind: DocKind) {
+    if (!CLASSIFY_ALLOWED_KINDS.has(kind)) {
+      throw new BadRequestException('Недопустимый тип документа');
+    }
+    const doc = await this.getDoc(orderId, docId);
+    const updated = await this.prisma.orderDocument.update({
+      where: { id: doc.id },
+      data: {
+        kind,
+        pendingReview: false,
+      },
+    });
+    await this.autoFillScheduledAtIfComplete(orderId);
+    return updated;
+  }
+
+  listPendingReview(orderId: string) {
+    return this.prisma.orderDocument.findMany({
+      where: { orderId, pendingReview: true },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   /**
@@ -224,7 +261,11 @@ export class DocumentsService {
   async missingRequiredKinds(orderId: string): Promise<DocKind[]> {
     const [docs, payment] = await Promise.all([
       this.prisma.orderDocument.findMany({
-        where: { orderId, kind: { in: REQUIRED_ORDER_DOC_KINDS } },
+        where: {
+          orderId,
+          kind: { in: REQUIRED_ORDER_DOC_KINDS },
+          pendingReview: false,
+        },
         select: { kind: true },
       }),
       this.prisma.orderPayment.findUnique({
@@ -247,7 +288,11 @@ export class DocumentsService {
     }
     if (status === OrderStatus.IN_PROGRESS_SD) {
       const n = await this.prisma.orderDocument.count({
-        where: { orderId, kind: DocKind.RECEIPT_SD },
+        where: {
+          orderId,
+          kind: DocKind.RECEIPT_SD,
+          pendingReview: false,
+        },
       });
       return n > 0 ? [] : [DocKind.RECEIPT_SD];
     }

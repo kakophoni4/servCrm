@@ -1,8 +1,10 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -13,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { DocKind, OrderStatus, Role } from '@prisma/client';
+import { IsEnum } from 'class-validator';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
@@ -27,6 +30,11 @@ import {
 import { DocumentsService } from './documents.service';
 
 const STAFF = [Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER] as const;
+
+class UpdateDocKindDto {
+  @IsEnum(DocKind)
+  kind!: DocKind;
+}
 
 @Controller('orders/:orderId/documents')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -79,6 +87,17 @@ export class DocumentsController {
       )}`,
     });
     return new StreamableFile(this.storage.stream(doc.filePath));
+  }
+
+  @Patch(':docId')
+  @Roles(...STAFF)
+  @RequirePermissions('documents.write')
+  updateKind(
+    @Param('orderId') orderId: string,
+    @Param('docId') docId: string,
+    @Body() dto: UpdateDocKindDto,
+  ) {
+    return this.documents.updateKind(orderId, docId, dto.kind);
   }
 
   @Delete(':docId')
