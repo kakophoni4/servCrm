@@ -828,7 +828,6 @@ export default function OrderDetailPage() {
                 <div className="field order-field-full">
                   <label>Комментарий администратора</label>
                   <AutoTextarea
-                    placeholder="Увидит мастер при назначении"
                     value={adminComment}
                     onChange={(e) => setAdminComment(e.target.value)}
                   />
