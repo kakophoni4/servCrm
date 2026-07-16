@@ -836,14 +836,54 @@ label.file-picker:focus-within,
 
 .docs-inbox-item {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
+  align-items: stretch;
+  gap: 0.65rem;
   padding: 0.45rem 0.55rem;
   background: var(--panel, #fff);
   border: 1px solid var(--line, #e5e7eb);
   border-radius: 0.4rem;
+}
+
+.docs-inbox-thumb {
+  flex: 0 0 5.5rem;
+  width: 5.5rem;
+  height: 5.5rem;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 0.35rem;
+  overflow: hidden;
+  background: #f3f4f6;
+  cursor: zoom-in;
+  display: grid;
+  place-items: center;
+}
+
+.docs-inbox-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.docs-inbox-thumb:hover {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.docs-inbox-thumb-fallback {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.docs-inbox-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .docs-inbox-meta {
@@ -851,7 +891,6 @@ label.file-picker:focus-within,
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
-  flex: 1 1 10rem;
 }
 
 .docs-inbox-name {

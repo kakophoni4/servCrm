@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
 import { DateTimeField } from '@/components/DateTimeField';
@@ -212,6 +212,10 @@ export default function OrderDetailPage() {
   const [downloadLoadingKind, setDownloadLoadingKind] = useState<string | null>(
     null,
   );
+  const [pendingThumbs, setPendingThumbs] = useState<Record<string, string>>(
+    {},
+  );
+  const pendingThumbsRef = useRef<Record<string, string>>({});
 
   async function load(opts?: { preserveMoney?: boolean }) {
     const keepPaid = opts?.preserveMoney ? paid : null;
@@ -302,6 +306,61 @@ export default function OrderDetailPage() {
     () => (order?.documents ?? []).filter((d) => d.pendingReview),
     [order?.documents],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = new Set(pendingDocs.map((d) => d.id));
+
+    for (const [docId, url] of Object.entries(pendingThumbsRef.current)) {
+      if (!ids.has(docId)) {
+        URL.revokeObjectURL(url);
+        delete pendingThumbsRef.current[docId];
+      }
+    }
+
+    async function loadThumbs() {
+      const next: Record<string, string> = { ...pendingThumbsRef.current };
+      await Promise.all(
+        pendingDocs.map(async (d) => {
+          if (next[d.id]) return;
+          const imageLike =
+            (d.mimeType?.startsWith('image/') ?? false) ||
+            /\.(jpe?g|png|webp|gif)$/i.test(d.fileName);
+          if (!imageLike) return;
+          try {
+            const blob = await fetchAuthorizedBlob(
+              `/orders/${id}/documents/${d.id}/download`,
+            );
+            if (cancelled) return;
+            const mime =
+              d.mimeType || blob.type || guessMimeFromName(d.fileName);
+            next[d.id] = URL.createObjectURL(
+              blob.type ? blob : new Blob([blob], { type: mime }),
+            );
+          } catch {
+            /* превью не критично */
+          }
+        }),
+      );
+      if (cancelled) return;
+      pendingThumbsRef.current = next;
+      setPendingThumbs({ ...next });
+    }
+
+    void loadThumbs();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingDocs, id]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of Object.values(pendingThumbsRef.current)) {
+        URL.revokeObjectURL(url);
+      }
+      pendingThumbsRef.current = {};
+    };
+  }, []);
   const requiredKinds = useMemo(
     () => requiredOrderDocKinds(partsCostNum),
     [partsCostNum],
@@ -1023,63 +1082,81 @@ export default function OrderDetailPage() {
                   </p>
                 ) : (
                   <ul className="docs-inbox-list">
-                    {pendingDocs.map((d) => (
-                      <li key={d.id} className="docs-inbox-item">
-                        <div className="docs-inbox-meta">
-                          <span className="docs-inbox-name" title={d.fileName}>
-                            {d.fileName}
-                          </span>
-                          <span className="muted">
-                            {new Date(d.createdAt).toLocaleString('ru-RU', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                        <div className="docs-inbox-actions">
-                          <select
-                            className="docs-inbox-select"
-                            defaultValue=""
-                            onChange={(e) => {
-                              const kind = e.target.value;
-                              if (!kind) return;
-                              void classifyPendingDoc(d.id, kind);
-                            }}
-                          >
-                            <option value="" disabled>
-                              Назначить тип…
-                            </option>
-                            {CLASSIFY_DOC_KINDS.map((k) => (
-                              <option key={k} value={k}>
-                                {DOC_KIND_LABELS[k] ?? k}
-                              </option>
-                            ))}
-                          </select>
+                    {pendingDocs.map((d) => {
+                      const thumb = pendingThumbs[d.id];
+                      const openFull = () =>
+                        openPreviewGroup({
+                          kind: d.kind,
+                          docs: [d],
+                          latestAt: d.createdAt,
+                        });
+                      return (
+                        <li key={d.id} className="docs-inbox-item">
                           <button
                             type="button"
-                            className="btn-link"
-                            onClick={() =>
-                              openPreviewGroup({
-                                kind: d.kind,
-                                docs: [d],
-                                latestAt: d.createdAt,
-                              })
-                            }
+                            className="docs-inbox-thumb"
+                            onClick={openFull}
+                            title="Открыть крупно"
                           >
-                            Просмотр
+                            {thumb ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={thumb} alt={d.fileName} />
+                            ) : (
+                              <span className="docs-inbox-thumb-fallback">
+                                {d.fileName.toLowerCase().endsWith('.pdf')
+                                  ? 'PDF'
+                                  : '…'}
+                              </span>
+                            )}
                           </button>
-                          <button
-                            type="button"
-                            className="btn-link docs-inbox-remove"
-                            onClick={() => void removePendingDoc(d.id)}
-                          >
-                            Удалить
-                          </button>
-                        </div>
-                      </li>
-                    ))}
+                          <div className="docs-inbox-body">
+                            <div className="docs-inbox-meta">
+                              <span
+                                className="docs-inbox-name"
+                                title={d.fileName}
+                              >
+                                {d.fileName}
+                              </span>
+                              <span className="muted">
+                                {new Date(d.createdAt).toLocaleString('ru-RU', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                            <div className="docs-inbox-actions">
+                              <select
+                                className="docs-inbox-select"
+                                defaultValue=""
+                                onChange={(e) => {
+                                  const kind = e.target.value;
+                                  if (!kind) return;
+                                  void classifyPendingDoc(d.id, kind);
+                                }}
+                              >
+                                <option value="" disabled>
+                                  Назначить тип…
+                                </option>
+                                {CLASSIFY_DOC_KINDS.map((k) => (
+                                  <option key={k} value={k}>
+                                    {DOC_KIND_LABELS[k] ?? k}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn-link docs-inbox-remove"
+                                onClick={() => void removePendingDoc(d.id)}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
