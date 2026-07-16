@@ -397,11 +397,6 @@ export default function ChatPage() {
             </button>
           </div>
 
-          {ordersTab === 'free' && !selectedId ? (
-            <p className="muted">
-              Выберите мастера — затем отправьте ему заявку из списка.
-            </p>
-          ) : null}
           {ordersTab === 'master' && !selectedId ? (
             <p className="muted">Выберите мастера слева.</p>
           ) : null}
