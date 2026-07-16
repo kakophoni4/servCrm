@@ -734,7 +734,7 @@ export default function OrderDetailPage() {
               Мастер попросил закрыть заявку через администратора.
               {pendingDocs.length
                 ? ` Во «Входящих» ${pendingDocs.length} файл(ов) — назначьте типы.`
-                : ' Мастер может прислать фото в бот — они появятся во «Входящих» ниже.'}
+                : ''}
             </div>
           ) : null}
 
@@ -1072,92 +1072,86 @@ export default function OrderDetailPage() {
           {admin ? (
           <div className="panel order-docs-panel">
             <h2 className="order-side-title">Документы</h2>
-            {pendingDocs.length || order.docsViaAdmin ? (
+            {pendingDocs.length ? (
               <div className="docs-inbox">
                 <h3 className="docs-inbox-title">Входящие от мастера</h3>
-                {!pendingDocs.length ? (
-                  <p className="muted docs-inbox-empty">
-                    Пока пусто. Файлы из бота появятся здесь.
-                  </p>
-                ) : (
-                  <ul className="docs-inbox-list">
-                    {pendingDocs.map((d) => {
-                      const thumb = pendingThumbs[d.id];
-                      const openFull = () =>
-                        openPreviewGroup({
-                          kind: d.kind,
-                          docs: [d],
-                          latestAt: d.createdAt,
-                        });
-                      return (
-                        <li key={d.id} className="docs-inbox-item">
-                          <button
-                            type="button"
-                            className="docs-inbox-thumb"
-                            onClick={openFull}
-                            title="Открыть крупно"
-                          >
-                            {thumb ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={thumb} alt={d.fileName} />
-                            ) : (
-                              <span className="docs-inbox-thumb-fallback">
-                                {d.fileName.toLowerCase().endsWith('.pdf')
-                                  ? 'PDF'
-                                  : '…'}
-                              </span>
-                            )}
-                          </button>
-                          <div className="docs-inbox-body">
-                            <div className="docs-inbox-meta">
-                              <span
-                                className="docs-inbox-name"
-                                title={d.fileName}
-                              >
-                                {d.fileName}
-                              </span>
-                              <span className="muted">
-                                {new Date(d.createdAt).toLocaleString('ru-RU', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </div>
-                            <div className="docs-inbox-actions">
-                              <select
-                                className="docs-inbox-select"
-                                defaultValue=""
-                                onChange={(e) => {
-                                  const kind = e.target.value;
-                                  if (!kind) return;
-                                  void classifyPendingDoc(d.id, kind);
-                                }}
-                              >
-                                <option value="" disabled>
-                                  Назначить тип…
-                                </option>
-                                {CLASSIFY_DOC_KINDS.map((k) => (
-                                  <option key={k} value={k}>
-                                    {DOC_KIND_LABELS[k] ?? k}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                className="btn-link docs-inbox-remove"
-                                onClick={() => void removePendingDoc(d.id)}
-                              >
-                                Удалить
-                              </button>
-                            </div>
+                <ul className="docs-inbox-list">
+                  {pendingDocs.map((d) => {
+                    const thumb = pendingThumbs[d.id];
+                    const openFull = () =>
+                      openPreviewGroup({
+                        kind: d.kind,
+                        docs: [d],
+                        latestAt: d.createdAt,
+                      });
+                    return (
+                      <li key={d.id} className="docs-inbox-item">
+                        <button
+                          type="button"
+                          className="docs-inbox-thumb"
+                          onClick={openFull}
+                          title="Открыть крупно"
+                        >
+                          {thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={thumb} alt={d.fileName} />
+                          ) : (
+                            <span className="docs-inbox-thumb-fallback">
+                              {d.fileName.toLowerCase().endsWith('.pdf')
+                                ? 'PDF'
+                                : '…'}
+                            </span>
+                          )}
+                        </button>
+                        <div className="docs-inbox-body">
+                          <div className="docs-inbox-meta">
+                            <span
+                              className="docs-inbox-name"
+                              title={d.fileName}
+                            >
+                              {d.fileName}
+                            </span>
+                            <span className="muted">
+                              {new Date(d.createdAt).toLocaleString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
                           </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                          <div className="docs-inbox-actions">
+                            <select
+                              className="docs-inbox-select"
+                              defaultValue=""
+                              onChange={(e) => {
+                                const kind = e.target.value;
+                                if (!kind) return;
+                                void classifyPendingDoc(d.id, kind);
+                              }}
+                            >
+                              <option value="" disabled>
+                                Назначить тип…
+                              </option>
+                              {CLASSIFY_DOC_KINDS.map((k) => (
+                                <option key={k} value={k}>
+                                  {DOC_KIND_LABELS[k] ?? k}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="btn-link docs-inbox-remove"
+                              onClick={() => void removePendingDoc(d.id)}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             ) : null}
             <ul className="docs-checklist">
