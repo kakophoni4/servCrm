@@ -5,14 +5,10 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { STATUS_LABELS } from '@/lib/labels';
 
-type Thread = {
-  id: string;
-  title?: string | null;
-  channel: string;
-  status: string;
-  externalId?: string | null;
-  updatedAt: string;
-  messages?: { body: string; createdAt: string; fromClient: boolean }[];
+type MessagePreview = {
+  body: string;
+  createdAt: string;
+  fromClient: boolean;
 };
 
 type Message = {
@@ -23,7 +19,17 @@ type Message = {
   author?: { fullName: string } | null;
 };
 
-type ThreadDetail = Thread & { messages: Message[] };
+type Thread = {
+  id: string;
+  title?: string | null;
+  channel: string;
+  status: string;
+  externalId?: string | null;
+  updatedAt: string;
+  messages?: MessagePreview[];
+};
+
+type ThreadDetail = Omit<Thread, 'messages'> & { messages: Message[] };
 
 type UnassignedOrder = {
   id: string;
