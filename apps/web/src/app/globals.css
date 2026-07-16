@@ -1783,13 +1783,45 @@ label.file-picker:focus-within,
 
 .order-new-form .field input[type='date'],
 .order-new-form .field input[type='datetime-local'],
+.order-new-form .field input[type='time'],
 .ads-form .field input[type='date'],
 .order-card .field input[type='datetime-local'],
+.order-card .field input[type='date'],
+.order-card .field input[type='time'],
 .user-form .field input[type='date'],
 .period-filters .field input[type='date'] {
   color-scheme: light;
   min-height: 2.65rem;
   font-variant-numeric: tabular-nums;
+}
+
+.datetime-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.datetime-field-row {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 0.5rem;
+}
+
+.datetime-field-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.datetime-field-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.9rem;
+}
+
+@media (max-width: 520px) {
+  .datetime-field-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .order-new-footer {

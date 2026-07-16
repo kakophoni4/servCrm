@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
+import { DateTimeField } from '@/components/DateTimeField';
 import {
   api,
   fetchAuthorizedBlob,
@@ -744,10 +745,9 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="field">
                   <label>Дата/время выполнения</label>
-                  <input
-                    type="datetime-local"
+                  <DateTimeField
                     value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
+                    onChange={setScheduledAt}
                   />
                 </div>
                 <div className="field">

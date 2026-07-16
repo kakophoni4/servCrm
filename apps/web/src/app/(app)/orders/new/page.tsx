@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
+import { DateTimeField } from '@/components/DateTimeField';
 import { api } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
 
@@ -254,11 +255,10 @@ export default function NewOrderPage() {
             />
             <div className="field">
               <label>Время по заказу</label>
-              <input
-                type="datetime-local"
+              <DateTimeField
                 required
                 value={form.scheduledAt}
-                onChange={(e) => set('scheduledAt', e.target.value)}
+                onChange={(scheduledAt) => set('scheduledAt', scheduledAt)}
               />
             </div>
           </div>
