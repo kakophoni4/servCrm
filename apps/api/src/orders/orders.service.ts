@@ -617,6 +617,15 @@ export class OrdersService {
       });
     });
 
+    if (masterChanged && existing.masterId) {
+      await this.bot
+        .notifyMasterOrderRevoked(
+          existing.masterId,
+          existing.publicId,
+          existing.address,
+        )
+        .catch(() => undefined);
+    }
     if (
       dto.masterId &&
       dto.masterId !== existing.masterId
@@ -646,12 +655,14 @@ export class OrdersService {
       }
     }
 
-    // Смена статуса офисом = ознакомление (не эскалируем DIR/OWNER).
-    if (
+    // Офис среагировал: смена статуса или назначение мастера — не эскалируем.
+    const officeReacted =
       isAdmin &&
-      status !== undefined &&
-      status !== existing.status
-    ) {
+      ((status !== undefined && status !== existing.status) ||
+        (dto.masterId !== undefined &&
+          (dto.masterId || null) !== existing.masterId &&
+          Boolean(dto.masterId)));
+    if (officeReacted) {
       void this.bot.ackOrderNotify(id).catch(() => undefined);
     }
 

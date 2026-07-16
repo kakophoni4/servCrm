@@ -219,7 +219,10 @@ describe('ReportsService', () => {
           amount: 10000,
           createdAt,
           description: 'order income',
-          order: { publicId: 'ORD-1' },
+          order: {
+            publicId: 'ORD-1',
+            payment: { toCompany: 10000 },
+          },
           createdBy: { fullName: 'Кассир' },
           documentPath: null,
         },
@@ -326,6 +329,37 @@ describe('ReportsService', () => {
       expect(result.totals.balance).toBe(11100);
 
       expect(result.expenseNotes).toHaveLength(3);
+
+      // Legacy cash_tx с полной paid: в баланс берём toCompany из payment.
+      prisma.cashTx.findMany.mockResolvedValue([
+        {
+          cityId: 'B',
+          city: { name: 'Бета' },
+          direction: CashDirection.INCOME,
+          incomeBasis: CashIncomeBasis.ORDER,
+          expenseBasis: null,
+          amount: 15000, // устаревшая полная paid
+          createdAt,
+          description: 'legacy',
+          order: {
+            publicId: 'ORD-LEGACY',
+            payment: { toCompany: 9000 },
+          },
+          createdBy: null,
+          documentPath: null,
+        },
+      ]);
+      prisma.order.findMany.mockResolvedValue([]);
+      const legacy = await service.cash(
+        USER,
+        Role.DIRECTOR,
+        undefined,
+        FROM,
+        TO,
+      );
+      expect(legacy.byCity[0].incomeOrders).toBe(9000);
+      expect(legacy.byCity[0].balance).toBe(9000);
+
       expect(result.expenseNotes[0]).toMatchObject({
         cityName: 'Альфа',
         direction: CashDirection.EXPENSE,

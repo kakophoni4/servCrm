@@ -38,6 +38,7 @@ describe('BotService', () => {
 
   const prisma = {
     user: { findFirst: jest.fn(), findMany: jest.fn() },
+    master: { findUnique: jest.fn() },
     order: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -50,6 +51,7 @@ describe('BotService', () => {
       updateMany: jest.fn(),
       findMany: jest.fn(),
     },
+    cashTx: { findMany: jest.fn() },
     orderDocument: { findMany: jest.fn(), count: jest.fn() },
     $transaction: jest.fn(),
   } as any;
@@ -157,7 +159,7 @@ describe('BotService', () => {
       ).rejects.toThrow(NotFoundException);
       await expect(
         svc.setStatus(telegramId, orderId, OrderStatus.IN_PROGRESS, true),
-      ).rejects.toThrow('Заявка не найдена у мастера');
+      ).rejects.toThrow('Заявка больше не ваша');
     });
 
     it('throws BadRequestException for DONE without required docs', async () => {

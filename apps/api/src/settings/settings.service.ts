@@ -27,17 +27,18 @@ function payRange(from?: string, to?: string) {
   return { start, end };
 }
 
-/** Календарный день YYYY-MM-DD в локальной таймзоне сервера. */
-function localDateKey(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** День смены (workDate хранится как UTC date). */
-function shiftDateKey(d: Date) {
-  return d.toISOString().slice(0, 10);
+/**
+ * Календарный день YYYY-MM-DD в бизнес-таймзоне (по умолчанию Москва).
+ * Один ключ и для смен (UTC midnight даты), и для закрытия заявок.
+ */
+function calendarDateKey(d: Date) {
+  const tz = process.env.APP_TZ || 'Europe/Moscow';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
 }
 
 function roundMoney(n: number) {
@@ -442,20 +443,25 @@ export class SettingsService {
       },
       select: { workDate: true, cityId: true },
     });
-    const shiftDays = new Set(shifts.map((s) => shiftDateKey(s.workDate)));
+    const shiftDays = new Set(shifts.map((s) => calendarDateKey(s.workDate)));
 
     const closedOrders = await this.prisma.order.findMany({
       where: {
         status: OrderStatus.DONE,
-        updatedAt: { gte: start, lte: end },
         ...(user.cityId != null ? { cityId: user.cityId } : {}),
+        OR: [
+          { completedAt: { gte: start, lte: end } },
+          { completedAt: null, updatedAt: { gte: start, lte: end } },
+        ],
       },
       include: { payment: true },
     });
 
     // Чистая прибыль (toCompany) только по заявкам, закрытым в дни смен.
     const shiftClosedNet = closedOrders
-      .filter((o) => shiftDays.has(localDateKey(o.updatedAt)))
+      .filter((o) =>
+        shiftDays.has(calendarDateKey(o.completedAt ?? o.updatedAt)),
+      )
       .reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
 
     const adReports =

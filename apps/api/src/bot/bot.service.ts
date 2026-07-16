@@ -110,6 +110,24 @@ type DocUploadSession = {
 
 const ESCALATE_AFTER_MS = 10 * 60 * 1000;
 const ESCALATE_POLL_MS = 60 * 1000;
+/** Статусы, при которых реакция уже не нужна (не эскалируем «без ответа»). */
+const ESCALATE_SKIP_STATUSES: OrderStatus[] = [
+  OrderStatus.DONE,
+  OrderStatus.REFUSAL,
+  OrderStatus.CANCELLED_CC,
+];
+
+/** Активные заявки мастера (ещё в работе). */
+const MASTER_ACTIVE_STATUSES: OrderStatus[] = [
+  OrderStatus.NOT_SCHEDULED,
+  OrderStatus.WAITING,
+  OrderStatus.ON_THE_WAY,
+  OrderStatus.IN_PROGRESS,
+  OrderStatus.IN_PROGRESS_SD,
+];
+
+const MASTER_BTN_ACTIVE = 'Активные заявки';
+const MASTER_BTN_PAY = 'Моя ЗП';
 
 const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
   [ClaimType.POLICE]: 'Полиция',
@@ -204,6 +222,151 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Только незакрытые заявки мастера. */
+  async myActiveOrders(telegramId: string) {
+    const user = await this.masterByTelegram(telegramId);
+    return this.prisma.order.findMany({
+      where: {
+        masterId: user.masterProfile!.id,
+        status: { in: MASTER_ACTIVE_STATUSES },
+      },
+      include: { client: true, payment: true, city: true },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
+      take: 30,
+    });
+  }
+
+  private masterReplyKeyboard() {
+    return {
+      keyboard: [[{ text: MASTER_BTN_ACTIVE }], [{ text: MASTER_BTN_PAY }]],
+      resize_keyboard: true,
+      is_persistent: true,
+    };
+  }
+
+  /** Список активных заявок (кнопки по адресу). */
+  async sendActiveOrdersMenu(chatId: string, telegramId: string) {
+    let orders;
+    try {
+      orders = await this.myActiveOrders(telegramId);
+    } catch {
+      await this.sendMessage(
+        chatId,
+        'Меню доступно только мастеру. Передайте ID администратору.',
+      );
+      return;
+    }
+
+    if (!orders.length) {
+      await this.sendMessage(chatId, 'Нет активных заявок.', {
+        reply_markup: this.masterReplyKeyboard(),
+      });
+      return;
+    }
+
+    const buttons = orders.map((o) => {
+      const addr =
+        o.address.length > 40 ? `${o.address.slice(0, 37)}…` : o.address;
+      const st = STATUS_LABELS[o.status] ?? o.status;
+      return [
+        {
+          text: `${st}: ${addr}`,
+          callback_data: `mo:${o.id}`,
+        },
+      ];
+    });
+
+    await this.sendMessage(
+      chatId,
+      `Активные заявки (${orders.length}). Выберите одну — откроется карточка со статусами.`,
+      {
+        reply_markup: {
+          inline_keyboard: buttons,
+        },
+      },
+    );
+  }
+
+  /** Открыть карточку заявки; сбрасывает сессию документов другой заявки. */
+  async openMasterOrderCard(
+    chatId: string,
+    telegramId: string,
+    orderId: string,
+  ) {
+    const session = this.docSessions.get(telegramId);
+    if (session && session.orderId !== orderId) {
+      this.docSessions.delete(telegramId);
+    }
+
+    try {
+      const user = await this.masterByTelegram(telegramId);
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { client: true, payment: true, city: true },
+      });
+      if (!order || order.masterId !== user.masterProfile!.id) {
+        await this.sendMessage(
+          chatId,
+          'Заявка больше не ваша или уже закрыта. Откройте «Активные заявки».',
+        );
+        return;
+      }
+      if (ESCALATE_SKIP_STATUSES.includes(order.status)) {
+        await this.sendMessage(
+          chatId,
+          `Заявка ${order.publicId} уже закрыта («${STATUS_LABELS[order.status]}»).`,
+        );
+        return;
+      }
+      await this.sendMasterOrderCard(chatId, order);
+    } catch {
+      await this.sendMessage(chatId, 'Не удалось открыть заявку.');
+    }
+  }
+
+  private async sendMasterOrderCard(
+    chatId: string,
+    order: {
+      id: string;
+      publicId: string;
+      address: string;
+      typeTech?: string | null;
+      comment?: string | null;
+      scheduledAt?: Date | null;
+      status: OrderStatus;
+      client: { name: string; phoneNormalized: string };
+    },
+  ) {
+    const lines = [
+      `Заявка ${order.publicId}`,
+      `Клиент: ${order.client.name}`,
+      `Тел: ${order.client.phoneNormalized}`,
+      `Адрес: ${order.address}`,
+    ];
+    if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
+    if (order.comment) lines.push(`Комментарий: ${order.comment}`);
+    if (order.scheduledAt) {
+      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
+    }
+    lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
+
+    const row1 = STATUS_BUTTONS.slice(0, 2).map((b) => ({
+      text: b.label,
+      callback_data: `s:${order.id}:${b.status}`,
+    }));
+    const row2 = STATUS_BUTTONS.slice(2).map((b) => ({
+      text: b.label,
+      callback_data: `s:${order.id}:${b.status}`,
+    }));
+    const rowNav = [
+      { text: '« К списку', callback_data: 'ml' },
+    ];
+
+    return this.sendMessage(chatId, lines.join('\n'), {
+      reply_markup: { inline_keyboard: [row1, row2, rowNav] },
+    });
+  }
+
   async aboutMe(telegramId: string) {
     const user = await this.masterByTelegram(telegramId);
     const masterId = user.masterProfile!.id;
@@ -258,7 +421,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       include: { payment: true },
     });
     if (!order || order.masterId !== user.masterProfile!.id) {
-      throw new NotFoundException('Заявка не найдена у мастера');
+      throw new NotFoundException(
+        'Заявка больше не ваша. Откройте «Активные заявки».',
+      );
     }
 
     if (
@@ -344,6 +509,16 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       await this.settlements.syncForCompletedOrder(orderId).catch(() => undefined);
     }
 
+    // Терминальный статус / движение по заявке = реакция есть, эскалация не нужна.
+    if (
+      ESCALATE_SKIP_STATUSES.includes(status) ||
+      status === OrderStatus.IN_PROGRESS ||
+      status === OrderStatus.IN_PROGRESS_SD ||
+      status === OrderStatus.ON_THE_WAY
+    ) {
+      void this.ackOrderNotify(orderId).catch(() => undefined);
+    }
+
     return updated;
   }
 
@@ -381,34 +556,40 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Заявка не найдена');
     }
 
-    const lines = [
-      `Заявка ${order.publicId}`,
-      `Клиент: ${order.client.name}`,
-      `Тел: ${order.client.phoneNormalized}`,
-      `Адрес: ${order.address}`,
-    ];
-    if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
-    if (order.comment) lines.push(`Комментарий: ${order.comment}`);
-    if (order.scheduledAt) {
-      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
-    }
-    lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
-
-    const row1 = STATUS_BUTTONS.slice(0, 2).map((b) => ({
-      text: b.label,
-      callback_data: `s:${order.id}:${b.status}`,
-    }));
-    const row2 = STATUS_BUTTONS.slice(2).map((b) => ({
-      text: b.label,
-      callback_data: `s:${order.id}:${b.status}`,
-    }));
-
     this.logger.log(
       `notifyMasterOrder → telegramId=${telegramId} order=${order.publicId}`,
     );
 
+    // Меню снизу + карточка (старые сообщения в чате остаются, но статусы
+    // меняют только через актуальную карточку / список — setStatus проверяет masterId).
+    await this.sendMessage(telegramId, 'Новая заявка назначена.', {
+      reply_markup: this.masterReplyKeyboard(),
+    });
+    return this.sendMasterOrderCard(telegramId, order);
+  }
+
+  /** Старому мастеру при переназначении / снятии. */
+  async notifyMasterOrderRevoked(
+    masterId: string,
+    publicId: string,
+    address?: string | null,
+  ) {
+    const master = await this.prisma.master.findUnique({
+      where: { id: masterId },
+      include: { user: true },
+    });
+    const telegramId = master?.user.telegramId;
+    if (!telegramId) return null;
+
+    const lines = [
+      `Заявка ${publicId} снята с вас (переназначена или закрыта офисом).`,
+      address ? `Адрес: ${address}` : null,
+      'Старые кнопки по этой заявке больше не действуют.',
+      'Актуальный список — кнопка «Активные заявки».',
+    ].filter(Boolean);
+
     return this.sendMessage(telegramId, lines.join('\n'), {
-      reply_markup: { inline_keyboard: [row1, row2] },
+      reply_markup: this.masterReplyKeyboard(),
     });
   }
 
@@ -495,7 +676,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** Эскалации: заявки и претензии старше 10 мин без ack. */
+  /** Эскалации: открытые заявки/претензии старше 10 мин без ack. */
   async processEscalations() {
     const cutoff = new Date(Date.now() - ESCALATE_AFTER_MS);
 
@@ -504,6 +685,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         createdAt: { lte: cutoff },
         notifyAckedAt: null,
         notifyEscalatedAt: null,
+        status: { notIn: ESCALATE_SKIP_STATUSES },
       },
       select: { id: true },
       take: 40,
@@ -517,6 +699,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         createdAt: { lte: cutoff },
         notifyAckedAt: null,
         notifyEscalatedAt: null,
+        closedAt: null,
       },
       select: { id: true },
       take: 40,
@@ -531,7 +714,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       where: { id: orderId },
       include: { client: true, city: true },
     });
-    if (!order || order.notifyAckedAt || order.notifyEscalatedAt) return;
+    if (
+      !order ||
+      order.notifyAckedAt ||
+      order.notifyEscalatedAt ||
+      ESCALATE_SKIP_STATUSES.includes(order.status)
+    ) {
+      return;
+    }
 
     const recipients = await this.officeRecipients(order.cityId, [
       Role.DIRECTOR,
@@ -569,7 +759,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         city: true,
       },
     });
-    if (!claim || claim.notifyAckedAt || claim.notifyEscalatedAt) return;
+    if (
+      !claim ||
+      claim.notifyAckedAt ||
+      claim.notifyEscalatedAt ||
+      claim.closedAt
+    ) {
+      return;
+    }
 
     const recipients = await this.officeRecipients(claim.cityId, [
       Role.DIRECTOR,
@@ -775,14 +972,55 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (msg.text) {
       const text = msg.text.trim();
       if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
-        await this.sendMessage(
-          chatId,
-          [
-            `Ваш ID для подключения: ${telegramId}`,
-            '',
-            'Передайте этот ID администратору для подключения к чату и уведомлениям.',
-          ].join('\n'),
-        );
+        const masterUser = await this.prisma.user.findFirst({
+          where: { telegramId, role: 'MASTER', status: 'ACTIVE' },
+          include: { masterProfile: true },
+        });
+        if (masterUser?.masterProfile) {
+          await this.sendMessage(
+            chatId,
+            [
+              `Здравствуйте, ${masterUser.fullName}.`,
+              `Ваш ID: ${telegramId}`,
+              '',
+              'Меню снизу: «Активные заявки» — список по адресам, внутри меняете статусы.',
+              'Одновременно открыта одна заявка: при выборе другой сессия документов сбрасывается.',
+            ].join('\n'),
+            { reply_markup: this.masterReplyKeyboard() },
+          );
+        } else {
+          await this.sendMessage(
+            chatId,
+            [
+              `Ваш ID для подключения: ${telegramId}`,
+              '',
+              'Передайте этот ID администратору для подключения к чату и уведомлениям.',
+            ].join('\n'),
+          );
+        }
+        return { ok: true };
+      }
+
+      if (text === MASTER_BTN_ACTIVE || /^\/orders(?:@\w+)?$/i.test(text)) {
+        await this.sendActiveOrdersMenu(chatId, telegramId);
+        return { ok: true };
+      }
+
+      if (text === MASTER_BTN_PAY || /^\/pay(?:@\w+)?$/i.test(text)) {
+        try {
+          const info = await this.aboutMe(telegramId);
+          await this.sendMessage(
+            chatId,
+            [
+              `ЗП за месяц: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
+              `Закрыто заявок: ${info.ordersCount}`,
+              `Штрафы: ${info.fines.toLocaleString('ru-RU')} ₽`,
+            ].join('\n'),
+            { reply_markup: this.masterReplyKeyboard() },
+          );
+        } catch {
+          await this.sendMessage(chatId, 'Доступно только мастеру.');
+        }
         return { ok: true };
       }
 
@@ -1029,6 +1267,17 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!chatId || !telegramId) return;
+
+    if (data === 'ml') {
+      await this.sendActiveOrdersMenu(chatId, telegramId);
+      return;
+    }
+
+    if (data.startsWith('mo:')) {
+      const orderId = data.slice(3);
+      await this.openMasterOrderCard(chatId, telegramId, orderId);
+      return;
+    }
 
     if (data.startsWith('ack:o:')) {
       const orderId = data.slice(6);

@@ -221,7 +221,7 @@ export class ReportsService {
         where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
         include: {
           city: true,
-          order: { include: { city: true } },
+          order: { include: { city: true, payment: true } },
           createdBy: { select: { fullName: true, cityId: true, city: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -303,7 +303,14 @@ export class ReportsService {
         authorCityName: t.createdBy?.city?.name,
       });
       const row = ensure(branch.cityId, branch.cityName);
-      const amount = Number(t.amount);
+      // ORDER-приход считаем по toCompany заявки (если есть), иначе amount из кассы.
+      // Защита от legacy cash_tx с полной paid до миграции.
+      const amount =
+        t.direction === CashDirection.INCOME &&
+        t.incomeBasis === CashIncomeBasis.ORDER &&
+        t.order?.payment != null
+          ? Number(t.order.payment.toCompany)
+          : Number(t.amount);
 
       if (t.direction === CashDirection.INCOME) {
         row.incomeTotal += amount;

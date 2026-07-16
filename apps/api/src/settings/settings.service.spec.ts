@@ -38,17 +38,20 @@ describe('SettingsService — ЗП диспетчеров', () => {
   const closedOrders = [
     {
       createdById: userId,
+      completedAt: new Date(2026, 0, 10, 15, 0, 0),
       updatedAt: new Date(2026, 0, 10, 15, 0, 0),
       payment: { toCompany: 10000 },
     },
     {
       createdById: 'other-user',
+      completedAt: new Date(2026, 0, 10, 16, 0, 0),
       updatedAt: new Date(2026, 0, 10, 16, 0, 0),
       payment: { toCompany: 5000 },
     },
     {
       createdById: userId,
-      updatedAt: new Date(2026, 0, 20, 12, 0, 0), // день без смены
+      completedAt: new Date(2026, 0, 20, 12, 0, 0), // день без смены
+      updatedAt: new Date(2026, 0, 20, 12, 0, 0),
       payment: { toCompany: 3000.333 },
     },
   ];
@@ -148,10 +151,7 @@ describe('SettingsService — ЗП диспетчеров', () => {
           where: expect.objectContaining({
             status: OrderStatus.DONE,
             cityId: 'A',
-            updatedAt: expect.objectContaining({
-              gte: expect.any(Date),
-              lte: expect.any(Date),
-            }),
+            OR: expect.any(Array),
           }),
           include: { payment: true },
         }),
@@ -174,10 +174,11 @@ describe('SettingsService — ЗП диспетчеров', () => {
       await svc.calcDispatcherPay(userId, '2026-01-01', '2026-01-15');
 
       const call = prisma.order.findMany.mock.calls[0][0];
-      expect(call.where.updatedAt.lte).toEqual(
+      const completedRange = call.where.OR[0].completedAt;
+      expect(completedRange.lte).toEqual(
         new Date('2026-01-15T23:59:59.999'),
       );
-      expect(call.where.updatedAt.gte).toEqual(new Date('2026-01-01'));
+      expect(completedRange.gte).toEqual(new Date('2026-01-01'));
     });
 
     it('defaults period to current month when from/to are omitted', async () => {
@@ -189,8 +190,9 @@ describe('SettingsService — ЗП диспетчеров', () => {
       await svc.calcDispatcherPay(userId);
 
       const call = prisma.order.findMany.mock.calls[0][0];
-      expect(call.where.updatedAt.gte).toEqual(new Date(2026, 6, 1));
-      expect(call.where.updatedAt.lte).toEqual(
+      const completedRange = call.where.OR[0].completedAt;
+      expect(completedRange.gte).toEqual(new Date(2026, 6, 1));
+      expect(completedRange.lte).toEqual(
         new Date(2026, 6, 31, 23, 59, 59),
       );
     });
