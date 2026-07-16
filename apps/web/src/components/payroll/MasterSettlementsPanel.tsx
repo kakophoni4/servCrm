@@ -179,8 +179,8 @@ export function MasterSettlementsPanel() {
           <h2 className="panel-period-title">Расчёт мастеров</h2>
           <div className="period-filters">
             <div className="field">
-              <label>Месяц</label>
               <select
+                aria-label="Месяц"
                 value={month}
                 onChange={(e) => setMonth(Number(e.target.value))}
               >
@@ -192,8 +192,8 @@ export function MasterSettlementsPanel() {
               </select>
             </div>
             <div className="field">
-              <label>Год</label>
               <select
+                aria-label="Год"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
               >

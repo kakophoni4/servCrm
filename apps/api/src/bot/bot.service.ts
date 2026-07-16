@@ -98,6 +98,7 @@ type TgCallbackQuery = {
 };
 
 type TgUpdate = {
+  update_id?: number;
   message?: TgMessage;
   callback_query?: TgCallbackQuery;
 };
@@ -143,6 +144,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
   private readonly docSessions = new Map<string, DocUploadSession>();
   private escalateTimer: ReturnType<typeof setInterval> | null = null;
+  /** Long-polling getUpdates вместо webhook (удобно без домена/HTTPS). */
+  private pollStop = false;
+  private updateOffset = 0;
+  private webhookClearedForToken: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -159,10 +164,90 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`escalation poll: ${String(e)}`),
       );
     }, ESCALATE_POLL_MS);
+    this.pollStop = false;
+    void this.pollLoop();
   }
 
   onModuleDestroy() {
+    this.pollStop = true;
     if (this.escalateTimer) clearInterval(this.escalateTimer);
+  }
+
+  private sleep(ms: number) {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Фоновый опрос Telegram getUpdates. */
+  private async pollLoop() {
+    this.logger.log('Telegram: запущен режим getUpdates (без webhook)');
+    while (!this.pollStop) {
+      try {
+        const token = await this.settings.getBotToken();
+        const enabled = await this.settings.isBotEnabled();
+        if (!token || !enabled) {
+          await this.sleep(3000);
+          continue;
+        }
+
+        if (this.webhookClearedForToken !== token) {
+          await this.telegram('deleteWebhook', {
+            drop_pending_updates: false,
+          });
+          this.webhookClearedForToken = token;
+          this.logger.log('Telegram: webhook снят, слушаем getUpdates');
+        }
+
+        const updates = await this.fetchUpdates(token, this.updateOffset);
+        for (const update of updates) {
+          if (typeof update.update_id === 'number') {
+            this.updateOffset = update.update_id + 1;
+          }
+          try {
+            await this.processUpdate(update);
+          } catch (e) {
+            this.logger.error(
+              `Telegram update ${update.update_id}: ${String(e)}`,
+            );
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Telegram poll: ${String(e)}`);
+        await this.sleep(2000);
+      }
+    }
+  }
+
+  private async fetchUpdates(
+    token: string,
+    offset: number,
+  ): Promise<TgUpdate[]> {
+    const params = new URLSearchParams({
+      timeout: '25',
+      offset: String(offset),
+      allowed_updates: JSON.stringify(['message', 'callback_query']),
+    });
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/getUpdates?${params}`,
+      { signal: AbortSignal.timeout(35_000) },
+    );
+    const json = (await res.json()) as {
+      ok: boolean;
+      result?: TgUpdate[];
+      description?: string;
+    };
+    if (!json.ok) {
+      const desc = json.description ?? 'error';
+      this.logger.warn(`getUpdates: ${desc}`);
+      // Конфликт с другим getUpdates / старым webhook — подождать и снять webhook снова.
+      if (/conflict|webhook/i.test(desc)) {
+        this.webhookClearedForToken = null;
+        await this.sleep(1500);
+      } else {
+        await this.sleep(3000);
+      }
+      return [];
+    }
+    return json.result ?? [];
   }
 
   /** Вызов метода Telegram Bot API токеном из настроек. */
@@ -979,20 +1064,25 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** Публичный webhook Telegram: проверка секрета + разбор Update. */
+  /** Публичный webhook Telegram (опционально): проверка секрета + разбор Update. */
   async handleWebhook(secret: string, update: TgUpdate) {
     const expected = await this.settings.getWebhookSecret();
     if (!expected || secret !== expected) {
       throw new UnauthorizedException('Неверный webhook secret');
     }
+    await this.processUpdate(update);
+    return { ok: true };
+  }
 
+  /** Общая обработка апдейта (webhook или getUpdates). */
+  async processUpdate(update: TgUpdate) {
     if (update.callback_query) {
       await this.handleCallbackQuery(update.callback_query);
-      return { ok: true };
+      return;
     }
 
     const msg = update.message;
-    if (!msg?.chat?.id) return { ok: true };
+    if (!msg?.chat?.id) return;
 
     const chatId = String(msg.chat.id);
     const telegramId =
@@ -1000,72 +1090,70 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     if (msg.photo?.length || msg.document) {
       await this.handleIncomingFile(telegramId, chatId, msg);
-      return { ok: true };
+      return;
     }
 
-    if (msg.text) {
-      const text = msg.text.trim();
-      if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
-        const masterUser = await this.prisma.user.findFirst({
-          where: { telegramId, role: 'MASTER', status: 'ACTIVE' },
-          include: { masterProfile: true },
-        });
-        if (masterUser?.masterProfile) {
-          await this.sendMessage(
-            chatId,
-            [
-              `Здравствуйте, ${masterUser.fullName}.`,
-              `Ваш ID: ${telegramId}`,
-              '',
-              'Меню снизу: «Активные заявки» — список по адресам, внутри меняете статусы.',
-              'Одновременно открыта одна заявка: при выборе другой сессия документов сбрасывается.',
-            ].join('\n'),
-            { reply_markup: this.masterReplyKeyboard() },
-          );
-        } else {
-          await this.sendMessage(
-            chatId,
-            [
-              `Ваш ID для подключения: ${telegramId}`,
-              '',
-              'Передайте этот ID администратору для подключения к чату и уведомлениям.',
-            ].join('\n'),
-          );
-        }
-        return { ok: true };
-      }
+    if (!msg.text) return;
 
-      if (text === MASTER_BTN_ACTIVE || /^\/orders(?:@\w+)?$/i.test(text)) {
-        await this.sendActiveOrdersMenu(chatId, telegramId);
-        return { ok: true };
+    const text = msg.text.trim();
+    if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
+      const masterUser = await this.prisma.user.findFirst({
+        where: { telegramId, role: 'MASTER', status: 'ACTIVE' },
+        include: { masterProfile: true },
+      });
+      if (masterUser?.masterProfile) {
+        await this.sendMessage(
+          chatId,
+          [
+            `Здравствуйте, ${masterUser.fullName}.`,
+            `Ваш ID: ${telegramId}`,
+            '',
+            'Меню снизу: «Активные заявки» — список по адресам, внутри меняете статусы.',
+            'Одновременно открыта одна заявка: при выборе другой сессия документов сбрасывается.',
+          ].join('\n'),
+          { reply_markup: this.masterReplyKeyboard() },
+        );
+      } else {
+        await this.sendMessage(
+          chatId,
+          [
+            `Ваш ID для подключения: ${telegramId}`,
+            '',
+            'Передайте этот ID администратору для подключения к чату и уведомлениям.',
+          ].join('\n'),
+        );
       }
-
-      if (text === MASTER_BTN_PAY || /^\/pay(?:@\w+)?$/i.test(text)) {
-        try {
-          const info = await this.aboutMe(telegramId);
-          await this.sendMessage(
-            chatId,
-            [
-              `Начислено ЗП: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
-              `Штрафы: ${info.fines.toLocaleString('ru-RU')} ₽`,
-              `К получению (ЗП − штрафы): ${info.salaryNet.toLocaleString('ru-RU')} ₽`,
-              `Закрыто заявок: ${info.ordersCount}`,
-            ].join('\n'),
-            { reply_markup: this.masterReplyKeyboard() },
-          );
-        } catch {
-          await this.sendMessage(chatId, 'Доступно только мастеру.');
-        }
-        return { ok: true };
-      }
-
-      const from = msg.from;
-      const title =
-        from?.username || from?.first_name || String(msg.chat.id);
-      await this.incomingMessage(chatId, text, title);
+      return;
     }
 
-    return { ok: true };
+    if (text === MASTER_BTN_ACTIVE || /^\/orders(?:@\w+)?$/i.test(text)) {
+      await this.sendActiveOrdersMenu(chatId, telegramId);
+      return;
+    }
+
+    if (text === MASTER_BTN_PAY || /^\/pay(?:@\w+)?$/i.test(text)) {
+      try {
+        const info = await this.aboutMe(telegramId);
+        await this.sendMessage(
+          chatId,
+          [
+            `Начислено ЗП: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
+            `Штрафы: ${info.fines.toLocaleString('ru-RU')} ₽`,
+            `К получению (ЗП − штрафы): ${info.salaryNet.toLocaleString('ru-RU')} ₽`,
+            `Закрыто заявок: ${info.ordersCount}`,
+          ].join('\n'),
+          { reply_markup: this.masterReplyKeyboard() },
+        );
+      } catch {
+        await this.sendMessage(chatId, 'Доступно только мастеру.');
+      }
+      return;
+    }
+
+    const from = msg.from;
+    const title =
+      from?.username || from?.first_name || String(msg.chat.id);
+    await this.incomingMessage(chatId, text, title);
   }
 
   private async requestMissingDocuments(

@@ -120,6 +120,7 @@ export class OrdersService {
         ageCategory: true,
         master: { include: { user: true } },
         city: true,
+        createdBy: { select: { id: true, fullName: true, role: true } },
         payment: true,
         claims: true,
         documents: true,

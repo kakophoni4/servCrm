@@ -653,23 +653,18 @@ export default function OrderDetailPage() {
           </div>
 
           <div className="order-client-row">
-            <div className="order-client">
+            <Link
+              className="order-client"
+              href={`/clients/${order.client.id}`}
+              title="Открыть карточку клиента"
+            >
               <div className="order-client-main">
-                <div className="order-client-name">{order.client.name}</div>
-                <a
-                  className="order-client-phone"
-                  href={`tel:+${order.client.phoneNormalized.replace(/\D/g, '')}`}
-                >
+                <span className="order-client-name">{order.client.name}</span>
+                <span className="order-client-phone">
                   {formatRuPhoneDisplay(order.client.phoneNormalized)}
-                </a>
+                </span>
               </div>
-              <Link
-                className="order-client-link"
-                href={`/clients/${order.client.id}`}
-              >
-                Карточка клиента
-              </Link>
-            </div>
+            </Link>
             {admin ? (
               <label className="order-profile-check">
                 <input

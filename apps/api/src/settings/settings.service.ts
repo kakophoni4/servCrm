@@ -86,6 +86,10 @@ export class SettingsService {
     return fromDb || process.env.TELEGRAM_BOT_TOKEN || '';
   }
 
+  async isBotEnabled(): Promise<boolean> {
+    return (await this.get(SETTING_KEYS.botEnabled)) === 'true';
+  }
+
   async getWebhookSecret(): Promise<string | null> {
     return this.get(SETTING_KEYS.botWebhookSecret);
   }
@@ -104,19 +108,15 @@ export class SettingsService {
     const token = dbToken || process.env.TELEGRAM_BOT_TOKEN || '';
     const enabled = (await this.get(SETTING_KEYS.botEnabled)) === 'true';
     const username = await this.get(SETTING_KEYS.botUsername);
-    const webhookSecret = await this.getWebhookSecret();
-    const baseUrl = (process.env.BASE_URL || '').replace(/\/$/, '');
     return {
       hasToken: Boolean(token),
       tokenMasked: maskToken(token),
       source: dbToken ? 'db' : process.env.TELEGRAM_BOT_TOKEN ? 'env' : 'none',
       enabled,
       username: username || null,
-      hasWebhookSecret: Boolean(webhookSecret),
-      webhookUrl: baseUrl && webhookSecret
-        ? `${baseUrl}/api/bot/webhook/${webhookSecret}`
-        : null,
-      baseUrl: baseUrl || null,
+      /** Сейчас бот слушает Telegram через getUpdates (без публичного HTTPS). */
+      mode: 'polling' as const,
+      connected: Boolean(token && enabled),
     };
   }
 
@@ -126,6 +126,13 @@ export class SettingsService {
     }
     if (data.enabled !== undefined) {
       await this.set(SETTING_KEYS.botEnabled, data.enabled ? 'true' : 'false');
+    }
+    // При включении снимаем webhook — дальше API сам опрашивает getUpdates.
+    if (data.enabled !== false) {
+      const token = await this.getBotToken();
+      if (token) {
+        await this.enablePolling().catch(() => undefined);
+      }
     }
     return this.getBotConfig();
   }
@@ -165,50 +172,46 @@ export class SettingsService {
   }
 
   /**
-   * Регистрирует webhook в Telegram: BASE_URL/api/bot/webhook/<secret>.
-   * Генерирует secret при отсутствии.
+   * Режим без webhook: снимает webhook в Telegram, API слушает getUpdates.
+   * (Эндпоинт /settings/bot/set-webhook оставлен для совместимости UI.)
    */
   async setWebhook() {
+    return this.enablePolling();
+  }
+
+  async enablePolling() {
     const token = await this.getBotToken();
     if (!token) {
       return { ok: false, error: 'Токен не задан' };
     }
-    const baseUrl = (process.env.BASE_URL || '').replace(/\/$/, '');
-    if (!baseUrl) {
-      return {
-        ok: false,
-        error: 'Не задан BASE_URL (публичный HTTPS-адрес API)',
-      };
-    }
-    const secret = await this.ensureWebhookSecret();
-    const url = `${baseUrl}/api/bot/webhook/${secret}`;
     try {
       const res = await fetch(
-        `https://api.telegram.org/bot${token}/setWebhook`,
+        `https://api.telegram.org/bot${token}/deleteWebhook`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ drop_pending_updates: false }),
         },
       );
       const json = (await res.json()) as {
         ok: boolean;
         description?: string;
-        result?: boolean;
       };
       if (!json.ok) {
         return {
           ok: false,
-          error: json.description || 'Telegram отклонил setWebhook',
-          url,
+          error: json.description || 'Telegram отклонил deleteWebhook',
         };
       }
-      return { ok: true, url, description: json.description ?? null };
+      return {
+        ok: true,
+        mode: 'polling' as const,
+        description: 'Бот слушает сообщения через getUpdates (без webhook)',
+      };
     } catch (e) {
       return {
         ok: false,
         error: e instanceof Error ? e.message : 'Ошибка запроса к Telegram',
-        url,
       };
     }
   }

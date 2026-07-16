@@ -303,7 +303,7 @@ export default function ReportsPage() {
     const keys = Object.keys(rows[0]).filter((k) => !hidden.has(k));
     return (
       <div className="table-scroll">
-        <table className="table table-compact">
+        <table className="table table-compact report-table">
           <thead>
             <tr>
               {keys.map((k) => (
@@ -332,11 +332,10 @@ export default function ReportsPage() {
     obj: Record<string, unknown>,
     skipKeys: string[] = [],
   ) {
-    const period = obj.period;
     const entries = Object.entries(obj).filter(
       ([k]) => k !== 'period' && !skipKeys.includes(k),
     );
-    if (!entries.length && !period) {
+    if (!entries.length) {
       return <p className="muted">Нет данных за период.</p>;
     }
 
@@ -437,12 +436,6 @@ export default function ReportsPage() {
 
     return (
       <div className="report-summary">
-        {period ? (
-          <p className="muted report-period">
-            {formatCell(period, 'period')}
-          </p>
-        ) : null}
-
         {primaryKey ? (
           <div className="report-summary-hero">
             <div className="report-summary-hero-label">
@@ -485,17 +478,12 @@ export default function ReportsPage() {
 
     return (
       <div className="report-city-block">
-        {obj.period ? (
-          <p className="muted report-period">
-            {formatCell(obj.period, 'period')}
-          </p>
-        ) : null}
         <h3 className="report-section-title">По филиалам</h3>
         {!rows.length ? (
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table table-compact report-city-table">
+            <table className="table table-compact report-table">
               <thead>
                 <tr>
                   {CASH_CITY_COLUMNS.map((c) => (
@@ -539,17 +527,12 @@ export default function ReportsPage() {
 
     return (
       <div className="report-city-block">
-        {obj.period ? (
-          <p className="muted report-period">
-            {formatCell(obj.period, 'period')}
-          </p>
-        ) : null}
         <h3 className="report-section-title">По филиалам</h3>
         {!rows.length ? (
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table table-compact report-city-table">
+            <table className="table table-compact report-table">
               <thead>
                 <tr>
                   {CANCEL_CITY_COLUMNS.map((c) => (
@@ -610,17 +593,12 @@ export default function ReportsPage() {
 
     return (
       <div className="report-city-block">
-        {obj.period ? (
-          <p className="muted report-period">
-            {formatCell(obj.period, 'period')}
-          </p>
-        ) : null}
         <h3 className="report-section-title">Претензии за период</h3>
         {!rows.length ? (
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table table-compact report-city-table">
+            <table className="table table-compact report-table">
               <thead>
                 <tr>
                   {CLAIM_COLUMNS.map((c) => (
@@ -652,7 +630,7 @@ export default function ReportsPage() {
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table table-compact report-city-table">
+            <table className="table table-compact report-table">
               <thead>
                 <tr>
                   {PARTNER_COLUMNS.map((c) => (
@@ -715,7 +693,7 @@ export default function ReportsPage() {
       }
       if (Array.isArray(obj.rows) && tab === 'ads') {
         return (
-          <div>
+          <div className="report-city-block">
             {renderMetrics(obj, ['rows'])}
             <h3 className="report-section-title">Детализация</h3>
             {renderTable(obj.rows as Record<string, unknown>[])}
@@ -752,8 +730,8 @@ export default function ReportsPage() {
           <h2 className="panel-period-title">{tabLabel}</h2>
           <div className="period-filters">
             <div className="field">
-              <label>Месяц</label>
               <select
+                aria-label="Месяц"
                 value={month}
                 onChange={(e) => setMonth(Number(e.target.value))}
               >
@@ -765,8 +743,8 @@ export default function ReportsPage() {
               </select>
             </div>
             <div className="field">
-              <label>Год</label>
               <select
+                aria-label="Год"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
               >

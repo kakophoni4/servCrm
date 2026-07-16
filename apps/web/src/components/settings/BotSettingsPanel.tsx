@@ -9,9 +9,8 @@ type BotConfig = {
   source: 'db' | 'env' | 'none';
   enabled: boolean;
   username: string | null;
-  hasWebhookSecret?: boolean;
-  webhookUrl?: string | null;
-  baseUrl?: string | null;
+  mode?: 'polling' | 'webhook';
+  connected?: boolean;
 };
 
 type TestResult = {
@@ -21,9 +20,9 @@ type TestResult = {
   error?: string;
 };
 
-type WebhookResult = {
+type ConnectResult = {
   ok: boolean;
-  url?: string;
+  mode?: string;
   error?: string;
   description?: string | null;
 };
@@ -64,18 +63,15 @@ export function BotSettingsPanel() {
       });
       setToken('');
 
-      const webhook = await api<WebhookResult>('/settings/bot/set-webhook', {
+      // На всякий случай ещё раз снимаем webhook (сохранение уже включает polling).
+      await api<ConnectResult>('/settings/bot/set-webhook', {
         method: 'POST',
-      });
-      if (!webhook.ok) {
-        setMsg(
-          webhook.error
-            ? `Токен сохранён, но Telegram не подключён: ${webhook.error}`
-            : 'Токен сохранён, но Telegram не подключён',
-        );
-      } else {
-        setMsg('Сохранено, бот подключён к CRM');
-      }
+      }).catch(() => null);
+      setMsg(
+        enabled
+          ? 'Сохранено. Бот слушает Telegram через getUpdates (домен не нужен).'
+          : 'Сохранено. Бот выключен.',
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -105,18 +101,14 @@ export function BotSettingsPanel() {
   const statusLabel = !config?.hasToken
     ? 'не настроен'
     : config.enabled
-      ? 'включён'
+      ? 'включён · getUpdates'
       : 'выключен';
-  const linked = Boolean(config?.hasToken && config.webhookUrl);
 
   return (
     <div className="bot-settings">
       <form className="panel bot-settings-form" onSubmit={save}>
         <div className="bot-settings-head">
           <h2 className="bot-settings-title">Telegram-бот</h2>
-          <p className="muted bot-settings-sub">
-            Один внутренний бот для мастеров и уведомлений
-          </p>
         </div>
 
         {config ? (
@@ -132,7 +124,6 @@ export function BotSettingsPanel() {
               )}
               {' · '}
               {statusLabel}
-              {linked ? ' · подключён' : ''}
             </strong>
             {config.hasToken ? (
               <span className="muted bot-settings-masked">
@@ -187,11 +178,7 @@ export function BotSettingsPanel() {
         </div>
 
         {test ? (
-          <p
-            className={
-              test.ok ? 'bot-settings-msg' : 'error'
-            }
-          >
+          <p className={test.ok ? 'bot-settings-msg' : 'error'}>
             {test.ok
               ? `Успех: @${test.username ?? '—'} (${test.name ?? ''})`
               : `Ошибка: ${test.error}`}

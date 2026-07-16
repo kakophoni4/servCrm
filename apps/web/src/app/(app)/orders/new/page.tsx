@@ -149,148 +149,170 @@ export default function NewOrderPage() {
     <div className="order-new-page">
       <h1 className="page-title">Новая заявка</h1>
       <form className="panel order-new-form" onSubmit={onSubmit}>
-        <div className="grid-2">
-          <div className="field">
-            <label>Телефон</label>
-            <input
-              required
-              inputMode="tel"
-              autoComplete="tel"
-              value={form.clientPhone}
-              onChange={(e) => {
-                const next = formatRuPhoneInput(e.target.value);
-                set('clientPhone', next);
-                if (digitsPhone(next).length < 11) setClientHint('');
-              }}
-              onBlur={() => void lookupClientByPhone(form.clientPhone)}
-              placeholder="+7 (999) 123-45-67"
-            />
-            {clientHint ? (
-              <p className="muted order-new-phone-hint">{clientHint}</p>
-            ) : null}
-          </div>
-          <div className="field">
-            <label>Имя клиента</label>
-            <input
-              required
-              value={form.clientName}
-              onChange={(e) => set('clientName', e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label>Тип</label>
-            <select
-              value={form.type === 'REPEAT' ? 'NEW' : form.type}
-              onChange={(e) => set('type', e.target.value)}
-            >
-              <option value="NEW">Обычная</option>
-              <option value="WARRANTY">Гарантия</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Источник</label>
-            <select
-              value={form.sourceKind}
-              onChange={(e) => set('sourceKind', e.target.value)}
-            >
-              <option value="OUR">Наша заявка</option>
-              <option value="PARTNER">Партнёрская</option>
-            </select>
-          </div>
-          {form.sourceKind === 'OUR' ? (
+        <section className="order-new-section">
+          <h2 className="order-new-section-title">Клиент</h2>
+          <div className="order-new-grid">
             <div className="field">
-              <label>Канал</label>
+              <label>Телефон</label>
+              <input
+                required
+                inputMode="tel"
+                autoComplete="tel"
+                value={form.clientPhone}
+                onChange={(e) => {
+                  const next = formatRuPhoneInput(e.target.value);
+                  set('clientPhone', next);
+                  if (digitsPhone(next).length < 11) setClientHint('');
+                }}
+                onBlur={() => void lookupClientByPhone(form.clientPhone)}
+                placeholder="+7 (999) 123-45-67"
+              />
+              {clientHint ? (
+                <p className="muted order-new-phone-hint">{clientHint}</p>
+              ) : null}
+            </div>
+            <div className="field">
+              <label>Имя клиента</label>
+              <input
+                required
+                value={form.clientName}
+                onChange={(e) => set('clientName', e.target.value)}
+                placeholder="Как обращаться"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="order-new-section">
+          <h2 className="order-new-section-title">Заявка</h2>
+          <div className="order-new-grid">
+            <div className="field">
+              <label>Тип</label>
               <select
-                value={form.sourceOur}
-                onChange={(e) => set('sourceOur', e.target.value)}
+                value={form.type === 'REPEAT' ? 'NEW' : form.type}
+                onChange={(e) => set('type', e.target.value)}
               >
-                <option value="AVITO">Авито</option>
-                <option value="LEAFLET">Листовка</option>
+                <option value="NEW">Обычная</option>
+                <option value="WARRANTY">Гарантия</option>
               </select>
             </div>
-          ) : (
             <div className="field">
-              <label>Партнёр</label>
+              <label>Источник</label>
               <select
-                required
-                value={form.partnerId}
-                onChange={(e) => set('partnerId', e.target.value)}
+                value={form.sourceKind}
+                onChange={(e) => set('sourceKind', e.target.value)}
               >
-                <option value="">— выберите партнёра —</option>
-                {partners.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
+                <option value="OUR">Наша заявка</option>
+                <option value="PARTNER">Партнёрская</option>
+              </select>
+            </div>
+            {form.sourceKind === 'OUR' ? (
+              <div className="field">
+                <label>Канал</label>
+                <select
+                  value={form.sourceOur}
+                  onChange={(e) => set('sourceOur', e.target.value)}
+                >
+                  <option value="AVITO">Авито</option>
+                  <option value="LEAFLET">Листовка</option>
+                </select>
+              </div>
+            ) : (
+              <div className="field">
+                <label>Партнёр</label>
+                <select
+                  required
+                  value={form.partnerId}
+                  onChange={(e) => set('partnerId', e.target.value)}
+                >
+                  <option value="">— выберите партнёра —</option>
+                  {partners.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="field">
+              <label>Возраст</label>
+              <select
+                value={form.ageCategoryId}
+                onChange={(e) => set('ageCategoryId', e.target.value)}
+              >
+                {ages.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
                   </option>
                 ))}
               </select>
             </div>
-          )}
-          <div className="field">
-            <label>Возрастная категория</label>
-            <select
-              value={form.ageCategoryId}
-              onChange={(e) => set('ageCategoryId', e.target.value)}
-            >
-              {ages.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <BranchSelect
-            cities={cities}
-            value={form.cityId}
-            onChange={(cityId) => set('cityId', cityId)}
-          />
-          <div className="field">
-            <label>Время по заказу</label>
-            <input
-              type="datetime-local"
-              required
-              value={form.scheduledAt}
-              onChange={(e) => set('scheduledAt', e.target.value)}
+            <BranchSelect
+              cities={cities}
+              value={form.cityId}
+              onChange={(cityId) => set('cityId', cityId)}
             />
+            <div className="field">
+              <label>Время по заказу</label>
+              <input
+                type="datetime-local"
+                required
+                value={form.scheduledAt}
+                onChange={(e) => set('scheduledAt', e.target.value)}
+              />
+            </div>
           </div>
+        </section>
+
+        <section className="order-new-section">
+          <h2 className="order-new-section-title">Адрес и детали</h2>
+          <div className="order-new-grid order-new-grid-details">
+            <div className="field order-new-field-wide">
+              <label>Адрес</label>
+              <input
+                required
+                value={form.address}
+                onChange={(e) => set('address', e.target.value)}
+                placeholder="Улица, дом, квартира"
+              />
+            </div>
+            <div className="field">
+              <label>Тип техники</label>
+              <input
+                value={form.typeTech}
+                onChange={(e) => set('typeTech', e.target.value)}
+                placeholder="Холодильник, стиралка…"
+              />
+            </div>
+            <div className="field order-new-field-wide">
+              <label>Комментарий</label>
+              <AutoTextarea
+                value={form.comment}
+                onChange={(e) => set('comment', e.target.value)}
+                placeholder="Необязательно"
+              />
+            </div>
+          </div>
+        </section>
+
+        <div className="order-new-footer">
+          <label className="order-new-check">
+            <input
+              type="checkbox"
+              checked={form.isProfile}
+              onChange={(e) => set('isProfile', e.target.checked)}
+            />
+            Профильная заявка
+          </label>
+          {error ? <p className="error order-new-error">{error}</p> : null}
+          <button
+            className="btn order-new-submit"
+            type="submit"
+            disabled={loading}
+          >
+            {loading ? 'Сохраняем…' : 'Создать заявку'}
+          </button>
         </div>
-        <div className="field">
-          <label>Адрес</label>
-          <input
-            required
-            value={form.address}
-            onChange={(e) => set('address', e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Тип техники</label>
-          <input
-            value={form.typeTech}
-            onChange={(e) => set('typeTech', e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>Комментарий по заявке</label>
-          <AutoTextarea
-            value={form.comment}
-            onChange={(e) => set('comment', e.target.value)}
-          />
-        </div>
-        <label className="order-new-check">
-          <input
-            type="checkbox"
-            checked={form.isProfile}
-            onChange={(e) => set('isProfile', e.target.checked)}
-          />
-          Профильная заявка
-        </label>
-        {error ? <p className="error">{error}</p> : null}
-        <button
-          className="btn order-new-submit"
-          type="submit"
-          disabled={loading}
-        >
-          {loading ? 'Сохраняем…' : 'Создать заявку'}
-        </button>
       </form>
     </div>
   );

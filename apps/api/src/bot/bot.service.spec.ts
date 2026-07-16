@@ -20,6 +20,7 @@ describe('BotService', () => {
   const settings = {
     getBotToken: jest.fn(),
     getWebhookSecret: jest.fn(),
+    isBotEnabled: jest.fn().mockResolvedValue(false),
   };
   const documents = {
     missingRequiredKinds: jest.fn(),
