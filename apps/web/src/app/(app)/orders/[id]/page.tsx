@@ -287,7 +287,7 @@ export default function OrderDetailPage() {
     () => requiredOrderDocKinds(partsCostNum),
     [partsCostNum],
   );
-  const checklistKinds = useMemo(() => {
+  const checklistKinds = useMemo((): string[] => {
     if (status === 'IN_PROGRESS_SD') {
       return [...ORDER_UPLOAD_DOC_KINDS, SD_UPLOAD_DOC_KIND];
     }
