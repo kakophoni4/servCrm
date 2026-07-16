@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Role } from '@prisma/client';
+import {
+  CashDirection,
+  CashIncomeBasis,
+  OrderStatus,
+  Role,
+} from '@prisma/client';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -70,7 +75,14 @@ export class SettlementsService {
     });
     const map = new Map<
       string,
-      { masterId: string; name: string; amount: number; count: number }
+      {
+        masterId: string;
+        name: string;
+        amount: number;
+        count: number;
+        fines: number;
+        salary: number;
+      }
     >();
     for (const o of orders) {
       if (!o.masterId || !o.master) continue;
@@ -79,11 +91,42 @@ export class SettlementsService {
         name: o.master.user.fullName,
         amount: 0,
         count: 0,
+        fines: 0,
+        salary: 0,
       };
       cur.amount += Number(o.payment?.toCompany ?? 0);
+      cur.salary += Number(o.payment?.masterSalary ?? 0);
       cur.count += 1;
       map.set(o.masterId, cur);
     }
+
+    // Штрафы мастера увеличивают «к сдаче» и учитываются отдельно (− из ЗП).
+    const fineTxs = await this.prisma.cashTx.findMany({
+      where: {
+        direction: CashDirection.INCOME,
+        incomeBasis: CashIncomeBasis.FINE,
+        masterId: { not: null },
+        createdAt: { gte: fromDate, lte: toDate },
+        cityId: this.branch.cityWhere(cityIds),
+      },
+      include: { master: { include: { user: true } } },
+    });
+    for (const f of fineTxs) {
+      if (!f.masterId || !f.master) continue;
+      const cur = map.get(f.masterId) ?? {
+        masterId: f.masterId,
+        name: f.master.user.fullName,
+        amount: 0,
+        count: 0,
+        fines: 0,
+        salary: 0,
+      };
+      const amt = Number(f.amount);
+      cur.fines += amt;
+      cur.amount += amt;
+      map.set(f.masterId, cur);
+    }
+
     return [...map.values()];
   }
 
@@ -144,12 +187,18 @@ export class SettlementsService {
       const due = Math.round((dueRow?.amount ?? 0) * 100) / 100;
       const paid = Math.round((paidRow?.paid ?? 0) * 100) / 100;
       const remaining = Math.max(0, Math.round((due - paid) * 100) / 100);
+      const fines = Math.round((dueRow?.fines ?? 0) * 100) / 100;
+      const salary = Math.round((dueRow?.salary ?? 0) * 100) / 100;
+      const salaryNet = Math.max(0, Math.round((salary - fines) * 100) / 100);
       return {
         masterId,
         name: dueRow?.name ?? paidRow?.name ?? '—',
         due,
         paid,
         remaining,
+        fines,
+        salary,
+        salaryNet,
         orderCount: dueRow?.count ?? 0,
         settlementId: paidRow?.settlementId ?? null,
       };
@@ -244,10 +293,20 @@ export class SettlementsService {
       },
       include: { payment: true },
     });
-    const amount =
-      Math.round(
-        orders.reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0) * 100,
-      ) / 100;
+    const fromOrders =
+      orders.reduce((s, o) => s + Number(o.payment?.toCompany ?? 0), 0);
+
+    const fineTxs = await this.prisma.cashTx.findMany({
+      where: {
+        direction: CashDirection.INCOME,
+        incomeBasis: CashIncomeBasis.FINE,
+        masterId,
+        createdAt: { gte: fromDate, lte: toDate },
+      },
+      select: { amount: true },
+    });
+    const fromFines = fineTxs.reduce((s, t) => s + Number(t.amount), 0);
+    const amount = Math.round((fromOrders + fromFines) * 100) / 100;
 
     const periodFrom = new Date(from);
     const periodTo = new Date(to);
@@ -342,7 +401,7 @@ export class SettlementsService {
     const due = Math.round(calc.amount * 100) / 100;
     if (due <= 0) {
       throw new BadRequestException(
-        'Нет суммы к сдаче за период: нужны заявки со статусом «Готов», назначенным мастером и toCompany > 0',
+        'Нет суммы к сдаче за период: нужны закрытые заявки (toCompany > 0) или штрафы мастера',
       );
     }
 

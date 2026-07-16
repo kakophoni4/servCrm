@@ -11,6 +11,12 @@ describe('CashService', () => {
       findMany: jest.fn(),
       create: jest.fn(),
     },
+    master: {
+      findUnique: jest.fn(),
+    },
+    city: {
+      findUnique: jest.fn(),
+    },
   } as any;
 
   const branch = {
@@ -19,7 +25,15 @@ describe('CashService', () => {
     cityWhere: jest.fn(),
   } as any;
 
-  const svc = new CashService(prisma, branch);
+  const bot = {
+    notifyMasterFine: jest.fn().mockResolvedValue(null),
+  } as any;
+
+  const settlements = {
+    syncMasterMonth: jest.fn().mockResolvedValue(null),
+  } as any;
+
+  const svc = new CashService(prisma, branch, bot, settlements);
 
   const userId = 'user-1';
 
@@ -235,7 +249,12 @@ describe('CashService', () => {
           },
           cityId: { in: ['city-A'] },
         },
-        include: { city: true, order: true, createdBy: true },
+        include: {
+          city: true,
+          order: true,
+          master: { include: { user: true } },
+          createdBy: true,
+        },
         orderBy: { createdAt: 'desc' },
       });
     });

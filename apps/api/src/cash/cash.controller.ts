@@ -55,6 +55,11 @@ class IncomeDto {
   @IsString()
   orderId?: string;
 
+  /** Опционально: только для основания «Штраф». */
+  @IsOptional()
+  @IsString()
+  masterId?: string;
+
   @IsOptional()
   @IsString()
   documentPath?: string;

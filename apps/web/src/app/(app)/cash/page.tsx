@@ -21,10 +21,12 @@ type CashTx = {
   createdAt: string;
   city?: { id: string; name: string } | null;
   order?: { publicId: string } | null;
+  master?: { user?: { fullName: string } | null } | null;
   createdBy?: { fullName: string } | null;
 };
 
 type City = { id: string; name: string };
+type MasterOpt = { id: string; user: { fullName: string } };
 
 /** Ручной приход — без «По заявке» (тот только автоматически при «Готов»). */
 const MANUAL_INCOME_BASIS = Object.fromEntries(
@@ -83,8 +85,10 @@ export default function CashPage() {
     incomeBasis: 'EXTRA_FUNDING',
     cityId: '',
     description: '',
+    masterId: '',
   });
   const [incomeFile, setIncomeFile] = useState<File | null>(null);
+  const [masters, setMasters] = useState<MasterOpt[]>([]);
 
   const [expense, setExpense] = useState({
     amount: '',
@@ -101,12 +105,14 @@ export default function CashPage() {
   });
 
   async function load() {
-    const [list, cityList] = await Promise.all([
+    const [list, cityList, masterList] = await Promise.all([
       api<CashTx[]>('/cash'),
       api<City[]>('/cities'),
+      api<MasterOpt[]>('/masters').catch(() => [] as MasterOpt[]),
     ]);
     setTxs(list);
     setCities(cityList);
+    setMasters(masterList);
     const defaultCity = cityList[0]?.id ?? '';
     if (defaultCity) {
       setIncome((f) => (f.cityId ? f : { ...f, cityId: defaultCity }));
@@ -161,12 +167,20 @@ export default function CashPage() {
         incomeBasis: income.incomeBasis || defaultIncomeBasis,
         cityId: income.cityId || undefined,
         description: income.description || undefined,
+        masterId:
+          income.incomeBasis === 'FINE' && income.masterId
+            ? income.masterId
+            : undefined,
       });
       if (incomeFile) fd.append('file', incomeFile);
       await uploadFiles('/cash/income', fd);
-      setIncome((f) => ({ ...f, amount: '', description: '' }));
+      setIncome((f) => ({ ...f, amount: '', description: '', masterId: '' }));
       setIncomeFile(null);
-      setMsg('Приход записан');
+      setMsg(
+        income.incomeBasis === 'FINE' && income.masterId
+          ? 'Штраф записан, мастер уведомлён'
+          : 'Приход записан',
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -278,13 +292,42 @@ export default function CashPage() {
                       ? 'cash-chip cash-chip-active'
                       : 'cash-chip'
                   }
-                  onClick={() => setIncome({ ...income, incomeBasis: k })}
+                  onClick={() =>
+                    setIncome({
+                      ...income,
+                      incomeBasis: k,
+                      masterId: k === 'FINE' ? income.masterId : '',
+                    })
+                  }
                 >
                   {v}
                 </button>
               ))}
             </div>
           </div>
+
+          {income.incomeBasis === 'FINE' ? (
+            <div className="field">
+              <label>Мастер (необязательно)</label>
+              <select
+                value={income.masterId}
+                onChange={(e) =>
+                  setIncome({ ...income, masterId: e.target.value })
+                }
+              >
+                <option value="">Без привязки к мастеру</option>
+                {masters.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.user.fullName}
+                  </option>
+                ))}
+              </select>
+              <p className="muted field-note">
+                Если указать — мастеру придёт уведомление, сумма добавится к
+                сдаче и вычтется из ЗП
+              </p>
+            </div>
+          ) : null}
 
           <div className="field">
             <label>Комментарий</label>
@@ -428,6 +471,7 @@ export default function CashPage() {
                 <th>Сумма</th>
                 <th>Филиал</th>
                 <th>Основание</th>
+                <th>Мастер</th>
                 <th>Заявка</th>
                 <th>Документ</th>
                 <th>Кто</th>
@@ -450,6 +494,7 @@ export default function CashPage() {
                           t.expenseBasis)
                         : '—'}
                   </td>
+                  <td>{t.master?.user?.fullName ?? '—'}</td>
                   <td>{t.order?.publicId ?? '—'}</td>
                   <td>{t.documentPath ? 'есть' : '—'}</td>
                   <td>{t.createdBy?.fullName ?? '—'}</td>
@@ -458,7 +503,7 @@ export default function CashPage() {
               ))}
               {txs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="muted">
+                  <td colSpan={10} className="muted">
                     Операций пока нет.
                   </td>
                 </tr>

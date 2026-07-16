@@ -10,6 +10,9 @@ type BoardRow = {
   due: number;
   paid: number;
   remaining: number;
+  fines: number;
+  salary: number;
+  salaryNet: number;
   orderCount: number;
   settlementId: string | null;
 };
@@ -200,6 +203,8 @@ export function MasterSettlementsPanel() {
               <tr>
                 <th>Мастер</th>
                 <th>К сдаче</th>
+                <th>Штрафы</th>
+                <th>ЗП (нетто)</th>
                 <th>Оплачено</th>
                 <th>Остаток</th>
                 <th></th>
@@ -222,6 +227,15 @@ export function MasterSettlementsPanel() {
                     ) : null}
                   </td>
                   <td>{money(row.due)}</td>
+                  <td>{money(row.fines ?? 0)}</td>
+                  <td>
+                    {money(row.salaryNet ?? 0)}
+                    {(row.fines ?? 0) > 0 ? (
+                      <div className="muted">
+                        из {money(row.salary ?? 0)}
+                      </div>
+                    ) : null}
+                  </td>
                   <td>{money(row.paid)}</td>
                   <td>{money(row.remaining)}</td>
                   <td>
@@ -241,8 +255,8 @@ export function MasterSettlementsPanel() {
               ))}
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="muted">
-                    Нет закрытых заявок мастеров за этот месяц.
+                  <td colSpan={7} className="muted">
+                    Нет закрытых заявок и штрафов мастеров за этот месяц.
                   </td>
                 </tr>
               ) : null}

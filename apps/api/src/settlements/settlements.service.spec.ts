@@ -23,6 +23,9 @@ describe('SettlementsService', () => {
     master: {
       findUnique: jest.fn(),
     },
+    cashTx: {
+      findMany: jest.fn(),
+    },
   } as any;
 
   const branch = {
@@ -40,6 +43,7 @@ describe('SettlementsService', () => {
     branch.cityWhere.mockImplementation((cityIds: string[] | null) =>
       cityIds ? { in: cityIds } : undefined,
     );
+    prisma.cashTx.findMany.mockResolvedValue([]);
   });
 
   describe('confirm', () => {
@@ -171,7 +175,14 @@ describe('SettlementsService', () => {
       );
 
       expect(result).toEqual([
-        { masterId: 'm-1', name: 'Иванов', amount: 350, count: 2 },
+        {
+          masterId: 'm-1',
+          name: 'Иванов',
+          amount: 350,
+          count: 2,
+          fines: 0,
+          salary: 0,
+        },
       ]);
       const toEnd = new Date('2026-01-31');
       toEnd.setHours(23, 59, 59, 999);
@@ -333,10 +344,49 @@ describe('SettlementsService', () => {
           due: 4800,
           paid: 1000,
           remaining: 3800,
+          fines: 0,
+          salary: 0,
+          salaryNet: 0,
           orderCount: 1,
           settlementId: 's-1',
         },
       ]);
+    });
+
+    it('adds master fines to due and salaryNet', async () => {
+      branch.allowedCityIds.mockResolvedValue(['city-A']);
+      branch.resolveCityIds.mockReturnValue(['city-A']);
+      prisma.order.findMany.mockResolvedValue([
+        {
+          masterId: 'm-1',
+          master: { user: { fullName: 'Иванов' } },
+          payment: { toCompany: 4800, masterSalary: 2000 },
+        },
+      ]);
+      prisma.cashTx.findMany.mockResolvedValue([
+        {
+          masterId: 'm-1',
+          amount: 500,
+          master: { user: { fullName: 'Иванов' } },
+        },
+      ]);
+      prisma.masterSettlement.findMany.mockResolvedValue([]);
+
+      const rows = await svc.board(
+        '2026-07-01',
+        '2026-07-31',
+        userId,
+        Role.OWNER,
+      );
+
+      expect(rows[0]).toMatchObject({
+        masterId: 'm-1',
+        due: 5300,
+        fines: 500,
+        salary: 2000,
+        salaryNet: 1500,
+        remaining: 5300,
+      });
     });
   });
 

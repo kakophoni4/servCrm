@@ -1,16 +1,22 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
+  NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import {
   CashDirection,
   CashExpenseBasis,
   CashIncomeBasis,
   Role,
+  UserStatus,
 } from '@prisma/client';
+import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettlementsService } from '../settlements/settlements.service';
 
 const ADMIN_EXPENSE: CashExpenseBasis[] = [
   CashExpenseBasis.SALARY_PROMO,
@@ -22,6 +28,9 @@ export class CashService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,
+    @Inject(forwardRef(() => BotService))
+    private readonly bot: BotService,
+    private readonly settlements: SettlementsService,
   ) {}
 
   async list(
@@ -41,7 +50,12 @@ export class CashService {
         },
         cityId: this.branch.cityWhere(cityIds),
       },
-      include: { city: true, order: true, createdBy: true },
+      include: {
+        city: true,
+        order: true,
+        master: { include: { user: true } },
+        createdBy: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -53,6 +67,7 @@ export class CashService {
       description?: string;
       cityId?: string;
       orderId?: string;
+      masterId?: string;
       documentPath?: string;
     },
     userId: string,
@@ -69,8 +84,25 @@ export class CashService {
         'Приход по заявке создаётся автоматически при статусе «Готов»',
       );
     }
+
+    let masterId: string | null = null;
+    if (input.masterId) {
+      if (input.incomeBasis !== CashIncomeBasis.FINE) {
+        throw new BadRequestException(
+          'Мастера можно указать только для штрафа',
+        );
+      }
+      const master = await this.prisma.master.findUnique({
+        where: { id: input.masterId },
+      });
+      if (!master || master.status !== UserStatus.ACTIVE) {
+        throw new NotFoundException('Мастер не найден');
+      }
+      masterId = master.id;
+    }
+
     const cityId = await this.resolveWriteCityId(userId, role, input.cityId);
-    return this.prisma.cashTx.create({
+    const row = await this.prisma.cashTx.create({
       data: {
         direction: CashDirection.INCOME,
         amount: input.amount,
@@ -78,10 +110,26 @@ export class CashService {
         description: input.description,
         cityId,
         orderId: input.orderId,
+        masterId,
         documentPath: input.documentPath,
         createdById: userId,
       },
+      include: {
+        master: { include: { user: true } },
+        city: true,
+      },
     });
+
+    if (masterId && input.incomeBasis === CashIncomeBasis.FINE) {
+      await this.bot
+        .notifyMasterFine(masterId, Number(input.amount), input.description)
+        .catch(() => undefined);
+      await this.settlements
+        .syncMasterMonth(masterId, new Date(), cityId ?? null)
+        .catch(() => undefined);
+    }
+
+    return row;
   }
 
   async expense(

@@ -243,6 +243,7 @@ model Master {
   city         City?              @relation(fields: [cityId], references: [id])
   orders       Order[]
   settlements  MasterSettlement[]
+  cashFines    CashTx[]           @relation("CashFineMaster")
 
   @@index([cityId])
   @@map("masters")
@@ -393,16 +394,20 @@ model CashTx {
   description String?           @db.Text
   cityId      String?           @map("city_id")
   orderId     String?           @map("order_id")
+  /** Опционально: штраф, привязанный к мастеру (уведомление + к сдаче − из ЗП). */
+  masterId    String?           @map("master_id")
   documentPath String?          @map("document_path")
   createdById String?           @map("created_by_id")
   createdAt   DateTime          @default(now()) @map("created_at")
 
-  city      City?  @relation(fields: [cityId], references: [id])
-  order     Order? @relation(fields: [orderId], references: [id])
-  createdBy User?  @relation("CashCreatedBy", fields: [createdById], references: [id])
+  city      City?   @relation(fields: [cityId], references: [id])
+  order     Order?  @relation(fields: [orderId], references: [id])
+  master    Master? @relation("CashFineMaster", fields: [masterId], references: [id])
+  createdBy User?   @relation("CashCreatedBy", fields: [createdById], references: [id])
 
   @@index([createdAt])
   @@index([direction])
+  @@index([masterId])
   @@map("cash_tx")
 }
 

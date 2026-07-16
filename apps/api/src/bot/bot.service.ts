@@ -387,18 +387,21 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     const fineRows = await this.prisma.cashTx.findMany({
       where: {
+        direction: CashDirection.INCOME,
         incomeBasis: CashIncomeBasis.FINE,
+        masterId,
         createdAt: { gte: from },
-        order: { masterId },
       },
       select: { amount: true },
     });
     const fines = fineRows.reduce((s, r) => s + Number(r.amount), 0);
+    const salaryNet = Math.max(0, Math.round((salary - fines) * 100) / 100);
 
     return {
       fullName: user.fullName,
       ordersCount: orders.length,
       salaryMonth: salary,
+      salaryNet,
       fines,
       bonus: 0,
       description:
@@ -566,6 +569,31 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       reply_markup: this.masterReplyKeyboard(),
     });
     return this.sendMasterOrderCard(telegramId, order);
+  }
+
+  /** Уведомление мастеру о штрафе (касса → FINE + masterId). */
+  async notifyMasterFine(
+    masterId: string,
+    amount: number,
+    description?: string | null,
+  ) {
+    const master = await this.prisma.master.findUnique({
+      where: { id: masterId },
+      include: { user: true },
+    });
+    const telegramId = master?.user.telegramId;
+    if (!telegramId) return null;
+
+    const lines = [
+      `Штраф: ${amount.toLocaleString('ru-RU')} ₽`,
+      description ? `Причина: ${description}` : null,
+      'Сумма добавлена к сдаче и вычтена из ЗП за месяц.',
+      'Актуальные цифры — кнопка «Моя ЗП».',
+    ].filter(Boolean);
+
+    return this.sendMessage(telegramId, lines.join('\n'), {
+      reply_markup: this.masterReplyKeyboard(),
+    });
   }
 
   /** Старому мастеру при переназначении / снятии. */
@@ -1012,9 +1040,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           await this.sendMessage(
             chatId,
             [
-              `ЗП за месяц: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
-              `Закрыто заявок: ${info.ordersCount}`,
+              `Начислено ЗП: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
               `Штрафы: ${info.fines.toLocaleString('ru-RU')} ₽`,
+              `К получению (ЗП − штрафы): ${info.salaryNet.toLocaleString('ru-RU')} ₽`,
+              `Закрыто заявок: ${info.ordersCount}`,
             ].join('\n'),
             { reply_markup: this.masterReplyKeyboard() },
           );
