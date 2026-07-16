@@ -1282,13 +1282,28 @@ label.file-picker:focus-within,
   border-top-color: var(--danger);
 }
 
-/* Уведомления о заявках — справа снизу, CRM остаётся кликабельной */
-.notify-dock {
+/* Стек уведомлений справа снизу (заявки + чат) */
+.notify-stack {
   position: fixed;
   right: 1rem;
   bottom: 1rem;
   z-index: 900;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.75rem;
   width: min(360px, calc(100vw - 1.5rem));
+  pointer-events: none;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+/* Уведомления — CRM остаётся кликабельной */
+.notify-dock {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  width: 100%;
   pointer-events: none;
 }
 
@@ -1351,6 +1366,23 @@ label.file-picker:focus-within,
 .notify-dock-item-urgent {
   border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
   background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+}
+
+.notify-dock-item-chat {
+  text-align: left;
+  justify-items: stretch;
+}
+
+.notify-dock-chat-body {
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notify-dock-item-chat .notify-dock-actions {
+  justify-content: flex-start;
 }
 
 .notify-dock-item-top {

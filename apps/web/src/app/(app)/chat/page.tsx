@@ -57,6 +57,7 @@ export default function ChatPage() {
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list');
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const openedFromQuery = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -122,6 +123,15 @@ export default function ChatPage() {
       setError(e instanceof Error ? e.message : 'Ошибка'),
     );
   }
+
+  useEffect(() => {
+    if (openedFromQuery.current) return;
+    const threadId = new URLSearchParams(window.location.search).get('thread');
+    if (!threadId) return;
+    openedFromQuery.current = true;
+    openThread(threadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function sendMessage(e: FormEvent) {
     e.preventDefault();

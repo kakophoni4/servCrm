@@ -12,6 +12,7 @@ import {
 import { ROLE_LABELS } from '@/lib/labels';
 import { hasPermission } from '@/lib/permissions';
 import { NavIcon } from './NavIcons';
+import { ChatMessageNotifier } from './ChatMessageNotifier';
 import { NewOrderNotifier } from './NewOrderNotifier';
 
 type NavItem = {
@@ -221,7 +222,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="main">{children}</main>
       </div>
-      <NewOrderNotifier />
+      <div className="notify-stack">
+        <ChatMessageNotifier />
+        <NewOrderNotifier />
+      </div>
     </div>
   );
 }
