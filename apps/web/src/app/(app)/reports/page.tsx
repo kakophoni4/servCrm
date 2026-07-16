@@ -728,18 +728,7 @@ export default function ReportsPage() {
     return <pre>{String(data)}</pre>;
   }
 
-  const periodLabel = (() => {
-    const { from, to } = monthRange(year, month);
-    const fromD = new Date(from);
-    const toD = new Date(to);
-    const sameMonth =
-      fromD.getMonth() === toD.getMonth() &&
-      fromD.getFullYear() === toD.getFullYear();
-    if (sameMonth) {
-      return `Период: ${fromD.getDate()}–${toD.getDate()} ${MONTH_LABELS[month - 1].toLowerCase()} ${year}`;
-    }
-    return `Период: ${fromD.toLocaleDateString('ru-RU')} — ${toD.toLocaleDateString('ru-RU')}`;
-  })();
+  const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Отчёт';
 
   return (
     <div className="reports-page">
@@ -758,47 +747,38 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      <div className="panel settle-filters">
-        <div className="period-filters">
-          <div className="field">
-            <label>Месяц</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Год</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+      <div className="panel">
+        <div className="panel-period-head">
+          <h2 className="panel-period-title">{tabLabel}</h2>
+          <div className="period-filters">
+            <div className="field">
+              <label>Месяц</label>
+              <select
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Год</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-        <p className="muted reports-period-hint">{periodLabel}</p>
-        <button
-          type="button"
-          className="btn period-filters-btn"
-          onClick={load}
-          disabled={loading}
-        >
-          Обновить
-        </button>
-      </div>
-
-      <div className="panel">
         {error ? <p className="error">{error}</p> : null}
         {renderData()}
       </div>

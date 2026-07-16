@@ -174,38 +174,39 @@ export function MasterSettlementsPanel() {
 
   return (
     <div className="settle-board">
-      <div className="panel settle-filters">
-        <div className="period-filters">
-          <div className="field">
-            <label>Месяц</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Год</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+      <div className="panel settle-panel">
+        <div className="panel-period-head">
+          <h2 className="panel-period-title">Расчёт мастеров</h2>
+          <div className="period-filters">
+            <div className="field">
+              <label>Месяц</label>
+              <select
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Год</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="panel settle-panel">
         {error && !payRow ? <p className="error">{error}</p> : null}
         {msg ? <p className="ok-msg">{msg}</p> : null}
         {loading ? <p className="muted">Загрузка…</p> : null}

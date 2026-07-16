@@ -308,9 +308,11 @@ export function DispatcherPayPanel() {
       </form>
 
       <div className="panel dispatcher-schedule">
-        <div className="dispatcher-pay-head dispatcher-schedule-head">
-          <h2 className="dispatcher-pay-title">График смен</h2>
-          <div className="period-filters dispatcher-schedule-filters">
+        <div className="panel-period-head dispatcher-schedule-head">
+          <h2 className="dispatcher-pay-title panel-period-title">
+            График смен
+          </h2>
+          <div className="period-filters">
             <div className="field">
               <label>Месяц</label>
               <select

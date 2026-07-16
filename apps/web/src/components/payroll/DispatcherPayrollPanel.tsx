@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DispatcherPayCalc,
   getDispatcherPaySummary,
@@ -65,54 +65,47 @@ export function DispatcherPayrollPanel() {
   useEffect(() => {
     load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function onFilter(e: FormEvent) {
-    e.preventDefault();
-    load();
-  }
+  }, [year, month]);
 
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
 
   return (
     <div className="settle-board">
-      <form className="panel settle-filters" onSubmit={onFilter}>
-        <div className="period-filters">
-          <div className="field">
-            <label>Месяц</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Год</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+      <div className="panel settle-panel">
+        <div className="panel-period-head">
+          <h2 className="panel-period-title">Расчёт диспетчеров</h2>
+          <div className="period-filters">
+            <div className="field">
+              <label>Месяц</label>
+              <select
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Год</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-        <button className="btn period-filters-btn" type="submit" disabled={loading}>
-          {loading ? 'Считаем…' : 'Пересчитать'}
-        </button>
-      </form>
 
-      {error ? <p className="error">{error}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
 
-      <div className="panel settle-panel">
         {loading && !rows.length ? (
           <p className="muted">Загрузка…</p>
         ) : rows.length === 0 ? (
