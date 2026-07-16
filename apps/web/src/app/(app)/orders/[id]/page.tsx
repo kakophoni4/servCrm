@@ -732,9 +732,6 @@ export default function OrderDetailPage() {
           {order.docsViaAdmin ? (
             <div className="banner-warn">
               Мастер попросил закрыть заявку через администратора.
-              {pendingDocs.length
-                ? ` Во «Входящих» ${pendingDocs.length} файл(ов) — назначьте типы.`
-                : ''}
             </div>
           ) : null}
 
