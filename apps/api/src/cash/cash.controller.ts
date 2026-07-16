@@ -2,8 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,6 +25,8 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import type { Response } from 'express';
+import { extname } from 'path';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,6 +38,17 @@ import {
   UploadedMemoryFile,
 } from '../common/storage/storage.service';
 import { CashService } from './cash.service';
+
+function mimeFromName(fileName: string): string {
+  const ext = extname(fileName).toLowerCase();
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.heic') return 'image/heic';
+  return 'application/octet-stream';
+}
 
 class IncomeDto {
   @Type(() => Number)
@@ -175,6 +191,24 @@ export class CashController {
     @CurrentUser() user: { userId: string; role: Role },
   ) {
     return this.cash.collection(dto, user.userId, user.role);
+  }
+
+  @Get(':id/document')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('cash.read')
+  async document(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: Role },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const doc = await this.cash.getDocument(id, user.userId, user.role);
+    res.set({
+      'Content-Type': mimeFromName(doc.fileName),
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(
+        doc.fileName,
+      )}`,
+    });
+    return new StreamableFile(this.storage.stream(doc.relPath));
   }
 
   private resolveDocumentPath(

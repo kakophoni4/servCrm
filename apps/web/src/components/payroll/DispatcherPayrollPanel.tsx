@@ -75,9 +75,9 @@ export function DispatcherPayrollPanel() {
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
 
   return (
-    <div>
-      <form className="panel" onSubmit={onFilter}>
-        <div className="grid-2">
+    <div className="settle-board">
+      <form className="panel settle-filters" onSubmit={onFilter}>
+        <div className="period-filters">
           <div className="field">
             <label>Месяц</label>
             <select
@@ -105,49 +105,57 @@ export function DispatcherPayrollPanel() {
             </select>
           </div>
         </div>
-        <button className="btn" type="submit" disabled={loading}>
+        <button className="btn period-filters-btn" type="submit" disabled={loading}>
           {loading ? 'Считаем…' : 'Пересчитать'}
         </button>
       </form>
 
       {error ? <p className="error">{error}</p> : null}
 
-      <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel settle-panel">
         {loading && !rows.length ? (
           <p className="muted">Загрузка…</p>
         ) : rows.length === 0 ? (
           <p className="muted">Нет диспетчеров или данных за период.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Диспетчер</th>
-                <th>Мес. оклад</th>
-                <th>Бонус (листовки)</th>
-                <th>Бонус от прибыли в смены</th>
-                <th>ИТОГО</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.userId}>
-                  <td>{r.fullName}</td>
-                  <td>{money(r.salaryBase)}</td>
-                  <td>{money(r.leafletsPay)}</td>
-                  <td>{money(r.closedOrdersBonus)}</td>
-                  <td>
-                    <strong>{money(r.total)}</strong>
-                  </td>
+          <div className="table-scroll">
+            <table className="table settle-table">
+              <thead>
+                <tr>
+                  <th>Диспетчер</th>
+                  <th className="num">Мес. оклад</th>
+                  <th className="num">Бонус (листовки)</th>
+                  <th className="num">Бонус от прибыли</th>
+                  <th className="num">Итого</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.userId}>
+                    <td>
+                      <div className="settle-master">
+                        <span className="settle-master-name">{r.fullName}</span>
+                      </div>
+                    </td>
+                    <td className="num">{money(r.salaryBase)}</td>
+                    <td className="num">{money(r.leafletsPay)}</td>
+                    <td className="num">{money(r.closedOrdersBonus)}</td>
+                    <td className="num">
+                      <strong>{money(r.total)}</strong>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {rows.length > 0 ? (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 12 }}>ИТОГО по диспетчерам</h2>
+        <div className="panel settle-panel">
+          <div className="salary-create-head">
+            <h2 className="salary-list-title">Итого по диспетчерам</h2>
+          </div>
           <div
             style={{
               display: 'flex',

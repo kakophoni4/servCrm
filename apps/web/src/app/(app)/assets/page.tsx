@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { api, getStoredUser } from '@/lib/api';
@@ -27,7 +28,12 @@ export default function AssetsPage() {
   const [status, setStatus] = useState<'ACTIVE' | 'WRITTEN_OFF'>('ACTIVE');
   const [cityFilter, setCityFilter] = useState('');
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ title: '', name: '', condition: '', cityId: '' });
+  const [form, setForm] = useState({
+    title: '',
+    name: '',
+    condition: '',
+    cityId: '',
+  });
   const [writeOffId, setWriteOffId] = useState<string | null>(null);
   const [writeOffNote, setWriteOffNote] = useState('');
 
@@ -88,157 +94,163 @@ export default function AssetsPage() {
 
   return (
     <OpsShell>
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
-        {(['ACTIVE', 'WRITTEN_OFF'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={status === s ? 'btn' : 'btn secondary'}
-            onClick={() => setStatus(s)}
-          >
-            {ASSET_STATUS_LABELS[s]}
-          </button>
-        ))}
-        <select
-          value={cityFilter}
-          onChange={(e) => setCityFilter(e.target.value)}
-          style={{
-            border: '1px solid var(--line)',
-            borderRadius: '0.5rem',
-            padding: '0.5rem 0.7rem',
-            marginLeft: 'auto',
-          }}
-        >
-          <option value="">{isOwner ? 'Все филиалы' : 'Мой филиал'}</option>
-          {cities.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {status === 'ACTIVE' ? (
-        <form className="panel" onSubmit={onCreate} style={{ marginBottom: 16 }}>
-          <div className="grid-2">
-            <div className="field">
-              <label>Категория / заголовок</label>
-              <input
-                required
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>Наименование</label>
-              <input
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>Состояние</label>
-              <input
-                value={form.condition}
-                onChange={(e) => setForm({ ...form, condition: e.target.value })}
-              />
-            </div>
-            <BranchSelect
-              cities={cities}
-              value={form.cityId}
-              onChange={(cityId) => setForm({ ...form, cityId })}
-              allowEmpty
-            />
-          </div>
-          <button className="btn" type="submit">
-            Добавить имущество
-          </button>
-        </form>
-      ) : null}
-
-      <div className="panel">
-        {error ? <p className="error">{error}</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Категория</th>
-              <th>Наименование</th>
-              <th>Состояние</th>
-              <th>Филиал</th>
-              <th>{status === 'WRITTEN_OFF' ? 'Списание' : ''}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assets.map((a) => (
-              <tr key={a.id}>
-                <td>{a.title}</td>
-                <td>{a.name}</td>
-                <td>{a.condition ?? '—'}</td>
-                <td>{a.city?.name ?? '—'}</td>
-                <td>
-                  {a.status === 'ACTIVE' ? (
-                    writeOffId === a.id ? (
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        <input
-                          placeholder="Причина списания"
-                          value={writeOffNote}
-                          onChange={(e) => setWriteOffNote(e.target.value)}
-                        />
-                        <button type="button" className="btn danger" onClick={() => writeOff(a.id)}>
-                          Списать
-                        </button>
-                        <button
-                          type="button"
-                          className="btn secondary"
-                          onClick={() => {
-                            setWriteOffId(null);
-                            setWriteOffNote('');
-                          }}
-                        >
-                          Отмена
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        onClick={() => setWriteOffId(a.id)}
-                      >
-                        Списать
-                      </button>
-                    )
-                  ) : (
-                    <span className="muted">
-                      {a.writtenOffAt
-                        ? new Date(a.writtenOffAt).toLocaleDateString('ru-RU')
-                        : '—'}
-                      {a.writeOffNote ? ` · ${a.writeOffNote}` : ''}
-                    </span>
-                  )}
-                </td>
-              </tr>
+      <div className="asset-page">
+        <div className="asset-toolbar">
+          <div className="asset-tabs" role="group" aria-label="Статус имущества">
+            {(['ACTIVE', 'WRITTEN_OFF'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={status === s ? 'btn' : 'btn secondary'}
+                onClick={() => setStatus(s)}
+              >
+                {ASSET_STATUS_LABELS[s]}
+              </button>
             ))}
-            {assets.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="muted">
-                  Записей нет.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+          </div>
+          <div className="field asset-filter">
+            <label>Филиал</label>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+            >
+              <option value="">{isOwner ? 'Все филиалы' : 'Мой филиал'}</option>
+              {cities.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {status === 'ACTIVE' ? (
+          <form className="panel asset-form" onSubmit={onCreate}>
+            <div className="asset-form-head">
+              <h2 className="asset-form-title">Новое имущество</h2>
+            </div>
+            <div className="asset-form-row">
+              <div className="field">
+                <label>Категория / заголовок</label>
+                <input
+                  required
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Наименование</label>
+                <input
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Состояние</label>
+                <input
+                  value={form.condition}
+                  onChange={(e) =>
+                    setForm({ ...form, condition: e.target.value })
+                  }
+                />
+              </div>
+              <BranchSelect
+                cities={cities}
+                value={form.cityId}
+                onChange={(cityId) => setForm({ ...form, cityId })}
+                allowEmpty
+              />
+            </div>
+            <button className="btn asset-form-submit" type="submit">
+              Добавить имущество
+            </button>
+          </form>
+        ) : null}
+
+        <div className="panel">
+          {error ? <p className="error">{error}</p> : null}
+          <div className="table-scroll">
+            <table className="table asset-table">
+              <thead>
+                <tr>
+                  <th>Категория</th>
+                  <th>Наименование</th>
+                  <th>Состояние</th>
+                  <th>Филиал</th>
+                  <th>{status === 'WRITTEN_OFF' ? 'Списание' : 'Действия'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assets.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.title}</td>
+                    <td>{a.name}</td>
+                    <td>{a.condition ?? '—'}</td>
+                    <td>{a.city?.name ?? '—'}</td>
+                    <td>
+                      {a.status === 'ACTIVE' ? (
+                        writeOffId === a.id ? (
+                          <div className="asset-writeoff">
+                            <AutoTextarea
+                              placeholder="Причина списания"
+                              value={writeOffNote}
+                              onChange={(e) => setWriteOffNote(e.target.value)}
+                            />
+                            <div className="asset-writeoff-actions">
+                              <button
+                                type="button"
+                                className="btn danger"
+                                onClick={() => writeOff(a.id)}
+                              >
+                                Списать
+                              </button>
+                              <button
+                                type="button"
+                                className="btn secondary"
+                                onClick={() => {
+                                  setWriteOffId(null);
+                                  setWriteOffNote('');
+                                }}
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            onClick={() => setWriteOffId(a.id)}
+                          >
+                            Списать
+                          </button>
+                        )
+                      ) : (
+                        <span className="muted">
+                          {a.writtenOffAt
+                            ? new Date(a.writtenOffAt).toLocaleDateString(
+                                'ru-RU',
+                              )
+                            : '—'}
+                          {a.writeOffNote ? ` · ${a.writeOffNote}` : ''}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {assets.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="muted">
+                      Записей нет.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-    </div>
     </OpsShell>
   );
 }

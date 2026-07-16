@@ -30,11 +30,11 @@ type WebhookResult = {
 
 export function BotSettingsPanel() {
   const [config, setConfig] = useState<BotConfig | null>(null);
+  const [token, setToken] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [test, setTest] = useState<TestResult | null>(null);
-  const [webhook, setWebhook] = useState<WebhookResult | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -51,13 +51,31 @@ export function BotSettingsPanel() {
     e.preventDefault();
     setError('');
     setMsg('');
+    setTest(null);
     setSaving(true);
     try {
+      const body: { enabled: boolean; token?: string } = { enabled };
+      const trimmed = token.trim();
+      if (trimmed) body.token = trimmed;
+
       await api('/settings/bot', {
         method: 'PUT',
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify(body),
       });
-      setMsg('Настройки сохранены');
+      setToken('');
+
+      const webhook = await api<WebhookResult>('/settings/bot/set-webhook', {
+        method: 'POST',
+      });
+      if (!webhook.ok) {
+        setMsg(
+          webhook.error
+            ? `Токен сохранён, но Telegram не подключён: ${webhook.error}`
+            : 'Токен сохранён, но Telegram не подключён',
+        );
+      } else {
+        setMsg('Сохранено, бот подключён к CRM');
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -81,26 +99,6 @@ export function BotSettingsPanel() {
     }
   }
 
-  async function runSetWebhook() {
-    setError('');
-    setMsg('');
-    setWebhook(null);
-    try {
-      const res = await api<WebhookResult>('/settings/bot/set-webhook', {
-        method: 'POST',
-      });
-      setWebhook(res);
-      if (res.ok) {
-        setMsg('Webhook установлен');
-        await load();
-      } else {
-        setError(res.error || 'Не удалось установить webhook');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка setWebhook');
-    }
-  }
-
   const botLink = config?.username
     ? `https://t.me/${config.username}`
     : null;
@@ -109,36 +107,60 @@ export function BotSettingsPanel() {
     : config.enabled
       ? 'включён'
       : 'выключен';
+  const linked = Boolean(config?.hasToken && config.webhookUrl);
 
   return (
-    <div>
-      <form className="panel" onSubmit={save}>
+    <div className="bot-settings">
+      <form className="panel bot-settings-form" onSubmit={save}>
+        <div className="bot-settings-head">
+          <h2 className="bot-settings-title">Telegram-бот</h2>
+          <p className="muted bot-settings-sub">
+            Один внутренний бот для мастеров и уведомлений
+          </p>
+        </div>
+
         {config ? (
-          <div className="field" style={{ marginBottom: 16 }}>
-            <label>Текущий бот</label>
-            <p style={{ margin: '0.35rem 0 0' }}>
+          <div className="bot-settings-status">
+            <span className="muted">Статус</span>
+            <strong>
               {botLink ? (
                 <a href={botLink} target="_blank" rel="noreferrer">
                   @{config.username}
                 </a>
               ) : (
-                <span className="muted">—</span>
+                '—'
               )}
-              <span className="muted"> · статус: {statusLabel}</span>
-            </p>
+              {' · '}
+              {statusLabel}
+              {linked ? ' · подключён' : ''}
+            </strong>
+            {config.hasToken ? (
+              <span className="muted bot-settings-masked">
+                Токен: {config.tokenMasked}
+              </span>
+            ) : null}
           </div>
         ) : (
           <p className="muted">Загрузка…</p>
         )}
 
-        <label
-          style={{
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-            marginBottom: 12,
-          }}
-        >
+        <div className="field">
+          <label>Токен бота</label>
+          <input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={
+              config?.hasToken
+                ? 'Оставьте пустым, чтобы не менять'
+                : 'Токен от @BotFather'
+            }
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </div>
+
+        <label className="bot-settings-check">
           <input
             type="checkbox"
             checked={enabled}
@@ -148,43 +170,31 @@ export function BotSettingsPanel() {
         </label>
 
         {error ? <p className="error">{error}</p> : null}
-        {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+        {msg ? <p className="bot-settings-msg">{msg}</p> : null}
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="bot-settings-actions">
           <button className="btn" type="submit" disabled={saving}>
             {saving ? 'Сохранение…' : 'Сохранить'}
-          </button>
-          <button className="btn secondary" type="button" onClick={runTest}>
-            Проверить подключение
           </button>
           <button
             className="btn secondary"
             type="button"
-            onClick={runSetWebhook}
+            onClick={runTest}
+            disabled={!config?.hasToken}
           >
-            Установить webhook
+            Проверить подключение
           </button>
         </div>
 
         {test ? (
           <p
-            style={{ marginTop: 12, color: test.ok ? '#0f766e' : '#b91c1c' }}
+            className={
+              test.ok ? 'bot-settings-msg' : 'error'
+            }
           >
             {test.ok
               ? `Успех: @${test.username ?? '—'} (${test.name ?? ''})`
               : `Ошибка: ${test.error}`}
-          </p>
-        ) : null}
-
-        {webhook?.ok ? (
-          <p
-            style={{
-              marginTop: 12,
-              color: '#0f766e',
-              wordBreak: 'break-all',
-            }}
-          >
-            Webhook установлен
           </p>
         ) : null}
       </form>

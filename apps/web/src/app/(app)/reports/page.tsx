@@ -51,7 +51,6 @@ const FIELD_LABELS: Record<string, string> = {
   partnerNetSum: 'Чистыми партнёры',
   claimsPercent: '% претензий',
   netSum: 'Чистая сумма',
-  partnerId: 'ID партнёра',
   partnerName: 'Партнёр',
   paid: 'Оплачено клиентом',
   avgCheckHandover: 'Ср. чек сдачи',
@@ -142,6 +141,44 @@ const CASH_CITY_COLUMNS: { key: string; label: string }[] = [
   { key: 'expenseAds', label: 'Расход по объявлениям' },
   { key: 'expenseTotal', label: 'Общий расход' },
   { key: 'balance', label: 'Остаток' },
+];
+
+const CANCEL_CITY_COLUMNS: { key: string; label: string }[] = [
+  { key: 'cityName', label: 'Филиал' },
+  { key: 'total', label: 'Всего' },
+  { key: 'partner', label: 'Партнёрские' },
+  { key: 'our', label: 'Наши' },
+  { key: 'refusal', label: 'Отказ' },
+  { key: 'cancelledCc', label: 'Отмена КЦ' },
+  { key: 'byMasterFault', label: 'По вине мастера' },
+  { key: 'byAdminFault', label: 'По вине администратора' },
+];
+
+const CLAIM_TYPE_LABELS: Record<string, string> = {
+  POLICE: 'Полиция',
+  MASTER_BROKE: 'Мастер сломал технику',
+  PRICE_DISSATISFIED: 'Недоволен ценой',
+};
+
+const CLAIM_COLUMNS: { key: string; label: string }[] = [
+  { key: 'date', label: 'Дата' },
+  { key: 'orderPublicId', label: 'Заявка' },
+  { key: 'clientName', label: 'Клиент' },
+  { key: 'type', label: 'Тип' },
+  { key: 'cityName', label: 'Филиал' },
+  { key: 'refundSum', label: 'Возврат' },
+  { key: 'orderSum', label: 'Сумма заявки' },
+  { key: 'status', label: 'Статус' },
+];
+
+const PARTNER_COLUMNS: { key: string; label: string }[] = [
+  { key: 'partnerName', label: 'Партнёр' },
+  { key: 'count', label: 'Заявок' },
+  { key: 'paid', label: 'Оплачено' },
+  { key: 'work', label: 'Работы' },
+  { key: 'salary', label: 'ЗП мастерам' },
+  { key: 'net', label: 'Чистыми' },
+  { key: 'avgNet', label: 'Ср. чистый чек' },
 ];
 
 function labelOf(key: string): string {
@@ -262,7 +299,7 @@ export default function ReportsPage() {
 
   function renderTable(rows: Record<string, unknown>[], skipKeys: string[] = []) {
     if (!rows.length) return <p className="muted">Нет данных за период.</p>;
-    const hidden = new Set(['masterId', ...skipKeys]);
+    const hidden = new Set(['masterId', 'partnerId', 'cityId', ...skipKeys]);
     const keys = Object.keys(rows[0]).filter((k) => !hidden.has(k));
     return (
       <div className="table-scroll">
@@ -447,18 +484,18 @@ export default function ReportsPage() {
     const rows = totals ? [...byCity, totals] : byCity;
 
     return (
-      <div>
+      <div className="report-city-block">
         {obj.period ? (
-          <p className="muted" style={{ marginBottom: 12 }}>
-            Период: {formatCell(obj.period, 'period')}
+          <p className="muted report-period">
+            {formatCell(obj.period, 'period')}
           </p>
         ) : null}
-        <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>По филиалам</h3>
+        <h3 className="report-section-title">По филиалам</h3>
         {!rows.length ? (
           <p className="muted">Нет данных за период.</p>
         ) : (
           <div className="table-scroll">
-            <table className="table table-compact">
+            <table className="table table-compact report-city-table">
               <thead>
                 <tr>
                   {CASH_CITY_COLUMNS.map((c) => (
@@ -470,10 +507,8 @@ export default function ReportsPage() {
                 {rows.map((row, i) => (
                   <tr
                     key={i}
-                    style={
-                      row.cityName === 'Итого'
-                        ? { fontWeight: 600 }
-                        : undefined
+                    className={
+                      row.cityName === 'Итого' ? 'report-row-total' : undefined
                     }
                   >
                     {CASH_CITY_COLUMNS.map((c) => (
@@ -489,10 +524,158 @@ export default function ReportsPage() {
             </table>
           </div>
         )}
-        <h3 style={{ margin: '20px 0 8px', fontSize: 16 }}>
-          Пояснения по расходам
-        </h3>
+        <h3 className="report-section-title">Пояснения по расходам</h3>
         {renderTable(notes, ['documentPath'])}
+      </div>
+    );
+  }
+
+  function renderCancels(obj: Record<string, unknown>) {
+    const byCity = Array.isArray(obj.byCity)
+      ? (obj.byCity as Record<string, unknown>[])
+      : [];
+    const totals = (obj.totals as Record<string, unknown>) ?? null;
+    const rows = totals ? [...byCity, totals] : byCity;
+
+    return (
+      <div className="report-city-block">
+        {obj.period ? (
+          <p className="muted report-period">
+            {formatCell(obj.period, 'period')}
+          </p>
+        ) : null}
+        <h3 className="report-section-title">По филиалам</h3>
+        {!rows.length ? (
+          <p className="muted">Нет данных за период.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="table table-compact report-city-table">
+              <thead>
+                <tr>
+                  {CANCEL_CITY_COLUMNS.map((c) => (
+                    <th key={c.key}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr
+                    key={i}
+                    className={
+                      row.cityName === 'Итого' ? 'report-row-total' : undefined
+                    }
+                  >
+                    {CANCEL_CITY_COLUMNS.map((c) => (
+                      <td key={c.key}>
+                        {c.key === 'cityName'
+                          ? String(row[c.key] ?? '—')
+                          : String(row[c.key] ?? 0)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function formatClaimCell(row: Record<string, unknown>, key: string): string {
+    const v = row[key];
+    if (key === 'date' && typeof v === 'string') {
+      return new Date(v).toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+    }
+    if (key === 'type') {
+      return CLAIM_TYPE_LABELS[String(v)] ?? String(v ?? '—');
+    }
+    if (key === 'status') {
+      return v === 'closed' ? 'Закрыта' : 'Открыта';
+    }
+    if (key === 'refundSum' || key === 'orderSum') {
+      return formatMoney(v);
+    }
+    return v == null || v === '' ? '—' : String(v);
+  }
+
+  function renderClaims(obj: Record<string, unknown>) {
+    const rows = Array.isArray(obj.rows)
+      ? (obj.rows as Record<string, unknown>[])
+      : [];
+
+    return (
+      <div className="report-city-block">
+        {obj.period ? (
+          <p className="muted report-period">
+            {formatCell(obj.period, 'period')}
+          </p>
+        ) : null}
+        <h3 className="report-section-title">Претензии за период</h3>
+        {!rows.length ? (
+          <p className="muted">Нет данных за период.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="table table-compact report-city-table">
+              <thead>
+                <tr>
+                  {CLAIM_COLUMNS.map((c) => (
+                    <th key={c.key}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i}>
+                    {CLAIM_COLUMNS.map((c) => (
+                      <td key={c.key}>{formatClaimCell(row, c.key)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderPartners(rows: Record<string, unknown>[]) {
+    return (
+      <div className="report-city-block">
+        <h3 className="report-section-title">Партнёры за период</h3>
+        {!rows.length ? (
+          <p className="muted">Нет данных за период.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="table table-compact report-city-table">
+              <thead>
+                <tr>
+                  {PARTNER_COLUMNS.map((c) => (
+                    <th key={c.key}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i}>
+                    {PARTNER_COLUMNS.map((c) => (
+                      <td key={c.key}>
+                        {c.key === 'partnerName' || c.key === 'count'
+                          ? String(row[c.key] ?? '—')
+                          : formatMoney(row[c.key])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     );
   }
@@ -503,6 +686,18 @@ export default function ReportsPage() {
 
     if (tab === 'cash' && typeof data === 'object' && !Array.isArray(data)) {
       return renderCash(data as Record<string, unknown>);
+    }
+
+    if (tab === 'cancels' && typeof data === 'object' && !Array.isArray(data)) {
+      return renderCancels(data as Record<string, unknown>);
+    }
+
+    if (tab === 'claims' && typeof data === 'object' && !Array.isArray(data)) {
+      return renderClaims(data as Record<string, unknown>);
+    }
+
+    if (tab === 'partners' && Array.isArray(data)) {
+      return renderPartners(data as Record<string, unknown>[]);
     }
 
     if (Array.isArray(data)) {
@@ -522,7 +717,7 @@ export default function ReportsPage() {
         return (
           <div>
             {renderMetrics(obj, ['rows'])}
-            <h3 style={{ margin: '16px 0 8px', fontSize: 16 }}>Детализация</h3>
+            <h3 className="report-section-title">Детализация</h3>
             {renderTable(obj.rows as Record<string, unknown>[])}
           </div>
         );
@@ -533,11 +728,24 @@ export default function ReportsPage() {
     return <pre>{String(data)}</pre>;
   }
 
-  return (
-    <div>
-      <h1 className="page-title">Отчёты</h1>
+  const periodLabel = (() => {
+    const { from, to } = monthRange(year, month);
+    const fromD = new Date(from);
+    const toD = new Date(to);
+    const sameMonth =
+      fromD.getMonth() === toD.getMonth() &&
+      fromD.getFullYear() === toD.getFullYear();
+    if (sameMonth) {
+      return `Период: ${fromD.getDate()}–${toD.getDate()} ${MONTH_LABELS[month - 1].toLowerCase()} ${year}`;
+    }
+    return `Период: ${fromD.toLocaleDateString('ru-RU')} — ${toD.toLocaleDateString('ru-RU')}`;
+  })();
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+  return (
+    <div className="reports-page">
+      <h1 className="page-title settings-page-title">Отчёты</h1>
+
+      <div className="reports-tabs" role="tablist" aria-label="Тип отчёта">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -550,8 +758,8 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="grid-2">
+      <div className="panel settle-filters">
+        <div className="period-filters">
           <div className="field">
             <label>Месяц</label>
             <select
@@ -579,11 +787,13 @@ export default function ReportsPage() {
             </select>
           </div>
         </div>
-        <p className="muted" style={{ margin: '0 0 12px', fontSize: '0.85rem' }}>
-          Период: 1–{new Date(year, month, 0).getDate()}{' '}
-          {MONTH_LABELS[month - 1].toLowerCase()} {year}
-        </p>
-        <button type="button" className="btn" onClick={load} disabled={loading}>
+        <p className="muted reports-period-hint">{periodLabel}</p>
+        <button
+          type="button"
+          className="btn period-filters-btn"
+          onClick={load}
+          disabled={loading}
+        >
           Обновить
         </button>
       </div>

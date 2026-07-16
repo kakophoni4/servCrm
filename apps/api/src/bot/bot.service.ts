@@ -332,6 +332,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       address: string;
       typeTech?: string | null;
       comment?: string | null;
+      adminComment?: string | null;
       scheduledAt?: Date | null;
       status: OrderStatus;
       client: { name: string; phoneNormalized: string };
@@ -344,7 +345,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       `Адрес: ${order.address}`,
     ];
     if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
-    if (order.comment) lines.push(`Комментарий: ${order.comment}`);
+    if (order.comment?.trim()) {
+      lines.push(`Комментарий диспетчера: ${order.comment.trim()}`);
+    }
+    if (order.adminComment?.trim()) {
+      lines.push(`Комментарий администратора: ${order.adminComment.trim()}`);
+    }
     if (order.scheduledAt) {
       lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
     }

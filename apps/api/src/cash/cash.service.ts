@@ -206,6 +206,33 @@ export class CashService {
     });
   }
 
+  async getDocument(
+    id: string,
+    userId: string,
+    role: Role | string,
+  ): Promise<{ relPath: string; fileName: string }> {
+    const tx = await this.prisma.cashTx.findUnique({
+      where: { id },
+      select: { documentPath: true, cityId: true },
+    });
+    if (!tx?.documentPath) {
+      throw new NotFoundException('Документ не прикреплён');
+    }
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      tx.cityId &&
+      !allowed.includes(tx.cityId)
+    ) {
+      throw new ForbiddenException('Операция вне вашего филиала');
+    }
+
+    const fileName =
+      tx.documentPath.split('/').pop() || `cash-${id}`;
+    return { relPath: tx.documentPath, fileName };
+  }
+
   /**
    * OWNER: cityId без ограничений (можно null).
    * Остальные: чужой cityId запрещён; без cityId — свой филиал (allowed[0]).

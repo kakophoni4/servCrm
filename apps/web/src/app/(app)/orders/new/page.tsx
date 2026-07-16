@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
 import { api } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
@@ -145,7 +146,7 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div>
+    <div className="order-new-page">
       <h1 className="page-title">Новая заявка</h1>
       <form className="panel order-new-form" onSubmit={onSubmit}>
         <div className="grid-2">
@@ -269,13 +270,12 @@ export default function NewOrderPage() {
         </div>
         <div className="field">
           <label>Комментарий по заявке</label>
-          <textarea
-            rows={3}
+          <AutoTextarea
             value={form.comment}
             onChange={(e) => set('comment', e.target.value)}
           />
         </div>
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <label className="order-new-check">
           <input
             type="checkbox"
             checked={form.isProfile}
@@ -284,11 +284,13 @@ export default function NewOrderPage() {
           Профильная заявка
         </label>
         {error ? <p className="error">{error}</p> : null}
-        <div style={{ marginTop: 12 }}>
-          <button className="btn" type="submit" disabled={loading}>
-            {loading ? 'Сохраняем…' : 'Создать заявку'}
-          </button>
-        </div>
+        <button
+          className="btn order-new-submit"
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? 'Сохраняем…' : 'Создать заявку'}
+        </button>
       </form>
     </div>
   );

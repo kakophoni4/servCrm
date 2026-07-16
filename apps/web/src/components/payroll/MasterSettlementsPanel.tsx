@@ -175,7 +175,7 @@ export function MasterSettlementsPanel() {
   return (
     <div className="settle-board">
       <div className="panel settle-filters">
-        <div className="settle-filters-row">
+        <div className="period-filters">
           <div className="field">
             <label>Месяц</label>
             <select
@@ -202,12 +202,6 @@ export function MasterSettlementsPanel() {
               ))}
             </select>
           </div>
-          <div className="settle-period">
-            <span className="settle-period-label">Период</span>
-            <strong>
-              {MONTH_LABELS[month - 1]} {year}
-            </strong>
-          </div>
         </div>
       </div>
 
@@ -231,7 +225,7 @@ export function MasterSettlementsPanel() {
               <strong>{money(totals.salaryNet)} ₽</strong>
             </div>
             <div className="settle-summary-item">
-              <span>Оплачено</span>
+              <span>Сдано</span>
               <strong>{money(totals.paid)} ₽</strong>
             </div>
             <div className="settle-summary-item accent">
@@ -250,7 +244,7 @@ export function MasterSettlementsPanel() {
                   <th className="num">К сдаче</th>
                   <th className="num">Штрафы</th>
                   <th className="num">ЗП (нетто)</th>
-                  <th className="num">Оплачено</th>
+                  <th className="num">Сдано</th>
                   <th className="num">Остаток</th>
                   <th></th>
                 </tr>

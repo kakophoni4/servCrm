@@ -156,28 +156,40 @@ describe('ReportsService', () => {
   });
 
   describe('cancels', () => {
-    it('counts cancels by status, fault and source kind', async () => {
-      mockBranchScope(['A']);
+    it('aggregates cancels by city with totals', async () => {
+      mockBranchScope(['A', 'B']);
+      prisma.city.findMany.mockResolvedValue([
+        { id: 'A', name: 'Альфа' },
+        { id: 'B', name: 'Бета' },
+      ]);
       prisma.order.findMany.mockResolvedValue([
         {
           status: OrderStatus.REFUSAL,
           cancelFault: 'master',
           sourceKind: SourceKind.OUR,
+          cityId: 'A',
+          city: { name: 'Альфа' },
         },
         {
           status: OrderStatus.CANCELLED_CC,
           cancelFault: 'master',
           sourceKind: SourceKind.PARTNER,
+          cityId: 'A',
+          city: { name: 'Альфа' },
         },
         {
           status: OrderStatus.REFUSAL,
           cancelFault: 'admin',
           sourceKind: SourceKind.OUR,
+          cityId: 'B',
+          city: { name: 'Бета' },
         },
         {
           status: OrderStatus.CANCELLED_CC,
           cancelFault: null,
           sourceKind: SourceKind.PARTNER,
+          cityId: 'B',
+          city: { name: 'Бета' },
         },
       ]);
 
@@ -189,14 +201,27 @@ describe('ReportsService', () => {
         TO,
       );
 
-      expect(result.total).toBe(4);
-      expect(result.refusal).toBe(2);
-      expect(result.cancelledCc).toBe(2);
-      expect(result.byMasterFault).toBe(2);
-      expect(result.byAdminFault).toBe(1);
-      expect(result.faultUnset).toBe(1);
-      expect(result.our).toBe(2);
-      expect(result.partner).toBe(2);
+      expect(result.byCity).toHaveLength(2);
+      expect(result.byCity[0].cityName).toBe('Альфа');
+      expect(result.byCity[0].total).toBe(2);
+      expect(result.byCity[0].refusal).toBe(1);
+      expect(result.byCity[0].cancelledCc).toBe(1);
+      expect(result.byCity[0].byMasterFault).toBe(2);
+      expect(result.byCity[0].our).toBe(1);
+      expect(result.byCity[0].partner).toBe(1);
+
+      expect(result.byCity[1].cityName).toBe('Бета');
+      expect(result.byCity[1].total).toBe(2);
+      expect(result.byCity[1].byAdminFault).toBe(1);
+
+      expect(result.totals.cityName).toBe('Итого');
+      expect(result.totals.total).toBe(4);
+      expect(result.totals.refusal).toBe(2);
+      expect(result.totals.cancelledCc).toBe(2);
+      expect(result.totals.byMasterFault).toBe(2);
+      expect(result.totals.byAdminFault).toBe(1);
+      expect(result.totals.our).toBe(2);
+      expect(result.totals.partner).toBe(2);
     });
   });
 
@@ -532,7 +557,6 @@ describe('ReportsService', () => {
 
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({
-        partnerId: 'p1',
         partnerName: 'Сервис Плюс',
         count: 2,
         net: 6000,
@@ -542,12 +566,12 @@ describe('ReportsService', () => {
         avgNet: 3000,
       });
       expect(result[1]).toMatchObject({
-        partnerId: 'p2',
         partnerName: 'Другой',
         count: 1,
         net: 1500,
         avgNet: 1500,
       });
+      expect(result[0]).not.toHaveProperty('partnerId');
     });
   });
 

@@ -410,6 +410,12 @@ export class OrdersService {
       );
     }
 
+    if (dto.adminComment !== undefined && !isAdmin) {
+      throw new ForbiddenException(
+        'Комментарий администратора могут менять только админ / директор / владелец',
+      );
+    }
+
     if (dto.scheduledAt !== undefined && !isAdmin) {
       throw new ForbiddenException(
         'Дату выполнения указывает администратор',
@@ -458,6 +464,10 @@ export class OrdersService {
             ? { connect: { id: dto.ageCategoryId } }
             : { disconnect: true },
       // Комментарий диспетчера задаётся при создании и не меняется.
+      adminComment:
+        dto.adminComment === undefined
+          ? undefined
+          : dto.adminComment?.trim() || null,
       master:
         dto.masterId === undefined
           ? undefined

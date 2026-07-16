@@ -145,14 +145,14 @@ function OwnerSettingsInner() {
   }
 
   return (
-    <div>
-      <h1 className="page-title">Настройки</h1>
+    <div className="settings-page">
+      <h1 className="page-title settings-page-title">Настройки</h1>
 
-      <div className="seg-tabs" role="tablist">
+      <div className="settings-tabs" role="tablist" aria-label="Разделы настроек">
         <button
           type="button"
           role="tab"
-          className={tab === 'branches' ? 'active' : ''}
+          className={tab === 'branches' ? 'btn' : 'btn secondary'}
           onClick={() => selectTab('branches')}
         >
           Филиалы
@@ -160,7 +160,7 @@ function OwnerSettingsInner() {
         <button
           type="button"
           role="tab"
-          className={tab === 'partners' ? 'active' : ''}
+          className={tab === 'partners' ? 'btn' : 'btn secondary'}
           onClick={() => selectTab('partners')}
         >
           Партнёры
@@ -168,7 +168,7 @@ function OwnerSettingsInner() {
         <button
           type="button"
           role="tab"
-          className={tab === 'bot' ? 'active' : ''}
+          className={tab === 'bot' ? 'btn' : 'btn secondary'}
           onClick={() => selectTab('bot')}
         >
           Бот Telegram
@@ -180,7 +180,7 @@ function OwnerSettingsInner() {
       ) : tab === 'partners' ? (
         <PartnersSettingsPanel />
       ) : (
-        <>
+        <div className="settings-section">
           <form className="panel branch-form" onSubmit={create}>
             <div className="branch-form-head">
               <h2 className="branch-form-title">Новый филиал</h2>
@@ -204,27 +204,27 @@ function OwnerSettingsInner() {
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
-              <button
-                className="btn branch-form-submit"
-                type="submit"
-                disabled={saving}
-              >
-                {saving ? 'Создание…' : 'Создать'}
-              </button>
             </div>
+            <button
+              className="btn branch-form-submit"
+              type="submit"
+              disabled={saving}
+            >
+              {saving ? 'Создание…' : 'Создать'}
+            </button>
           </form>
 
           <div className="panel">
             {error ? <p className="error">{error}</p> : null}
             {msg ? <p className="ok-msg">{msg}</p> : null}
             <div className="table-scroll">
-              <table className="table">
+              <table className="table branch-table">
                 <thead>
                   <tr>
                     <th>Филиал</th>
                     <th>Город</th>
                     <th>Статус</th>
-                    <th></th>
+                    <th>Действия</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -233,16 +233,18 @@ function OwnerSettingsInner() {
                       <td>
                         {editId === c.id ? (
                           <input
+                            className="branch-edit-input"
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
                           />
                         ) : (
-                          c.name
+                          <strong>{c.name}</strong>
                         )}
                       </td>
                       <td>
                         {editId === c.id ? (
                           <input
+                            className="branch-edit-input"
                             value={editCityName}
                             onChange={(e) => setEditCityName(e.target.value)}
                             placeholder="Город"
@@ -310,7 +312,7 @@ function OwnerSettingsInner() {
               </table>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

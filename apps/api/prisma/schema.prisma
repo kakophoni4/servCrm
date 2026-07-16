@@ -280,7 +280,10 @@ model Order {
   scheduledAt   DateTime?   @map("scheduled_at")
   address       String
   ageCategoryId String?     @map("age_category_id")
+  /// Комментарий диспетчера — задаётся при создании заявки.
   comment       String?     @db.Text
+  /// Комментарий администратора/директора/владельца — видит мастер в боте.
+  adminComment  String?     @map("admin_comment") @db.Text
   masterId      String?     @map("master_id")
   status        OrderStatus @default(WAITING)
   isClaim       Boolean     @default(false) @map("is_claim")

@@ -56,9 +56,9 @@ export function DispatcherPayPanel() {
   const [dispatchers, setDispatchers] = useState<User[]>([]);
   const [userId, setUserId] = useState('');
   const [form, setForm] = useState({
-    salaryBase: '0',
-    leafletBonus: '0',
-    closedOrdersBonusPct: '0',
+    salaryBase: '',
+    leafletBonus: '',
+    closedOrdersBonusPct: '',
   });
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -109,12 +109,13 @@ export function DispatcherPayPanel() {
     const data = await api<DispatcherPay | null>(
       `/settings/dispatcher-pay/${id}`,
     );
+    const base = Number(data?.salaryBase ?? 0);
+    const leaflet = Number(data?.leafletBonus ?? 0);
+    const pct = Number(data?.closedOrdersBonusPct ?? 0) * 100;
     setForm({
-      salaryBase: String(data?.salaryBase ?? 0),
-      leafletBonus: String(data?.leafletBonus ?? 0),
-      closedOrdersBonusPct: String(
-        Number(data?.closedOrdersBonusPct ?? 0) * 100,
-      ),
+      salaryBase: base > 0 ? String(base) : '',
+      leafletBonus: leaflet > 0 ? String(leaflet) : '',
+      closedOrdersBonusPct: pct > 0 ? String(pct) : '',
     });
   }
 
@@ -217,9 +218,18 @@ export function DispatcherPayPanel() {
   }
 
   function shortName(fullName: string) {
-    const parts = fullName.trim().split(/\s+/);
-    if (parts.length === 1) return parts[0];
-    return `${parts[0]} ${parts[1]?.[0] ? `${parts[1][0]}.` : ''}`.trim();
+    const parts = fullName.trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '—';
+    if (parts.length === 1) {
+      return parts[0].length > 10 ? `${parts[0].slice(0, 9)}…` : parts[0];
+    }
+    // Коротко в ячейке: «Иванов И.»; длинное первое слово → берём последнее («Пилот»)
+    if (parts[0].length > 8) {
+      const last = parts[parts.length - 1];
+      return last.length > 10 ? `${last.slice(0, 9)}…` : last;
+    }
+    const label = `${parts[0]} ${parts[1][0]}.`;
+    return label.length > 12 ? `${parts[0].slice(0, 9)}…` : label;
   }
 
   return (
@@ -300,7 +310,7 @@ export function DispatcherPayPanel() {
       <div className="panel dispatcher-schedule">
         <div className="dispatcher-pay-head dispatcher-schedule-head">
           <h2 className="dispatcher-pay-title">График смен</h2>
-          <div className="dispatcher-schedule-filters">
+          <div className="period-filters dispatcher-schedule-filters">
             <div className="field">
               <label>Месяц</label>
               <select

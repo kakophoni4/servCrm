@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
 import {
   api,
@@ -58,6 +59,7 @@ type Order = {
   type: string;
   address: string;
   comment?: string | null;
+  adminComment?: string | null;
   typeTech?: string | null;
   isClaim: boolean;
   isWarranty: boolean;
@@ -123,10 +125,42 @@ function toLocalInput(iso?: string | null) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function shortFileName(name: string, max = 28): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot) : '';
+  const base = name.slice(0, Math.max(8, max - ext.length - 1));
+  return `${base}…${ext}`;
+}
+
 function fileNamesLabel(files: FileList | null) {
   if (!files?.length) return null;
-  if (files.length === 1) return files[0].name;
+  if (files.length === 1) return shortFileName(files[0].name);
   return `Выбрано: ${files.length}`;
+}
+
+/** Следующий обязательный тип документа по чеклисту. */
+function pickNextRequiredDocKind(
+  checklist: string[],
+  present: Set<string>,
+  required: readonly string[],
+  status: string,
+  afterKind?: string,
+): string {
+  const isRequired = (k: string) => {
+    if (k === SD_UPLOAD_DOC_KIND) return status === 'IN_PROGRESS_SD';
+    return (required as readonly string[]).includes(k);
+  };
+
+  const start = afterKind ? checklist.indexOf(afterKind) + 1 : 0;
+  const from = Math.max(0, start);
+  const sequence = [...checklist.slice(from), ...checklist.slice(0, from)];
+
+  for (const k of sequence) {
+    if (isRequired(k) && !present.has(k)) return k;
+  }
+  if (afterKind && checklist.includes(afterKind)) return afterKind;
+  return checklist[0] ?? ORDER_UPLOAD_DOC_KINDS[0];
 }
 
 export default function OrderDetailPage() {
@@ -146,14 +180,15 @@ export default function OrderDetailPage() {
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [paid, setPaid] = useState('0');
-  const [partsCost, setPartsCost] = useState('0');
+  const [partsCost, setPartsCost] = useState('');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
   const [isProfile, setIsProfile] = useState(true);
+  const [adminComment, setAdminComment] = useState('');
 
   const [showClaimForm, setShowClaimForm] = useState(false);
   const [claimForm, setClaimForm] = useState({
     type: 'PRICE_DISSATISFIED',
-    refundSum: '0',
+    refundSum: '',
     cityId: '',
   });
 
@@ -168,7 +203,9 @@ export default function OrderDetailPage() {
     null,
   );
 
-  async function load() {
+  async function load(opts?: { preserveMoney?: boolean }) {
+    const keepPaid = opts?.preserveMoney ? paid : null;
+    const keepParts = opts?.preserveMoney ? partsCost : null;
     const data = await api<Order>(`/orders/${id}`);
     setOrder(data);
     setStatus(data.status);
@@ -176,18 +213,51 @@ export default function OrderDetailPage() {
     setAddress(data.address ?? '');
     setTypeTech(data.typeTech ?? '');
     setScheduledAt(toLocalInput(data.scheduledAt));
-    setPaid(String(data.payment?.paid ?? 0));
-    setPartsCost(String(data.payment?.partsCost ?? 0));
+    if (keepPaid != null) {
+      setPaid(keepPaid);
+    } else {
+      setPaid(String(data.payment?.paid ?? 0));
+    }
+    if (keepParts != null) {
+      setPartsCost(keepParts);
+    } else {
+      const parts = Number(data.payment?.partsCost ?? 0);
+      setPartsCost(parts > 0 ? String(parts) : '');
+    }
     setCancelFault(
       data.cancelFault === 'master' || data.cancelFault === 'admin'
         ? data.cancelFault
         : '',
     );
     setIsProfile(Boolean(data.isProfile));
+    setAdminComment(data.adminComment ?? '');
     setClaimForm((f) => ({
       ...f,
       cityId: f.cityId || data.cityId || '',
     }));
+  }
+
+  /** Сохраняет только суммы — чтобы не слетали при загрузке документов. */
+  async function saveMoneyDraft(): Promise<boolean> {
+    if (!admin) return true;
+    try {
+      await api(`/orders/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          paid: Number(paid) || 0,
+          partsCost: Number(partsCost) || 0,
+        }),
+      });
+      // Обновить блок «К сдаче» / ЗП, не трогая поля ввода
+      const data = await api<Order>(`/orders/${id}`);
+      setOrder(data);
+      return true;
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Не удалось сохранить сумму',
+      );
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -240,6 +310,21 @@ export default function OrderDetailPage() {
     }
   }, [status, docKind]);
 
+  // Если текущий тип уже есть / недоступен — переключить на следующий обязательный.
+  useEffect(() => {
+    if (!order) return;
+    setDocKind((current) => {
+      const inList = checklistKinds.includes(current);
+      if (inList && !presentKinds.has(current)) return current;
+      return pickNextRequiredDocKind(
+        checklistKinds,
+        presentKinds,
+        requiredKinds,
+        status,
+      );
+    });
+  }, [order?.documents, requiredKinds, status, checklistKinds, presentKinds, order]);
+
   async function save(e: FormEvent) {
     e.preventDefault();
     if (status === 'DONE' && !masterId) {
@@ -273,6 +358,7 @@ export default function OrderDetailPage() {
         body.paid = Number(paid);
         body.partsCost = Number(partsCost);
         body.isProfile = isProfile;
+        body.adminComment = adminComment.trim() || null;
         if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
           body.cancelFault = cancelFault || null;
         }
@@ -317,12 +403,17 @@ export default function OrderDetailPage() {
     }
     setUploading(true);
     try {
+      // Сначала сохраняем суммы — иначе load() после загрузки их затрёт.
+      const moneyOk = await saveMoneyDraft();
+      if (!moneyOk) return;
+
       const fd = new FormData();
       Array.from(docFiles).forEach((f) => fd.append('files', f));
       const qs = new URLSearchParams({ kind: docKind });
       if (docKind === SD_UPLOAD_DOC_KIND) {
         qs.set('forStatus', 'IN_PROGRESS_SD');
       }
+      const uploadedKind = docKind;
       const res = await uploadFiles<{
         created?: unknown[];
         skipped?: number;
@@ -331,9 +422,24 @@ export default function OrderDetailPage() {
       (e.target as HTMLFormElement).reset();
       // Дубликаты по хешу пропускаются без уведомлений
       if ((res?.created?.length ?? 0) > 0) {
-        setMsg('Документы загружены');
+        setMsg(
+          admin
+            ? 'Сумма сохранена, документы загружены'
+            : 'Документы загружены',
+        );
       }
-      await load();
+      const nextPresent = new Set(presentKinds);
+      nextPresent.add(uploadedKind);
+      setDocKind(
+        pickNextRequiredDocKind(
+          checklistKinds,
+          nextPresent,
+          requiredKinds,
+          status,
+          uploadedKind,
+        ),
+      );
+      await load({ preserveMoney: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
     } finally {
@@ -624,11 +730,18 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="field order-field-full">
                   <label>Комментарий диспетчера</label>
-                  <textarea
+                  <AutoTextarea
                     readOnly
                     disabled
-                    rows={2}
                     value={order.comment?.trim() ? order.comment : '—'}
+                  />
+                </div>
+                <div className="field order-field-full">
+                  <label>Комментарий администратора</label>
+                  <AutoTextarea
+                    placeholder="Увидит мастер при назначении"
+                    value={adminComment}
+                    onChange={(e) => setAdminComment(e.target.value)}
                   />
                 </div>
               </div>
@@ -657,8 +770,14 @@ export default function OrderDetailPage() {
               </div>
               {order.comment?.trim() ? (
                 <div className="order-meta-item order-meta-full">
-                  <span>Комментарий</span>
+                  <span>Комментарий диспетчера</span>
                   <strong>{order.comment}</strong>
+                </div>
+              ) : null}
+              {order.adminComment?.trim() ? (
+                <div className="order-meta-item order-meta-full">
+                  <span>Комментарий администратора</span>
+                  <strong>{order.adminComment}</strong>
                 </div>
               ) : null}
             </div>
@@ -723,14 +842,22 @@ export default function OrderDetailPage() {
                   <label>Оплачено клиентом</label>
                   <input
                     value={paid}
+                    inputMode="decimal"
                     onChange={(e) => setPaid(e.target.value)}
+                    onBlur={() => {
+                      void saveMoneyDraft();
+                    }}
                   />
                 </div>
                 <div className="field">
                   <label>Комплектующие, ₽</label>
                   <input
                     value={partsCost}
+                    inputMode="decimal"
                     onChange={(e) => setPartsCost(e.target.value)}
+                    onBlur={() => {
+                      void saveMoneyDraft();
+                    }}
                   />
                 </div>
               </div>
@@ -856,7 +983,7 @@ export default function OrderDetailPage() {
           ) : null}
 
           {admin ? (
-          <div className="panel">
+          <div className="panel order-docs-panel">
             <h2 className="order-side-title">Документы</h2>
             <ul className="docs-checklist">
               {checklistKinds.map((k) => {
@@ -871,12 +998,7 @@ export default function OrderDetailPage() {
                     className={ok ? 'ok' : required ? 'miss' : 'optional'}
                   >
                     <span>{ok ? '✓' : required ? '○' : '–'}</span>
-                    <span>
-                      {DOC_KIND_LABELS[k]}
-                      {!required && k !== SD_UPLOAD_DOC_KIND
-                        ? ' (опционально)'
-                        : ''}
-                    </span>
+                    <span>{DOC_KIND_LABELS[k]}</span>
                   </li>
                 );
               })}
@@ -1035,11 +1157,14 @@ export default function OrderDetailPage() {
               </div>
             ) : null}
 
-            <form onSubmit={uploadDoc} style={{ marginTop: 12 }}>
-              <div className="grid-2">
+            <form onSubmit={uploadDoc} className="docs-upload-form">
+              <div className="docs-upload-row">
                 <div className="field">
                   <label>Тип документа</label>
-                  <select value={docKind} onChange={(e) => setDocKind(e.target.value)}>
+                  <select
+                    value={docKind}
+                    onChange={(e) => setDocKind(e.target.value)}
+                  >
                     {uploadKinds.map((k) => (
                       <option key={k} value={k}>
                         {DOC_KIND_LABELS[k]}
@@ -1056,14 +1181,18 @@ export default function OrderDetailPage() {
                       accept="image/*,.pdf,application/pdf"
                       onChange={(e) => setDocFiles(e.target.files)}
                     />
-                    <span className="file-picker-title">
+                    <span className="file-picker-title" title={selectedLabel ?? undefined}>
                       {selectedLabel ?? 'Выбрать файлы'}
                     </span>
                     <span className="file-picker-hint">фото или PDF</span>
                   </label>
                 </div>
               </div>
-              <button type="submit" className="btn secondary" disabled={uploading}>
+              <button
+                type="submit"
+                className="btn secondary docs-upload-submit"
+                disabled={uploading}
+              >
                 {uploading ? 'Загрузка…' : 'Загрузить файлы'}
               </button>
             </form>

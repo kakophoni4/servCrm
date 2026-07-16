@@ -33,7 +33,7 @@ export function PartnersSettingsPanel() {
     setMsg('');
     const trimmed = name.trim();
     if (!trimmed) {
-      setError('Укажите название партнёра');
+      setError('Укажите название');
       return;
     }
     setSaving(true);
@@ -89,106 +89,113 @@ export function PartnersSettingsPanel() {
   }
 
   return (
-    <>
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Новый партнёр</h2>
-        <form onSubmit={create} className="grid-2">
-          <div className="field">
-            <label>Название партнёра</label>
-            <input
-              required
-              placeholder="Например: Сервис Плюс"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div style={{ alignSelf: 'end' }}>
-            <button className="btn" type="submit" disabled={saving}>
-              {saving ? 'Сохранение…' : 'Добавить'}
-            </button>
-          </div>
-        </form>
-      </div>
+    <div className="partners-settings">
+      <form className="panel partners-form" onSubmit={create}>
+        <div className="partners-form-head">
+          <h2 className="partners-form-title">Новый партнёр</h2>
+        </div>
+        <div className="field">
+          <label>Название</label>
+          <input
+            required
+            placeholder="Например: Сервис Плюс"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <button
+          className="btn partners-form-submit"
+          type="submit"
+          disabled={saving}
+        >
+          {saving ? 'Сохранение…' : 'Добавить'}
+        </button>
+      </form>
 
       <div className="panel">
-        {error ? <p className="error">{error}</p> : null}
-        {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Название</th>
-              <th>Статус</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {partners.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  {editId === p.id ? (
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                    />
-                  ) : (
-                    p.name
-                  )}
-                </td>
-                <td>
-                  <span className="badge">
-                    {p.active ? 'В заявках' : 'Скрыт'}
-                  </span>
-                </td>
-                <td style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {editId === p.id ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={() => saveEdit(p.id)}
-                      >
-                        OK
-                      </button>
+        {error ? <p className="error partners-msg">{error}</p> : null}
+        {msg ? <p className="partners-ok partners-msg">{msg}</p> : null}
+        <div className="table-scroll">
+          <table className="table partners-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Статус</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partners.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    {editId === p.id ? (
+                      <input
+                        className="partners-edit-input"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                      />
+                    ) : (
+                      <strong>{p.name}</strong>
+                    )}
+                  </td>
+                  <td>
+                    <span className="badge">
+                      {p.active ? 'В заявках' : 'Скрыт'}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="partners-actions">
+                      {editId === p.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => saveEdit(p.id)}
+                          >
+                            OK
+                          </button>
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            onClick={() => setEditId(null)}
+                          >
+                            Отмена
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          onClick={() => {
+                            setEditId(p.id);
+                            setEditName(p.name);
+                          }}
+                        >
+                          Изменить
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn secondary"
-                        onClick={() => setEditId(null)}
+                        onClick={() => toggleActive(p)}
                       >
-                        Отмена
+                        {p.active ? 'Скрыть' : 'Показать'}
                       </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      onClick={() => {
-                        setEditId(p.id);
-                        setEditName(p.name);
-                      }}
-                    >
-                      Изменить
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => toggleActive(p)}
-                  >
-                    {p.active ? 'Скрыть' : 'Показать'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {partners.length === 0 && !error ? (
-              <tr>
-                <td colSpan={3} className="muted">
-                  Партнёров пока нет — добавьте название выше.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {partners.length === 0 && !error ? (
+                <tr>
+                  <td colSpan={3} className="muted">
+                    Партнёров пока нет.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

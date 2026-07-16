@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type Client = {
@@ -45,49 +46,71 @@ export function ClientsPanel() {
     <section className="desk-panel">
       <div className="desk-panel-body">
         {error ? <p className="error">{error}</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Имя</th>
-              <th>Телефон</th>
-              <th>Возраст</th>
-              <th>Филиал</th>
-              <th>Заявок</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((c) => (
-              <tr
-                key={c.id}
-                className="row-link"
-                role="link"
-                tabIndex={0}
-                onClick={() => go(c.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    go(c.id);
-                  }
-                }}
-              >
-                <td>
-                  <strong>{c.name}</strong>
-                </td>
-                <td>{c.phoneNormalized}</td>
-                <td>{c.ageCategory?.label ?? '—'}</td>
-                <td>{c.city?.name ?? '—'}</td>
-                <td>{c._count.orders}</td>
-              </tr>
-            ))}
-            {clients.length === 0 && !error ? (
+        <div className="table-scroll">
+          <table className="table desk-list">
+            <thead>
               <tr>
-                <td colSpan={5} className="muted">
-                  Клиентов пока нет.
-                </td>
+                <th>Клиент</th>
+                <th>Телефон</th>
+                <th className="desk-col-center">Возраст</th>
+                <th className="desk-col-center">Филиал</th>
+                <th className="desk-col-center">Заявок</th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {clients.map((c) => (
+                <tr
+                  key={c.id}
+                  className="row-link"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => go(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      go(c.id);
+                    }
+                  }}
+                >
+                  <td>
+                    <div className="desk-cell">
+                      <div className="desk-cell-main">{c.name}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="desk-cell-phone">
+                      {formatRuPhoneDisplay(c.phoneNormalized)}
+                    </span>
+                  </td>
+                  <td className="desk-col-center">
+                    {c.ageCategory?.label ? (
+                      <span className="desk-cell-main">{c.ageCategory.label}</span>
+                    ) : (
+                      <span className="desk-cell-sub">—</span>
+                    )}
+                  </td>
+                  <td className="desk-col-center">
+                    {c.city?.name ? (
+                      <span className="desk-cell-main">{c.city.name}</span>
+                    ) : (
+                      <span className="desk-cell-sub">—</span>
+                    )}
+                  </td>
+                  <td className="desk-col-center">
+                    <span className="desk-count">{c._count.orders}</span>
+                  </td>
+                </tr>
+              ))}
+              {clients.length === 0 && !error ? (
+                <tr>
+                  <td colSpan={5} className="muted desk-col-center">
+                    Клиентов пока нет.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );

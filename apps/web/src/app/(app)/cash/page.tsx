@@ -1,9 +1,17 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
 import { OpsShell } from '@/components/ops/OpsShell';
-import { api, appendFormFields, getStoredUser, uploadFiles } from '@/lib/api';
+import {
+  api,
+  appendFormFields,
+  downloadFile,
+  fetchAuthorizedBlob,
+  getStoredUser,
+  uploadFiles,
+} from '@/lib/api';
 import {
   CASH_DIRECTION_LABELS,
   CASH_EXPENSE_BASIS_LABELS,
@@ -27,6 +35,13 @@ type CashTx = {
 
 type City = { id: string; name: string };
 type MasterOpt = { id: string; user: { fullName: string } };
+
+type DocPreview = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+};
 
 /** Ручной приход — без «По заявке» (тот только автоматически при «Готов»). */
 const MANUAL_INCOME_BASIS = Object.fromEntries(
@@ -55,7 +70,6 @@ const EXPENSE_GROUPS: { title: string; keys: string[] }[] = [
   {
     title: 'Прочее',
     keys: [
-      'OPERATING',
       'OFFICE',
       'CARDS',
       'TRIP',
@@ -67,6 +81,21 @@ const EXPENSE_GROUPS: { title: string; keys: string[] }[] = [
   },
 ];
 
+function guessMimeFromName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.heic')) return 'image/heic';
+  return 'application/octet-stream';
+}
+
+function fileNameFromPath(path: string, id: string): string {
+  return path.split('/').pop() || `cash-${id}`;
+}
+
 export default function CashPage() {
   const isOwner = (getStoredUser()?.role ?? '') === 'OWNER';
   const [txs, setTxs] = useState<CashTx[]>([]);
@@ -74,6 +103,11 @@ export default function CashPage() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [tab, setTab] = useState<'income' | 'expense' | 'collection'>('income');
+  const [preview, setPreview] = useState<DocPreview | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const [downloadLoadingId, setDownloadLoadingId] = useState<string | null>(
+    null,
+  );
 
   const defaultIncomeBasis = useMemo(
     () => Object.keys(MANUAL_INCOME_BASIS)[0] ?? 'OTHER',
@@ -92,7 +126,7 @@ export default function CashPage() {
 
   const [expense, setExpense] = useState({
     amount: '',
-    expenseBasis: 'OPERATING',
+    expenseBasis: 'OFFICE',
     cityId: '',
     description: '',
   });
@@ -130,6 +164,13 @@ export default function CashPage() {
     if (!isOwner && tab === 'collection') setTab('income');
   }, [isOwner, tab]);
 
+  useEffect(() => {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function fileField(
     file: File | null,
     setFile: (f: File | null) => void,
@@ -151,6 +192,49 @@ export default function CashPage() {
         </label>
       </div>
     );
+  }
+
+  function closePreview() {
+    setPreview((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }
+
+  async function openPreview(tx: CashTx) {
+    if (!tx.documentPath) return;
+    setError('');
+    setPreviewLoadingId(tx.id);
+    try {
+      const fileName = fileNameFromPath(tx.documentPath, tx.id);
+      const blob = await fetchAuthorizedBlob(`/cash/${tx.id}/document`);
+      const mime = blob.type || guessMimeFromName(fileName);
+      const url = URL.createObjectURL(
+        blob.type ? blob : new Blob([blob], { type: mime }),
+      );
+      setPreview((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return { id: tx.id, fileName, mimeType: mime, url };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка предпросмотра');
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }
+
+  async function downloadDoc(tx: CashTx) {
+    if (!tx.documentPath) return;
+    setError('');
+    setDownloadLoadingId(tx.id);
+    try {
+      const fileName = fileNameFromPath(tx.documentPath, tx.id);
+      await downloadFile(`/cash/${tx.id}/document`, fileName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка скачивания');
+    } finally {
+      setDownloadLoadingId(null);
+    }
   }
 
   async function submitIncome(e: FormEvent) {
@@ -240,297 +324,396 @@ export default function CashPage() {
 
   return (
     <OpsShell>
-    <div>
-      <div className="cash-tabs">
-        {(
-          [
-            'income',
-            'expense',
-            ...(isOwner ? (['collection'] as const) : []),
-          ] as const
-        ).map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={tab === t ? 'btn' : 'btn secondary'}
-            onClick={() => setTab(t)}
-          >
-            {t === 'income' ? 'Приход' : t === 'expense' ? 'Расход' : 'Инкассация'}
-          </button>
-        ))}
-      </div>
+      <div className="cash-page">
+        <div className="cash-tabs">
+          {(
+            [
+              'income',
+              'expense',
+              ...(isOwner ? (['collection'] as const) : []),
+            ] as const
+          ).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={tab === t ? 'btn' : 'btn secondary'}
+              onClick={() => setTab(t)}
+            >
+              {t === 'income'
+                ? 'Приход'
+                : t === 'expense'
+                  ? 'Расход'
+                  : 'Инкассация'}
+            </button>
+          ))}
+        </div>
 
-      {tab === 'income' ? (
-        <form className="panel cash-form" onSubmit={submitIncome}>
-          <div className="cash-form-head">
-            <h2 className="cash-form-title">Новый приход</h2>
-          </div>
+        {tab === 'income' ? (
+          <form className="panel cash-form" onSubmit={submitIncome}>
+            <div className="cash-form-head">
+              <h2 className="cash-form-title">Новый приход</h2>
+            </div>
 
-          <div className="cash-form-row">
+            <div className="cash-form-row">
+              <div className="field">
+                <label>Сумма, ₽</label>
+                <input
+                  required
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={income.amount}
+                  onChange={(e) =>
+                    setIncome({ ...income, amount: e.target.value })
+                  }
+                />
+              </div>
+              <BranchSelect
+                cities={cities}
+                value={income.cityId}
+                onChange={(cityId) => setIncome({ ...income, cityId })}
+              />
+              {fileField(incomeFile, setIncomeFile, false)}
+            </div>
+
+            <div className="field cash-form-basis">
+              <label>Основание</label>
+              <div
+                className="cash-seg"
+                role="group"
+                aria-label="Основание прихода"
+              >
+                {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={
+                      income.incomeBasis === k
+                        ? 'cash-seg-btn active'
+                        : 'cash-seg-btn'
+                    }
+                    onClick={() =>
+                      setIncome({
+                        ...income,
+                        incomeBasis: k,
+                        masterId: k === 'FINE' ? income.masterId : '',
+                      })
+                    }
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div
+              className={
+                income.incomeBasis === 'FINE'
+                  ? 'cash-form-row cash-form-row-2'
+                  : 'cash-form-row cash-form-row-1'
+              }
+            >
+              {income.incomeBasis === 'FINE' ? (
+                <div className="field">
+                  <label>Мастер</label>
+                  <select
+                    value={income.masterId}
+                    onChange={(e) =>
+                      setIncome({ ...income, masterId: e.target.value })
+                    }
+                  >
+                    <option value="">Без привязки к мастеру</option>
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.user.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              <div className="field">
+                <label>Комментарий</label>
+                <AutoTextarea
+                  placeholder="Необязательно"
+                  value={income.description}
+                  onChange={(e) =>
+                    setIncome({ ...income, description: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <button className="btn cash-form-submit" type="submit">
+              Записать приход
+            </button>
+          </form>
+        ) : null}
+
+        {tab === 'expense' ? (
+          <form className="panel cash-form" onSubmit={submitExpense}>
+            <div className="cash-form-head">
+              <h2 className="cash-form-title">Новый расход</h2>
+            </div>
+            <div className="cash-form-row">
+              <div className="field">
+                <label>Сумма, ₽</label>
+                <input
+                  required
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={expense.amount}
+                  onChange={(e) =>
+                    setExpense({ ...expense, amount: e.target.value })
+                  }
+                />
+              </div>
+              <BranchSelect
+                cities={cities}
+                value={expense.cityId}
+                onChange={(cityId) => setExpense({ ...expense, cityId })}
+              />
+              {fileField(expenseFile, setExpenseFile, true)}
+            </div>
+
+            <div className="field cash-expense-field">
+              <div className="cash-expense-label-row">
+                <label>Статья расхода</label>
+                <span className="cash-expense-picked">
+                  {CASH_EXPENSE_BASIS_LABELS[expense.expenseBasis] ??
+                    expense.expenseBasis}
+                </span>
+              </div>
+              <div className="cash-expense-groups">
+                {EXPENSE_GROUPS.map((group) => (
+                  <div key={group.title} className="cash-expense-group">
+                    <div className="cash-expense-group-title">{group.title}</div>
+                    <div className="cash-chip-grid">
+                      {group.keys.map((k) => {
+                        const label = CASH_EXPENSE_BASIS_LABELS[k];
+                        if (!label) return null;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            className={
+                              expense.expenseBasis === k
+                                ? 'cash-chip cash-chip-active'
+                                : 'cash-chip'
+                            }
+                            onClick={() =>
+                              setExpense({ ...expense, expenseBasis: k })
+                            }
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="field">
-              <label>Сумма, ₽</label>
-              <input
-                required
-                inputMode="decimal"
-                placeholder="0"
-                value={income.amount}
-                onChange={(e) => setIncome({ ...income, amount: e.target.value })}
+              <label>Комментарий</label>
+              <AutoTextarea
+                placeholder="Необязательно"
+                value={expense.description}
+                onChange={(e) =>
+                  setExpense({ ...expense, description: e.target.value })
+                }
               />
             </div>
-            <BranchSelect
-              cities={cities}
-              value={income.cityId}
-              onChange={(cityId) => setIncome({ ...income, cityId })}
-            />
-            {fileField(incomeFile, setIncomeFile, false)}
-          </div>
 
-          <div className="field">
-            <label>Основание</label>
-            <div className="cash-seg" role="group" aria-label="Основание прихода">
-              {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
-                <button
-                  key={k}
-                  type="button"
-                  className={
-                    income.incomeBasis === k
-                      ? 'cash-seg-btn active'
-                      : 'cash-seg-btn'
+            <button className="btn cash-form-submit" type="submit">
+              Записать расход
+            </button>
+          </form>
+        ) : null}
+
+        {tab === 'collection' && isOwner ? (
+          <form className="panel cash-form" onSubmit={submitCollection}>
+            <div className="cash-form-head">
+              <h2 className="cash-form-title">Инкассация</h2>
+            </div>
+            <div className="cash-form-row">
+              <div className="field">
+                <label>Сумма, ₽</label>
+                <input
+                  required
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={collection.amount}
+                  onChange={(e) =>
+                    setCollection({ ...collection, amount: e.target.value })
                   }
-                  onClick={() =>
-                    setIncome({
-                      ...income,
-                      incomeBasis: k,
-                      masterId: k === 'FINE' ? income.masterId : '',
+                />
+              </div>
+              <BranchSelect
+                cities={cities}
+                value={collection.cityId}
+                onChange={(cityId) => setCollection({ ...collection, cityId })}
+                required
+              />
+              <div className="field">
+                <label>Комментарий</label>
+                <AutoTextarea
+                  placeholder="Необязательно"
+                  value={collection.description}
+                  onChange={(e) =>
+                    setCollection({
+                      ...collection,
+                      description: e.target.value,
                     })
                   }
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div
-            className={
-              income.incomeBasis === 'FINE'
-                ? 'cash-form-row cash-form-row-2'
-                : 'cash-form-row cash-form-row-1'
-            }
-          >
-            {income.incomeBasis === 'FINE' ? (
-              <div className="field">
-                <label>Мастер</label>
-                <select
-                  value={income.masterId}
-                  onChange={(e) =>
-                    setIncome({ ...income, masterId: e.target.value })
-                  }
-                >
-                  <option value="">Без привязки к мастеру</option>
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.user.fullName}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
-            ) : null}
-            <div className="field">
-              <label>Комментарий</label>
-              <input
-                placeholder="Необязательно"
-                value={income.description}
-                onChange={(e) =>
-                  setIncome({ ...income, description: e.target.value })
-                }
-              />
             </div>
-          </div>
+            <button className="btn cash-form-submit" type="submit">
+              Записать инкассацию
+            </button>
+          </form>
+        ) : null}
 
-          <button className="btn cash-form-submit" type="submit">
-            Записать приход
-          </button>
-        </form>
-      ) : null}
-
-      {tab === 'expense' ? (
-        <form className="panel cash-form" onSubmit={submitExpense}>
-          <div className="cash-form-head">
-            <h2 className="cash-form-title">Новый расход</h2>
-          </div>
-          <div className="cash-form-row">
-            <div className="field">
-              <label>Сумма, ₽</label>
-              <input
-                required
-                inputMode="decimal"
-                placeholder="0"
-                value={expense.amount}
-                onChange={(e) =>
-                  setExpense({ ...expense, amount: e.target.value })
-                }
-              />
-            </div>
-            <BranchSelect
-              cities={cities}
-              value={expense.cityId}
-              onChange={(cityId) => setExpense({ ...expense, cityId })}
-            />
-            {fileField(expenseFile, setExpenseFile, true)}
-          </div>
-
-          <div className="field cash-expense-field">
-            <div className="cash-expense-label-row">
-              <label>Статья расхода</label>
-              <span className="cash-expense-picked">
-                {CASH_EXPENSE_BASIS_LABELS[expense.expenseBasis] ??
-                  expense.expenseBasis}
-              </span>
-            </div>
-            <div className="cash-expense-groups">
-              {EXPENSE_GROUPS.map((group) => (
-                <div key={group.title} className="cash-expense-group">
-                  <div className="cash-expense-group-title">{group.title}</div>
-                  <div className="cash-chip-grid">
-                    {group.keys.map((k) => {
-                      const label = CASH_EXPENSE_BASIS_LABELS[k];
-                      if (!label) return null;
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          className={
-                            expense.expenseBasis === k
-                              ? 'cash-chip cash-chip-active'
-                              : 'cash-chip'
-                          }
-                          onClick={() =>
-                            setExpense({ ...expense, expenseBasis: k })
-                          }
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="field">
-            <label>Комментарий</label>
-            <input
-              placeholder="Необязательно"
-              value={expense.description}
-              onChange={(e) =>
-                setExpense({ ...expense, description: e.target.value })
-              }
-            />
-          </div>
-
-          <button className="btn cash-form-submit" type="submit">
-            Записать расход
-          </button>
-        </form>
-      ) : null}
-
-      {tab === 'collection' && isOwner ? (
-        <form className="panel cash-form" onSubmit={submitCollection}>
-          <div className="cash-form-head">
-            <h2 className="cash-form-title">Инкассация</h2>
-          </div>
-          <div className="cash-form-row">
-            <div className="field">
-              <label>Сумма, ₽</label>
-              <input
-                required
-                inputMode="decimal"
-                placeholder="0"
-                value={collection.amount}
-                onChange={(e) =>
-                  setCollection({ ...collection, amount: e.target.value })
-                }
-              />
-            </div>
-            <BranchSelect
-              cities={cities}
-              value={collection.cityId}
-              onChange={(cityId) => setCollection({ ...collection, cityId })}
-              required
-            />
-            <div className="field">
-              <label>Комментарий</label>
-              <input
-                placeholder="Необязательно"
-                value={collection.description}
-                onChange={(e) =>
-                  setCollection({ ...collection, description: e.target.value })
-                }
-              />
-            </div>
-          </div>
-          <button className="btn cash-form-submit" type="submit">
-            Записать инкассацию
-          </button>
-        </form>
-      ) : null}
-
-      <div className="panel">
-        {error ? <p className="error">{error}</p> : null}
-        {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
-        <div className="table-scroll">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th>Тип</th>
-                <th>Сумма</th>
-                <th>Филиал</th>
-                <th>Основание</th>
-                <th>Мастер</th>
-                <th>Заявка</th>
-                <th>Документ</th>
-                <th>Кто</th>
-                <th>Комментарий</th>
-              </tr>
-            </thead>
-            <tbody>
-              {txs.map((t) => (
-                <tr key={t.id}>
-                  <td>{new Date(t.createdAt).toLocaleString('ru-RU')}</td>
-                  <td>{CASH_DIRECTION_LABELS[t.direction] ?? t.direction}</td>
-                  <td>{String(t.amount)}</td>
-                  <td>{t.city?.name ?? '—'}</td>
-                  <td>
-                    {t.incomeBasis
-                      ? (CASH_INCOME_BASIS_LABELS[t.incomeBasis] ??
-                        t.incomeBasis)
-                      : t.expenseBasis
-                        ? (CASH_EXPENSE_BASIS_LABELS[t.expenseBasis] ??
-                          t.expenseBasis)
-                        : '—'}
-                  </td>
-                  <td>{t.master?.user?.fullName ?? '—'}</td>
-                  <td>{t.order?.publicId ?? '—'}</td>
-                  <td>{t.documentPath ? 'есть' : '—'}</td>
-                  <td>{t.createdBy?.fullName ?? '—'}</td>
-                  <td>{t.description ?? '—'}</td>
-                </tr>
-              ))}
-              {txs.length === 0 ? (
+        <div className="panel">
+          {error ? <p className="error">{error}</p> : null}
+          {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+          <div className="table-scroll">
+            <table className="table cash-table">
+              <thead>
                 <tr>
-                  <td colSpan={10} className="muted">
-                    Операций пока нет.
-                  </td>
+                  <th>Дата</th>
+                  <th>Тип</th>
+                  <th>Сумма</th>
+                  <th>Филиал</th>
+                  <th>Основание</th>
+                  <th>Мастер</th>
+                  <th>Заявка</th>
+                  <th>Документ</th>
+                  <th>Кто</th>
+                  <th>Комментарий</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {txs.map((t) => (
+                  <tr key={t.id}>
+                    <td>{new Date(t.createdAt).toLocaleString('ru-RU')}</td>
+                    <td>{CASH_DIRECTION_LABELS[t.direction] ?? t.direction}</td>
+                    <td>{String(t.amount)}</td>
+                    <td>{t.city?.name ?? '—'}</td>
+                    <td>
+                      {t.incomeBasis
+                        ? (CASH_INCOME_BASIS_LABELS[t.incomeBasis] ??
+                          t.incomeBasis)
+                        : t.expenseBasis
+                          ? (CASH_EXPENSE_BASIS_LABELS[t.expenseBasis] ??
+                            t.expenseBasis)
+                          : '—'}
+                    </td>
+                    <td>{t.master?.user?.fullName ?? '—'}</td>
+                    <td>{t.order?.publicId ?? '—'}</td>
+                    <td>
+                      {t.documentPath ? (
+                        <div className="docs-actions">
+                          <button
+                            type="button"
+                            className="btn-link"
+                            disabled={previewLoadingId === t.id}
+                            onClick={() => void openPreview(t)}
+                          >
+                            {previewLoadingId === t.id ? '…' : 'Предпросмотр'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-link"
+                            disabled={downloadLoadingId === t.id}
+                            onClick={() => void downloadDoc(t)}
+                          >
+                            {downloadLoadingId === t.id ? '…' : 'Скачать'}
+                          </button>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>{t.createdBy?.fullName ?? '—'}</td>
+                    <td>{t.description ?? '—'}</td>
+                  </tr>
+                ))}
+                {txs.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="muted">
+                      Операций пока нет.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
+
+        {preview ? (
+          <div
+            className="doc-preview-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Документ кассы"
+            onClick={closePreview}
+          >
+            <div
+              className="doc-preview-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="doc-preview-head">
+                <div>
+                  <strong>Документ</strong>
+                </div>
+                <div className="docs-actions">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => {
+                      const tx = txs.find((x) => x.id === preview.id);
+                      if (tx) void downloadDoc(tx);
+                    }}
+                  >
+                    Скачать
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={closePreview}
+                  >
+                    Закрыть
+                  </button>
+                </div>
+              </div>
+              <div className="doc-preview-body">
+                {previewLoadingId === preview.id ? (
+                  <p className="muted">Загрузка…</p>
+                ) : preview.mimeType.startsWith('image/') ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={preview.url}
+                    alt="Документ кассы"
+                    className="doc-preview-image"
+                  />
+                ) : preview.mimeType === 'application/pdf' ||
+                  preview.fileName.toLowerCase().endsWith('.pdf') ? (
+                  <iframe
+                    title="Документ кассы"
+                    src={preview.url}
+                    className="doc-preview-frame"
+                  />
+                ) : (
+                  <p className="muted" style={{ margin: '2rem 0' }}>
+                    Предпросмотр этого типа файла недоступен. Скачайте файл.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
-    </div>
     </OpsShell>
   );
 }

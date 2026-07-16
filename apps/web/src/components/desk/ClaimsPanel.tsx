@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { BranchSelect } from '@/components/BranchSelect';
 import { api, getStoredUser } from '@/lib/api';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 const CLAIM_TYPES: Record<string, string> = {
@@ -33,6 +34,12 @@ type OrderHit = {
 
 type City = { id: string; name: string };
 
+function formatMoney(value: string | number): string {
+  const n = Number(value);
+  if (Number.isNaN(n)) return String(value);
+  return n.toLocaleString('ru-RU');
+}
+
 export function ClaimsPanel() {
   const user = getStoredUser();
   const canRead = hasPermission(
@@ -52,7 +59,7 @@ export function ClaimsPanel() {
   const [form, setForm] = useState({
     orderId: '',
     type: 'PRICE_DISSATISFIED',
-    refundSum: '0',
+    refundSum: '',
     cityId: '',
   });
 
@@ -154,7 +161,7 @@ export function ClaimsPanel() {
       setForm((f) => ({
         ...f,
         type: 'PRICE_DISSATISFIED',
-        refundSum: '0',
+        refundSum: '',
       }));
       await load();
     } catch (err) {
@@ -169,145 +176,207 @@ export function ClaimsPanel() {
 
   return (
     <section className="desk-panel">
-      <div className="desk-panel-body">
+      <div className="desk-panel-body desk-claims">
         {canWrite ? (
-        <form onSubmit={onCreate} className="desk-claims-form">
-          <div className="field">
-            <label>Заявка</label>
-            {selectedOrder ? (
-              <div className="order-suggest-selected">
-                <span>
-                  <strong>{selectedOrder.publicId}</strong>
-                  {' · '}
-                  {selectedOrder.client.name}
-                </span>
-                <button
-                  type="button"
-                  className="btn secondary"
-                  onClick={clearOrder}
+          <form onSubmit={onCreate} className="panel desk-claims-form">
+            <div className="desk-claims-form-head">
+              <h2 className="desk-claims-form-title">Новая претензия</h2>
+            </div>
+
+            <div className="field desk-claims-order">
+              <label>Заявка</label>
+              {selectedOrder ? (
+                <div className="desk-claims-picked">
+                  <div className="desk-claims-picked-main">
+                    <strong className="desk-claims-picked-id">
+                      {selectedOrder.publicId}
+                    </strong>
+                    <span>{selectedOrder.client.name}</span>
+                    <span className="muted">
+                      {formatRuPhoneDisplay(
+                        selectedOrder.client.phoneNormalized,
+                      )}
+                    </span>
+                    <span className="muted">
+                      Сумма заявки:{' '}
+                      {formatMoney(selectedOrder.payment?.paid ?? 0)} ₽
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={clearOrder}
+                  >
+                    Сменить
+                  </button>
+                </div>
+              ) : (
+                <div className="order-suggest" ref={searchBoxRef}>
+                  <input
+                    value={orderQuery}
+                    onChange={(e) => setOrderQuery(e.target.value)}
+                    onFocus={() => orderHits.length && setShowHits(true)}
+                    placeholder="Номер заявки или телефон"
+                    autoComplete="off"
+                  />
+                  {searching ? (
+                    <p className="muted desk-claims-search-hint">Поиск…</p>
+                  ) : null}
+                  {showHits && orderHits.length > 0 ? (
+                    <ul className="order-suggest-list">
+                      {orderHits.map((o) => (
+                        <li key={o.id}>
+                          <button type="button" onClick={() => pickOrder(o)}>
+                            <strong>{o.publicId}</strong>
+                            {' · '}
+                            {o.client.name}
+                            <span className="muted">
+                              {' · '}
+                              {formatRuPhoneDisplay(o.client.phoneNormalized)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <div className="desk-claims-form-row">
+              <div className="field">
+                <label>Тип</label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value })}
                 >
-                  Сменить
-                </button>
+                  {Object.entries(CLAIM_TYPES).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <div className="order-suggest" ref={searchBoxRef}>
+              <div className="field">
+                <label>Возврат, ₽</label>
                 <input
-                  value={orderQuery}
-                  onChange={(e) => setOrderQuery(e.target.value)}
-                  onFocus={() => orderHits.length && setShowHits(true)}
-                  placeholder="номер заявки/телефон клиента"
-                  autoComplete="off"
+                  inputMode="decimal"
+                  value={form.refundSum}
+                  onChange={(e) =>
+                    setForm({ ...form, refundSum: e.target.value })
+                  }
                 />
-                {searching ? (
-                  <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.8rem' }}>
-                    Поиск…
-                  </p>
-                ) : null}
-                {showHits && orderHits.length > 0 ? (
-                  <ul className="order-suggest-list">
-                    {orderHits.map((o) => (
-                      <li key={o.id}>
-                        <button type="button" onClick={() => pickOrder(o)}>
-                          <strong>{o.publicId}</strong>
-                          {' · '}
-                          {o.client.name}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
               </div>
-            )}
-          </div>
-          <div className="field">
-            <label>Тип</label>
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
-            >
-              {Object.entries(CLAIM_TYPES).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Возврат, ₽</label>
-            <input
-              value={form.refundSum}
-              onChange={(e) => setForm({ ...form, refundSum: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label>Сумма заявки</label>
-            <input
-              readOnly
-              disabled
-              value={
-                selectedOrder ? String(selectedOrder.payment?.paid ?? 0) : '—'
-              }
-            />
-          </div>
-          <BranchSelect
-            cities={cities}
-            value={form.cityId}
-            onChange={(cityId) => setForm({ ...form, cityId })}
-            allowEmpty
-          />
-          <button className="btn" type="submit">
-            Создать
-          </button>
-        </form>
+              <BranchSelect
+                cities={cities}
+                value={form.cityId}
+                onChange={(cityId) => setForm({ ...form, cityId })}
+                allowEmpty
+              />
+            </div>
+
+            <button className="btn desk-claims-form-submit" type="submit">
+              Создать
+            </button>
+          </form>
         ) : null}
 
-        {error ? <p className="error">{error}</p> : null}
+        {error ? <p className="error desk-claims-error">{error}</p> : null}
 
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Заявка</th>
-              <th>Тип</th>
-              <th>Возврат</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {claims.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  <Link href={`/orders/${c.order.id}`}>{c.order.publicId}</Link>
-                  <div className="muted">{c.order.client.name}</div>
-                </td>
-                <td>
-                  {CLAIM_TYPES[c.type] ?? c.type}
-                  <div className="muted">
-                    {c.closedAt ? 'Закрыта' : 'Открыта'}
-                  </div>
-                </td>
-                <td>{String(c.refundSum)}</td>
-                <td>
-                  {!c.closedAt ? (
-                    <button
-                      type="button"
-                      className="btn secondary"
-                      onClick={() => closeClaim(c.id)}
+        <div className="panel desk-claims-list">
+          <div className="table-scroll">
+            <table className="table desk-list">
+              <thead>
+                <tr>
+                  <th>Заявка</th>
+                  <th>Тип</th>
+                  <th className="desk-col-center">Возврат</th>
+                  <th className="desk-col-center">Статус</th>
+                  <th className="desk-col-center">Действие</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claims.map((c) => {
+                  const closed = Boolean(c.closedAt);
+                  return (
+                    <tr
+                      key={c.id}
+                      className={closed ? '' : 'row-claim-open'}
                     >
-                      Закрыть
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-            {claims.length === 0 && !error ? (
-              <tr>
-                <td colSpan={4} className="muted">
-                  Претензий пока нет.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+                      <td>
+                        <div className="desk-cell">
+                          <div className="desk-cell-top">
+                            <Link
+                              href={`/orders/${c.order.id}`}
+                              className="desk-id desk-id-link"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {c.order.publicId}
+                            </Link>
+                          </div>
+                          <div className="desk-cell-sub">
+                            {c.order.client.name}
+                          </div>
+                          {c.city?.name ? (
+                            <div className="desk-cell-sub">{c.city.name}</div>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="desk-cell">
+                          <div className="desk-cell-main">
+                            {CLAIM_TYPES[c.type] ?? c.type}
+                          </div>
+                          <div className="desk-cell-sub">
+                            {new Date(c.createdAt).toLocaleDateString('ru-RU', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="desk-col-center">
+                        <span className="desk-money">
+                          {formatMoney(c.refundSum)} ₽
+                        </span>
+                      </td>
+                      <td className="desk-col-center">
+                        <span
+                          className={
+                            closed ? 'badge badge-muted' : 'badge badge-warn'
+                          }
+                        >
+                          {closed ? 'Закрыта' : 'Открыта'}
+                        </span>
+                      </td>
+                      <td className="desk-col-center">
+                        {!closed ? (
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            onClick={() => closeClaim(c.id)}
+                          >
+                            Закрыть
+                          </button>
+                        ) : (
+                          <span className="desk-cell-sub">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {claims.length === 0 && !error ? (
+                  <tr>
+                    <td colSpan={5} className="muted desk-col-center">
+                      Претензий пока нет.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -177,29 +177,102 @@ export class ReportsService {
       requestedCityId,
     );
     const cityFilter = this.branch.cityWhere(cityIds);
-    const orders = await this.prisma.order.findMany({
-      where: {
-        status: { in: [OrderStatus.CANCELLED_CC, OrderStatus.REFUSAL] },
-        updatedAt: { gte: start, lte: end },
-        cityId: cityFilter,
-      },
-      select: {
-        status: true,
-        cancelFault: true,
-        sourceKind: true,
-      },
+    const [orders, cityRows] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          status: { in: [OrderStatus.CANCELLED_CC, OrderStatus.REFUSAL] },
+          updatedAt: { gte: start, lte: end },
+          cityId: cityFilter,
+        },
+        select: {
+          status: true,
+          cancelFault: true,
+          sourceKind: true,
+          cityId: true,
+          city: { select: { name: true } },
+        },
+      }),
+      this.prisma.city.findMany({
+        where: cityIds ? { id: { in: cityIds } } : undefined,
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    type CancelAgg = {
+      cityId: string | null;
+      cityName: string;
+      total: number;
+      partner: number;
+      our: number;
+      refusal: number;
+      cancelledCc: number;
+      byMasterFault: number;
+      byAdminFault: number;
+    };
+
+    const empty = (cityId: string | null, cityName: string): CancelAgg => ({
+      cityId,
+      cityName,
+      total: 0,
+      partner: 0,
+      our: 0,
+      refusal: 0,
+      cancelledCc: 0,
+      byMasterFault: 0,
+      byAdminFault: 0,
     });
+
+    const byId = new Map<string, CancelAgg>();
+    for (const c of cityRows) {
+      byId.set(c.id, empty(c.id, c.name));
+    }
+
+    const bump = (row: CancelAgg, o: (typeof orders)[number]) => {
+      row.total += 1;
+      if (o.sourceKind === SourceKind.PARTNER) row.partner += 1;
+      if (o.sourceKind === SourceKind.OUR) row.our += 1;
+      if (o.status === OrderStatus.REFUSAL) row.refusal += 1;
+      if (o.status === OrderStatus.CANCELLED_CC) row.cancelledCc += 1;
+      if (o.cancelFault === 'master') row.byMasterFault += 1;
+      if (o.cancelFault === 'admin') row.byAdminFault += 1;
+    };
+
+    for (const o of orders) {
+      const id = o.cityId;
+      if (id && byId.has(id)) {
+        bump(byId.get(id)!, o);
+        continue;
+      }
+      const key = id ?? '__none__';
+      if (!byId.has(key)) {
+        byId.set(
+          key,
+          empty(id, o.city?.name ?? (id ? 'Филиал' : 'Без филиала')),
+        );
+      }
+      bump(byId.get(key)!, o);
+    }
+
+    const byCity = [...byId.values()].sort((a, b) =>
+      a.cityName.localeCompare(b.cityName, 'ru'),
+    );
+
+    const totals = empty(null, 'Итого');
+    for (const row of byCity) {
+      totals.total += row.total;
+      totals.partner += row.partner;
+      totals.our += row.our;
+      totals.refusal += row.refusal;
+      totals.cancelledCc += row.cancelledCc;
+      totals.byMasterFault += row.byMasterFault;
+      totals.byAdminFault += row.byAdminFault;
+    }
+
     return {
       period: { from: start, to: end },
-      total: orders.length,
-      refusal: orders.filter((o) => o.status === OrderStatus.REFUSAL).length,
-      cancelledCc: orders.filter((o) => o.status === OrderStatus.CANCELLED_CC)
-        .length,
-      byMasterFault: orders.filter((o) => o.cancelFault === 'master').length,
-      byAdminFault: orders.filter((o) => o.cancelFault === 'admin').length,
-      faultUnset: orders.filter((o) => !o.cancelFault).length,
-      our: orders.filter((o) => o.sourceKind === SourceKind.OUR).length,
-      partner: orders.filter((o) => o.sourceKind === SourceKind.PARTNER).length,
+      byCity,
+      totals,
     };
   }
 
@@ -518,7 +591,6 @@ export class ReportsService {
     });
 
     type Row = {
-      partnerId: string | null;
       partnerName: string;
       count: number;
       net: number;
@@ -531,7 +603,6 @@ export class ReportsService {
     for (const o of orders) {
       const key = o.partnerId ?? '__none__';
       const cur = map.get(key) ?? {
-        partnerId: o.partnerId,
         partnerName: o.partner?.name ?? 'Без партнёра',
         count: 0,
         net: 0,
@@ -568,7 +639,7 @@ export class ReportsService {
       requestedCityId,
     );
     const cityFilter = this.branch.cityWhere(cityIds);
-    return this.prisma.claim.findMany({
+    const rows = await this.prisma.claim.findMany({
       where: { createdAt: { gte: start, lte: end }, cityId: cityFilter },
       include: {
         order: { include: { client: true } },
@@ -576,6 +647,20 @@ export class ReportsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return {
+      period: { from: start, to: end },
+      rows: rows.map((c) => ({
+        date: c.createdAt,
+        orderPublicId: c.order.publicId,
+        clientName: c.order.client.name,
+        type: c.type,
+        cityName: c.city?.name ?? '—',
+        refundSum: Number(c.refundSum),
+        orderSum: Number(c.orderSum),
+        status: c.closedAt ? 'closed' : 'open',
+      })),
+    };
   }
 
   async ads(

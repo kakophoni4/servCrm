@@ -41,6 +41,11 @@ export class UpdateOrderDto {
 
   // comment — только при создании (комментарий диспетчера), в PATCH не принимаем.
 
+  /** Комментарий администратора / директора / владельца. */
+  @IsOptional()
+  @IsString()
+  adminComment?: string | null;
+
   @IsOptional()
   @IsString()
   masterId?: string | null;

@@ -144,15 +144,17 @@ export function MasterSalaryPanel() {
         </button>
       </form>
 
-      <div className="panel">
-        <h2 className="salary-list-title">Категории</h2>
+      <div className="panel salary-list">
+        <div className="salary-create-head">
+          <h2 className="salary-list-title">Категории</h2>
+        </div>
         <table className="table salary-table">
           <thead>
             <tr>
               <th>От, ₽</th>
               <th>До, ₽</th>
               <th>%</th>
-              <th></th>
+              <th>Действия</th>
             </tr>
           </thead>
           <tbody>

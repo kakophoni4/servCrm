@@ -10,6 +10,7 @@ import {
   STATUS_LABELS,
   TYPE_LABELS,
 } from '@/lib/labels';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type OrderRow = {
@@ -40,6 +41,32 @@ function isUrgentUnassigned(o: OrderRow, now: number): boolean {
   const t = new Date(o.scheduledAt).getTime();
   if (Number.isNaN(t)) return false;
   return t - now <= URGENT_MS;
+}
+
+function statusBadgeClass(status: string): string {
+  if (status === 'DONE') return 'badge badge-ok';
+  if (status === 'REFUSAL' || status === 'CANCELLED_CC') return 'badge badge-muted';
+  if (
+    status === 'IN_PROGRESS' ||
+    status === 'IN_PROGRESS_SD' ||
+    status === 'ON_THE_WAY'
+  ) {
+    return 'badge badge-work';
+  }
+  return 'badge';
+}
+
+function formatSchedule(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+  });
+  const time = d.toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${date} · ${time}`;
 }
 
 export function OrdersPanel() {
@@ -129,89 +156,107 @@ export function OrdersPanel() {
           </p>
         ) : null}
         {!loading && !error ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Клиент</th>
-                <th>Время</th>
-                <th>Статус</th>
-                <th>Мастер</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => {
-                const urgent = isUrgentUnassigned(o, now);
-                return (
-                  <tr
-                    key={o.id}
-                    className={
-                      urgent ? 'row-link row-urgent' : 'row-link'
-                    }
-                    role="link"
-                    tabIndex={0}
-                    onClick={() => go(o.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        go(o.id);
-                      }
-                    }}
-                  >
-                    <td>
-                      <strong>{o.publicId}</strong>
-                      {o.isClaim ? ' ⚠' : ''}
-                      {urgent ? (
-                        <span className="urgent-pill">срочно</span>
-                      ) : null}
-                      <div className="muted">
-                        {TYPE_LABELS[o.type] ?? o.type}
-                      </div>
-                    </td>
-                    <td>
-                      {o.client.name}
-                      <div className="muted">{o.client.phoneNormalized}</div>
-                      <div className="muted">
-                        {SOURCE_KIND_LABELS[o.sourceKind] ?? o.sourceKind}
-                        {o.sourceOur
-                          ? ` / ${SOURCE_OUR_LABELS[o.sourceOur] ?? o.sourceOur}`
-                          : ''}
-                      </div>
-                    </td>
-                    <td>
-                      {o.scheduledAt ? (
-                        <strong>
-                          {new Date(o.scheduledAt).toLocaleString('ru-RU', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </strong>
-                      ) : (
-                        <span className="muted">не назначено</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="badge">
-                        {STATUS_LABELS[o.status] ?? o.status}
-                      </span>
-                    </td>
-                    <td>{o.master?.user.fullName ?? '—'}</td>
-                  </tr>
-                );
-              })}
-              {orders.length === 0 ? (
+          <div className="table-scroll">
+            <table className="table desk-list">
+              <thead>
                 <tr>
-                  <td colSpan={5} className="muted">
-                    {user?.cityName
-                      ? `В филиале «${user.cityName}» заявок пока нет.`
-                      : 'Заявок пока нет.'}
-                  </td>
+                  <th>Заявка</th>
+                  <th>Клиент</th>
+                  <th className="desk-col-center">Время</th>
+                  <th className="desk-col-center">Статус</th>
+                  <th className="desk-col-center">Мастер</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {orders.map((o) => {
+                  const urgent = isUrgentUnassigned(o, now);
+                  const source = [
+                    SOURCE_KIND_LABELS[o.sourceKind] ?? o.sourceKind,
+                    o.sourceOur
+                      ? (SOURCE_OUR_LABELS[o.sourceOur] ?? o.sourceOur)
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
+                    <tr
+                      key={o.id}
+                      className={
+                        urgent ? 'row-link row-urgent' : 'row-link'
+                      }
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => go(o.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          go(o.id);
+                        }
+                      }}
+                    >
+                      <td>
+                        <div className="desk-cell">
+                          <div className="desk-cell-top">
+                            <span className="desk-id">{o.publicId}</span>
+                            {urgent ? (
+                              <span className="urgent-pill">срочно</span>
+                            ) : null}
+                            {o.isClaim ? (
+                              <span className="badge badge-warn">претензия</span>
+                            ) : null}
+                          </div>
+                          <div className="desk-cell-sub">
+                            {TYPE_LABELS[o.type] ?? o.type}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="desk-cell">
+                          <div className="desk-cell-main">{o.client.name}</div>
+                          <div className="desk-cell-phone">
+                            {formatRuPhoneDisplay(o.client.phoneNormalized)}
+                          </div>
+                          <div className="desk-cell-sub">{source}</div>
+                        </div>
+                      </td>
+                      <td className="desk-col-center">
+                        {o.scheduledAt ? (
+                          <span className="desk-time">
+                            {formatSchedule(o.scheduledAt)}
+                          </span>
+                        ) : (
+                          <span className="desk-cell-sub">не назначено</span>
+                        )}
+                      </td>
+                      <td className="desk-col-center">
+                        <span className={statusBadgeClass(o.status)}>
+                          {STATUS_LABELS[o.status] ?? o.status}
+                        </span>
+                      </td>
+                      <td className="desk-col-center">
+                        {o.master?.user.fullName ? (
+                          <span className="desk-cell-main">
+                            {o.master.user.fullName}
+                          </span>
+                        ) : (
+                          <span className="desk-cell-sub">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="muted desk-col-center">
+                      {user?.cityName
+                        ? `В филиале «${user.cityName}» заявок пока нет.`
+                        : 'Заявок пока нет.'}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </div>
     </section>

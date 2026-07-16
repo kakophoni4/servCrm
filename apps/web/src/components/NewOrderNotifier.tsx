@@ -8,6 +8,7 @@ import {
   getUrgentUnassignedOrders,
   RecentOrder,
 } from '@/lib/api';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 
 const ADMIN_ROLES = ['ADMIN', 'DIRECTOR', 'OWNER'];
 const POLL_MS = 15000;
@@ -31,10 +32,20 @@ function writeDismissedUrgent(ids: Set<string>) {
   localStorage.setItem(LS_URGENT_DISMISSED, JSON.stringify([...ids]));
 }
 
+function formatSchedule(iso?: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /**
- * Всплывающие уведомления для админов:
- * — новые заявки (/orders/recent);
- * — без мастера и до визита ≤30 мин (/orders/urgent-unassigned).
+ * Уведомления для админов (панель справа снизу, не блокирует CRM):
+ * — новые заявки;
+ * — без мастера и до визита ≤30 мин.
  */
 export function NewOrderNotifier() {
   const [queue, setQueue] = useState<NotifyItem[]>([]);
@@ -104,7 +115,6 @@ export function NewOrderNotifier() {
         }
 
         const activeUrgentIds = new Set(urgent.map((o) => o.id));
-        // Сброс «прочитано» для заявок, которые уже не срочные / назначили мастера
         let dismissedChanged = false;
         for (const id of [...dismissedUrgentRef.current]) {
           if (!activeUrgentIds.has(id)) {
@@ -132,11 +142,9 @@ export function NewOrderNotifier() {
               byId.set(item.id, item);
               added += 1;
             } else if (item.kind === 'urgent') {
-              // подтянуть kind/время, если заявка уже в очереди как новая
               byId.set(item.id, { ...byId.get(item.id)!, ...item });
             }
           }
-          // убрать из очереди urgent, которых больше нет в ответе API
           for (const [id, item] of byId) {
             if (item.kind === 'urgent' && !activeUrgentIds.has(id)) {
               byId.delete(id);
@@ -183,80 +191,84 @@ export function NewOrderNotifier() {
 
   const urgentCount = queue.filter((o) => o.kind === 'urgent').length;
   const newCount = queue.length - urgentCount;
+  const title =
+    urgentCount && newCount
+      ? `Уведомления · ${queue.length}`
+      : urgentCount
+        ? `Срочно · ${urgentCount}`
+        : `Новые · ${newCount}`;
 
   return (
-    <div className="notify-overlay" role="dialog" aria-modal="true">
+    <div className="notify-dock" aria-live="polite" aria-label={title}>
       <div
         className={
-          urgentCount ? 'notify-card notify-card-urgent' : 'notify-card'
+          urgentCount
+            ? 'notify-dock-card notify-dock-card-urgent'
+            : 'notify-dock-card'
         }
       >
-        <h2 className="notify-title">
-          {urgentCount && newCount
-            ? `Уведомления (${queue.length})`
-            : urgentCount
-              ? `Срочно: без мастера (${urgentCount})`
-              : `Новые заявки (${newCount})`}
-        </h2>
-        <div className="notify-list">
-          {queue.map((o) => (
-            <div
-              key={o.id}
-              className={
-                o.kind === 'urgent' ? 'notify-item notify-item-urgent' : 'notify-item'
-              }
-            >
-              <div>
-                <strong>{o.publicId}</strong>
-                {o.cityName ? ` · ${o.cityName}` : ''}
-                {o.kind === 'urgent' ? (
-                  <span className="notify-flag">≤30 мин, без мастера</span>
-                ) : !o.hasMaster ? (
-                  <span className="notify-flag">без мастера</span>
-                ) : null}
-              </div>
-              <div className="muted">
-                {o.clientName} · {o.phone}
-              </div>
-              <div className="muted">{o.address}</div>
-              {o.scheduledAt ? (
-                <div className="muted">
-                  Время:{' '}
-                  {new Date(o.scheduledAt).toLocaleString('ru-RU', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </div>
-              ) : null}
-              <div className="notify-actions">
-                <Link
-                  className="btn"
-                  href={`/orders/${o.id}`}
-                  onClick={() => dismiss(o)}
-                >
-                  Открыть и назначить
-                </Link>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  onClick={() => dismiss(o)}
-                >
-                  Прочитано
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="notify-dock-head">
+          <h2 className="notify-dock-title">{title}</h2>
+          <button
+            type="button"
+            className="btn-link notify-dock-dismiss-all"
+            onClick={dismissAll}
+          >
+            Скрыть всё
+          </button>
         </div>
-        <button
-          className="btn"
-          type="button"
-          onClick={dismissAll}
-          style={{ marginTop: 12, width: '100%' }}
-        >
-          Прочитано всё
-        </button>
+
+        <div className="notify-dock-list">
+          {queue.map((o) => {
+            const when = formatSchedule(o.scheduledAt);
+            return (
+              <div
+                key={o.id}
+                className={
+                  o.kind === 'urgent'
+                    ? 'notify-dock-item notify-dock-item-urgent'
+                    : 'notify-dock-item'
+                }
+              >
+                <div className="notify-dock-item-top">
+                  <strong className="notify-dock-id">{o.publicId}</strong>
+                  {o.kind === 'urgent' ? (
+                    <span className="urgent-pill">срочно</span>
+                  ) : null}
+                </div>
+                <div className="notify-dock-meta">
+                  {o.cityName ? <span>{o.cityName}</span> : null}
+                  {when ? <span>{when}</span> : null}
+                </div>
+                <div className="notify-dock-client">
+                  {o.clientName}
+                  {o.phone ? (
+                    <span className="muted">
+                      {' · '}
+                      {formatRuPhoneDisplay(o.phone)}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="notify-dock-actions">
+                  <Link
+                    className="btn"
+                    href={`/orders/${o.id}`}
+                    onClick={() => dismiss(o)}
+                  >
+                    Открыть
+                  </Link>
+                  <button
+                    className="btn secondary"
+                    type="button"
+                    onClick={() => dismiss(o)}
+                  >
+                    Скрыть
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
