@@ -10,17 +10,36 @@ import {
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** YYYY-MM-DD → локальная полночь / конец дня (без UTC-сдвига date-only). */
+function parseDayStart(isoDate: string) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+function parseDayEnd(isoDate: string) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
 function range(from?: string, to?: string) {
   const now = new Date();
   const start =
     from != null
-      ? new Date(from)
-      : new Date(now.getFullYear(), now.getMonth(), 1);
+      ? parseDayStart(from)
+      : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   const end =
     to != null
-      ? new Date(to)
-      : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      ? parseDayEnd(to)
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start, end };
+}
+
+/** Число календарных дней от start до end включительно. */
+function inclusiveCalendarDays(start: Date, end: Date) {
+  const a = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const b = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const diff = Math.round((b.getTime() - a.getTime()) / 86400000);
+  return Math.max(1, diff + 1);
 }
 
 const ADS_EXPENSE_BASES: CashExpenseBasis[] = [
@@ -117,17 +136,19 @@ export class ReportsService {
       0,
     );
     const paid = orders.reduce((s, o) => s + Number(o.payment?.paid ?? 0), 0);
-    const days = Math.max(
-      1,
-      Math.ceil((end.getTime() - start.getTime()) / 86400000),
-    );
     const avgCheck = closed ? paid / closed : 0;
-    const avgClosedPerDay = closed / days;
     const daysInMonth = new Date(
-      end.getFullYear(),
-      end.getMonth() + 1,
+      start.getFullYear(),
+      start.getMonth() + 1,
       0,
     ).getDate();
+    // Прогноз на месяц: средний дневной оборот × дней в месяце.
+    // Для текущего месяца считаем только прошедшие дни, не «пустой хвост».
+    const now = new Date();
+    const elapsedEnd = now < end ? now : end;
+    const elapsedDays = inclusiveCalendarDays(start, elapsedEnd);
+    const avgDailyTurnover = paid / elapsedDays;
+    const forecastTurnover = avgDailyTurnover * daysInMonth;
 
     const adsTxs = await this.prisma.cashTx.findMany({
       where: {
@@ -159,7 +180,7 @@ export class ReportsService {
       avgCheckSalary: closed ? salary / closed : 0,
       avgCheckTotal: avgCheck,
       avgWorkSum: closed ? work / closed : 0,
-      forecastTurnover: avgCheck * avgClosedPerDay * daysInMonth,
+      forecastTurnover,
       orderPrice,
       adsExpenseSum,
       ordersInPeriod,

@@ -141,8 +141,8 @@ describe('ReportsService', () => {
       expect(result.orderPrice).toBe(50);
       expect(result.adsExpenseSum).toBe(500);
       expect(result.ordersInPeriod).toBe(10);
-      expect(Number.isFinite(result.forecastTurnover)).toBe(true);
-      expect(Number.isNaN(result.forecastTurnover)).toBe(false);
+      // paid=22000 за 10 дней июня → прогноз на месяц: 22000/10*30
+      expect(result.forecastTurnover).toBe(66000);
     });
 
     it('returns orderPrice 0 when ordersInPeriod is 0', async () => {
