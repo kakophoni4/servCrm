@@ -1041,12 +1041,28 @@ label.file-picker:focus-within,
 }
 
 /* Чаты с мастерами: список | переписка | свободные заявки */
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  /* topbar (~3.2rem) + padding .main (~3rem) */
+  height: calc(100dvh - 6.5rem);
+  max-height: calc(100dvh - 6.5rem);
+  min-height: 0;
+}
+
+.chat-page > .page-title,
+.chat-page > .error {
+  flex-shrink: 0;
+}
+
 .chat-workspace {
   display: grid;
   grid-template-columns: minmax(200px, 0.9fr) minmax(0, 1.4fr) minmax(220px, 1fr);
   gap: 12px;
   align-items: stretch;
-  min-height: min(70vh, 720px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-workspace > .panel {
@@ -1055,6 +1071,7 @@ label.file-picker:focus-within,
   min-height: 0;
   min-width: 0;
   margin: 0;
+  overflow: hidden;
 }
 
 .chat-panel-title {
@@ -1063,6 +1080,7 @@ label.file-picker:focus-within,
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .chat-orders-count {
@@ -1133,13 +1151,16 @@ label.file-picker:focus-within,
   display: none;
   align-self: flex-start;
   margin-bottom: 0.65rem;
+  flex-shrink: 0;
 }
 
 .chat-messages {
-  flex: 1;
-  min-height: 220px;
-  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -4626,6 +4647,11 @@ label.file-picker:focus-within,
     white-space: nowrap;
   }
 
+  .chat-page {
+    height: calc(100dvh - 5.5rem);
+    max-height: calc(100dvh - 5.5rem);
+  }
+
   .chat-workspace {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -4643,11 +4669,6 @@ label.file-picker:focus-within,
   .chat-workspace .chat-thread-panel .chat-back {
     display: inline-flex;
     margin-bottom: 0.75rem;
-  }
-
-  .chat-messages {
-    min-height: 180px;
-    max-height: 40vh;
   }
 
   .salary-create-grid {

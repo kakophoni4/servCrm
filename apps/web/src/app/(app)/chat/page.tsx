@@ -55,7 +55,7 @@ export default function ChatPage() {
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list');
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -109,8 +109,10 @@ export default function ChatPage() {
   }, [refreshAll]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [thread?.messages?.length]);
+    const el = messagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [thread?.messages?.length, selectedId]);
 
   function openThread(id: string) {
     setSelectedId(id);
@@ -224,7 +226,7 @@ export default function ChatPage() {
                 {thread.title ?? 'Мастер'}
               </h2>
 
-              <div className="chat-messages">
+              <div className="chat-messages" ref={messagesRef}>
                 {thread.messages.length === 0 ? (
                   <p className="muted">Переписки пока нет — напишите мастеру.</p>
                 ) : (
@@ -247,7 +249,6 @@ export default function ChatPage() {
                     </div>
                   ))
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               <form onSubmit={sendMessage} className="chat-compose">
