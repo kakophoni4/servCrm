@@ -473,11 +473,16 @@ textarea {
   background: #f0fdfa;
 }
 
+/* specificity выше, чем у `.field label { display:block }`, иначе title+hint слипаются в строку */
+.field label.file-picker,
+label.file-picker,
 .file-picker {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
   border: 1.5px solid color-mix(in srgb, var(--ink) 22%, var(--line));
   border-radius: 0.55rem;
   padding: 0.55rem 0.8rem;
@@ -485,9 +490,16 @@ textarea {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   min-height: 2.65rem;
-  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: center;
 }
 
+.field label.file-picker:hover,
+.field label.file-picker:focus-within,
+label.file-picker:hover,
+label.file-picker:focus-within,
 .file-picker:hover,
 .file-picker:focus-within {
   border-color: var(--accent);
@@ -503,8 +515,11 @@ textarea {
 }
 
 .file-picker-title {
+  display: block;
+  width: 100%;
   font-size: 0.92rem;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--ink);
   max-width: 100%;
   overflow: hidden;
@@ -513,7 +528,10 @@ textarea {
 }
 
 .file-picker-hint {
+  display: block;
+  width: 100%;
   font-size: 0.8rem;
+  line-height: 1.2;
   color: var(--muted);
 }
 
@@ -1410,17 +1428,18 @@ textarea {
 
 .order-page-head {
   display: grid;
-  justify-items: center;
-  gap: 0.65rem;
-  text-align: center;
+  justify-items: start;
+  gap: 0.5rem;
+  text-align: left;
 }
 
 .order-page-title {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 750;
   letter-spacing: -0.02em;
   color: var(--ink);
+  text-align: left;
 }
 
 .order-page-id {
@@ -1431,7 +1450,7 @@ textarea {
 .order-page-badges {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.4rem;
 }
 
@@ -1458,26 +1477,37 @@ textarea {
   gap: 1.05rem;
 }
 
+.order-client-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
 .order-client {
-  display: grid;
-  justify-items: center;
-  text-align: center;
-  gap: 0.35rem;
-  padding: 1rem 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.85rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.75rem 0.95rem;
   border-radius: 0.75rem;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  text-align: left;
 }
 
 .order-client-main {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
   min-width: 0;
 }
 
 .order-client-name {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 750;
   letter-spacing: -0.015em;
   color: var(--ink);
@@ -1488,6 +1518,7 @@ textarea {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .order-client-phone:hover {
@@ -1495,10 +1526,11 @@ textarea {
 }
 
 .order-client-link {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--muted);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .order-client-link:hover {
@@ -1508,16 +1540,16 @@ textarea {
 .order-profile-check {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 0.45rem;
   font-weight: 550;
   color: var(--ink);
-  justify-self: center;
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .order-section {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.75rem;
   padding-top: 0.35rem;
   border-top: 1px solid var(--line);
 }
@@ -1528,31 +1560,41 @@ textarea {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  text-align: center;
+  text-align: left;
 }
 
 .order-fields-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
 }
 
 .order-fields-grid .field {
   margin-bottom: 0;
-  text-align: center;
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 10.5rem) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+  text-align: left;
 }
 
 .order-field-full {
   grid-column: 1 / -1;
 }
 
+.order-field-full.field {
+  align-items: start;
+}
+
 .order-card .field label {
   display: block;
-  width: 100%;
-  text-align: center;
+  width: auto;
+  margin: 0;
+  text-align: left;
   color: var(--ink);
   font-weight: 600;
   opacity: 0.9;
+  line-height: 1.25;
 }
 
 .order-card .field input,
@@ -1562,10 +1604,12 @@ textarea {
   background: var(--input-bg);
   border: 1.5px solid color-mix(in srgb, var(--ink) 22%, var(--line));
   border-radius: 0.55rem;
-  min-height: 2.65rem;
+  min-height: 2.45rem;
   color: var(--ink);
-  text-align: center;
-  text-align-last: center;
+  text-align: left;
+  text-align-last: left;
+  width: 100%;
+  min-width: 0;
 }
 
 .order-card .field textarea,
@@ -1593,10 +1637,10 @@ textarea {
 
 .order-meta-item {
   display: grid;
-  gap: 0.25rem;
-  justify-items: center;
-  text-align: center;
-  padding: 0.75rem 0.8rem;
+  gap: 0.2rem;
+  justify-items: start;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
   border-radius: 0.65rem;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--muted) 6%, var(--panel));
@@ -1616,6 +1660,7 @@ textarea {
   font-weight: 650;
   color: var(--ink);
   word-break: break-word;
+  text-align: left;
 }
 
 .order-meta-full {
@@ -1678,7 +1723,7 @@ textarea {
 
 .order-card .error,
 .order-card .ok-msg {
-  text-align: center;
+  text-align: left;
 }
 
 .order-side {
@@ -1767,12 +1812,48 @@ textarea {
   overflow: hidden;
 }
 
+.order-history-panel {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+}
+
+.order-history-panel .order-side-title {
+  margin: 0;
+}
+
+.order-history-note {
+  margin: 0;
+  text-align: center;
+}
+
+.order-history-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.order-history-table {
+  width: 100%;
+  margin: 0 auto;
+  table-layout: fixed;
+}
+
+.order-history-table th,
+.order-history-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
 @media (max-width: 960px) {
   .order-page-grid {
     grid-template-columns: 1fr;
   }
 
-  .order-fields-grid,
+  .order-fields-grid .field {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
   .order-meta,
   .order-pay-summary {
     grid-template-columns: 1fr;
@@ -1805,10 +1886,14 @@ textarea {
   padding: 4px;
   width: fit-content;
   max-width: 100%;
-  justify-self: center;
+  justify-self: start;
   border-radius: 0.7rem;
   background: color-mix(in srgb, var(--muted) 10%, var(--bg));
   border: 1px solid var(--line);
+}
+
+.asset-tabs {
+  justify-self: center;
 }
 
 .cash-tabs .btn,
@@ -1881,7 +1966,16 @@ textarea {
   margin-bottom: 0;
 }
 
-.cash-form-head,
+.cash-form-head {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  text-align: left;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.15rem;
+}
+
 .asset-form-head {
   display: grid;
   gap: 2px;
@@ -1909,11 +2003,11 @@ textarea {
 }
 
 .cash-form-row-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 16rem) minmax(0, 22rem);
 }
 
 .cash-form-row-1 {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 22rem);
 }
 
 .cash-form-row .field,
@@ -1921,12 +2015,23 @@ textarea {
   margin-bottom: 0;
 }
 
-.cash-form .field,
+.cash-form .field {
+  text-align: left;
+}
+
 .asset-form .field {
   text-align: center;
 }
 
-.cash-form .field label,
+.cash-form .field label {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--ink);
+  font-weight: 600;
+  opacity: 0.9;
+}
+
 .asset-form .field label {
   display: block;
   width: 100%;
@@ -1938,7 +2043,17 @@ textarea {
 
 .cash-form .field input,
 .cash-form .field select,
-.cash-form .auto-textarea,
+.cash-form .auto-textarea {
+  background: var(--input-bg);
+  border: 1.5px solid color-mix(in srgb, var(--ink) 22%, var(--line));
+  border-radius: 0.55rem;
+  font-variant-numeric: tabular-nums;
+  min-height: 2.65rem;
+  color: var(--ink);
+  text-align: left;
+  text-align-last: left;
+}
+
 .asset-form .field input,
 .asset-form .field select,
 .asset-form .auto-textarea {
@@ -1960,6 +2075,16 @@ textarea {
   overflow: hidden;
 }
 
+.cash-form .field:has(.auto-textarea) {
+  max-width: 22rem;
+}
+
+.cash-form .auto-textarea {
+  max-width: 22rem;
+  min-height: 2.65rem;
+  max-height: 7rem;
+}
+
 .cash-form .field input:focus,
 .cash-form .field select:focus,
 .cash-form .auto-textarea:focus,
@@ -1974,13 +2099,19 @@ textarea {
 .cash-form .file-picker {
   min-height: 2.65rem;
   justify-content: center;
+  align-items: flex-start;
   padding: 0.4rem 0.75rem;
   border-style: solid;
   border-width: 1.5px;
   border-color: color-mix(in srgb, var(--ink) 22%, var(--line));
   background: var(--input-bg);
-  gap: 0.1rem;
-  text-align: center;
+  gap: 0.15rem;
+  text-align: left;
+}
+
+.cash-form .file-picker-title,
+.cash-form .file-picker-hint {
+  text-align: left;
 }
 
 .cash-form .file-picker-title {
@@ -1995,11 +2126,16 @@ textarea {
 
 .cash-form-basis {
   display: grid;
-  justify-items: center;
+  justify-items: start;
   gap: 0.55rem;
 }
 
-.cash-form-submit,
+.cash-form-submit {
+  justify-self: start;
+  min-width: 180px;
+  margin-top: 0.15rem;
+}
+
 .asset-form-submit {
   justify-self: center;
   min-width: 180px;
@@ -2009,7 +2145,7 @@ textarea {
 .cash-seg {
   display: inline-flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 4px;
   padding: 4px;
   border-radius: 0.7rem;
@@ -2088,31 +2224,6 @@ textarea {
 
 .cash-expense-field {
   margin-bottom: 0;
-}
-
-.cash-expense-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 0.65rem;
-  flex-wrap: wrap;
-}
-
-.cash-expense-label-row label {
-  margin-bottom: 0;
-}
-
-.cash-expense-picked {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 650;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
 }
 
 .cash-expense-groups {
@@ -2589,9 +2700,12 @@ textarea {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  justify-content: center;
+  justify-self: center;
   padding: 4px;
   width: fit-content;
   max-width: 100%;
+  margin: 0 auto;
   border-radius: 0.7rem;
   background: color-mix(in srgb, var(--muted) 10%, var(--bg));
   border: 1px solid var(--line);
@@ -3733,9 +3847,18 @@ textarea {
 .dispatcher-pay-who .field,
 .dispatcher-pay-grid .field {
   margin-bottom: 0;
+  text-align: center;
 }
 
-.dispatcher-pay-form .field label,
+.dispatcher-pay-form .field label {
+  display: block;
+  width: 100%;
+  text-align: center;
+  color: var(--ink);
+  font-weight: 600;
+  opacity: 0.9;
+}
+
 .dispatcher-schedule .field label {
   color: var(--ink);
   font-weight: 600;
@@ -3743,7 +3866,15 @@ textarea {
 }
 
 .dispatcher-pay-form .field input,
-.dispatcher-pay-form .field select,
+.dispatcher-pay-form .field select {
+  background: var(--input-bg);
+  border: 1.5px solid color-mix(in srgb, var(--ink) 22%, var(--line));
+  font-variant-numeric: tabular-nums;
+  min-height: 2.65rem;
+  text-align: center;
+  text-align-last: center;
+}
+
 .dispatcher-schedule .field select {
   background: var(--input-bg);
   border: 1.5px solid color-mix(in srgb, var(--ink) 22%, var(--line));

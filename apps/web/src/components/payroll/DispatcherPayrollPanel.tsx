@@ -67,8 +67,6 @@ export function DispatcherPayrollPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, month]);
 
-  const maxTotal = Math.max(1, ...rows.map((r) => r.total));
-
   return (
     <div className="settle-board">
       <div className="panel settle-panel">
@@ -143,67 +141,6 @@ export function DispatcherPayrollPanel() {
           </div>
         )}
       </div>
-
-      {rows.length > 0 ? (
-        <div className="panel settle-panel">
-          <div className="salary-create-head">
-            <h2 className="salary-list-title">Итого по диспетчерам</h2>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              gap: 12,
-              height: 180,
-              paddingTop: 8,
-            }}
-          >
-            {rows.map((r) => {
-              const h = Math.max(4, Math.round((r.total / maxTotal) * 140));
-              return (
-                <div
-                  key={r.userId}
-                  style={{
-                    flex: 1,
-                    minWidth: 48,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                  title={`${r.fullName}: ${money(r.total)} ₽`}
-                >
-                  <span style={{ fontSize: 12, color: '#64748b' }}>
-                    {money(r.total)}
-                  </span>
-                  <div
-                    style={{
-                      width: '100%',
-                      maxWidth: 56,
-                      height: h,
-                      background: '#0f766e',
-                      borderRadius: '4px 4px 0 0',
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontSize: 11,
-                      textAlign: 'center',
-                      lineHeight: 1.2,
-                      maxWidth: 72,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {r.fullName}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

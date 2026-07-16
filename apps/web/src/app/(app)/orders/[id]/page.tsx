@@ -170,7 +170,6 @@ export default function OrderDetailPage() {
   const [masters, setMasters] = useState<Master[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState('');
   const user = useMemo(() => getStoredUser(), []);
   const admin = user ? isAdminRole(user.role) : false;
 
@@ -344,7 +343,6 @@ export default function OrderDetailPage() {
       return;
     }
     setError('');
-    setMsg('');
     try {
       const body: Record<string, unknown> = {};
       if (admin) {
@@ -364,7 +362,6 @@ export default function OrderDetailPage() {
         }
       }
       await api(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      setMsg('Сохранено');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -374,7 +371,6 @@ export default function OrderDetailPage() {
   async function createClaim(e: FormEvent) {
     e.preventDefault();
     setError('');
-    setMsg('');
     try {
       await api('/claims', {
         method: 'POST',
@@ -386,7 +382,6 @@ export default function OrderDetailPage() {
         }),
       });
       setShowClaimForm(false);
-      setMsg('Претензия создана');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка создания претензии');
@@ -396,7 +391,6 @@ export default function OrderDetailPage() {
   async function uploadDoc(e: FormEvent) {
     e.preventDefault();
     setError('');
-    setMsg('');
     if (!docFiles || docFiles.length === 0) {
       setError('Выберите файл(ы) для загрузки');
       return;
@@ -414,20 +408,12 @@ export default function OrderDetailPage() {
         qs.set('forStatus', 'IN_PROGRESS_SD');
       }
       const uploadedKind = docKind;
-      const res = await uploadFiles<{
+      await uploadFiles<{
         created?: unknown[];
         skipped?: number;
       }>(`/orders/${id}/documents?${qs}`, fd);
       setDocFiles(null);
       (e.target as HTMLFormElement).reset();
-      // Дубликаты по хешу пропускаются без уведомлений
-      if ((res?.created?.length ?? 0) > 0) {
-        setMsg(
-          admin
-            ? 'Сумма сохранена, документы загружены'
-            : 'Документы загружены',
-        );
-      }
       const nextPresent = new Set(presentKinds);
       nextPresent.add(uploadedKind);
       setDocKind(
@@ -605,7 +591,6 @@ export default function OrderDetailPage() {
     setError('');
     try {
       await api(`/orders/${id}/warranty`, { method: 'POST' });
-      setMsg('Отмечено как гарантия');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
@@ -638,26 +623,6 @@ export default function OrderDetailPage() {
 
   return (
     <div className="order-page">
-      <div className="order-page-head">
-        <h1 className="page-title order-page-title">
-          Заявка <span className="order-page-id">{order.publicId}</span>
-        </h1>
-        <div className="order-page-badges">
-          <span className="badge order-badge-status">
-            {STATUS_LABELS[order.status]}
-          </span>
-          <span className={isProfile ? 'badge' : 'badge badge-warn'}>
-            {isProfile ? 'Профильная' : 'Непрофильная'}
-          </span>
-          <span className="badge order-badge-type">
-            {TYPE_LABELS[order.type] ?? order.type}
-          </span>
-          {order.isClaim ? (
-            <span className="badge badge-warn">Претензия</span>
-          ) : null}
-        </div>
-      </div>
-
       <div className="order-page-grid">
         <form className="panel order-card" onSubmit={save}>
           {order.docsViaAdmin ? (
@@ -667,31 +632,55 @@ export default function OrderDetailPage() {
             </div>
           ) : null}
 
-          <div className="order-client">
-            <div className="order-client-main">
-              <div className="order-client-name">{order.client.name}</div>
-              <a
-                className="order-client-phone"
-                href={`tel:+${order.client.phoneNormalized.replace(/\D/g, '')}`}
-              >
-                {formatRuPhoneDisplay(order.client.phoneNormalized)}
-              </a>
+          <div className="order-page-head">
+            <h1 className="page-title order-page-title">
+              Заявка <span className="order-page-id">{order.publicId}</span>
+            </h1>
+            <div className="order-page-badges">
+              <span className="badge order-badge-status">
+                {STATUS_LABELS[order.status]}
+              </span>
+              <span className={isProfile ? 'badge' : 'badge badge-warn'}>
+                {isProfile ? 'Профильная' : 'Непрофильная'}
+              </span>
+              <span className="badge order-badge-type">
+                {TYPE_LABELS[order.type] ?? order.type}
+              </span>
+              {order.isClaim ? (
+                <span className="badge badge-warn">Претензия</span>
+              ) : null}
             </div>
-            <Link className="order-client-link" href={`/clients/${order.client.id}`}>
-              Карточка клиента
-            </Link>
           </div>
 
-          {admin ? (
-            <label className="order-profile-check">
-              <input
-                type="checkbox"
-                checked={isProfile}
-                onChange={(e) => setIsProfile(e.target.checked)}
-              />
-              Профильная заявка
-            </label>
-          ) : null}
+          <div className="order-client-row">
+            <div className="order-client">
+              <div className="order-client-main">
+                <div className="order-client-name">{order.client.name}</div>
+                <a
+                  className="order-client-phone"
+                  href={`tel:+${order.client.phoneNormalized.replace(/\D/g, '')}`}
+                >
+                  {formatRuPhoneDisplay(order.client.phoneNormalized)}
+                </a>
+              </div>
+              <Link
+                className="order-client-link"
+                href={`/clients/${order.client.id}`}
+              >
+                Карточка клиента
+              </Link>
+            </div>
+            {admin ? (
+              <label className="order-profile-check">
+                <input
+                  type="checkbox"
+                  checked={isProfile}
+                  onChange={(e) => setIsProfile(e.target.checked)}
+                />
+                Профильная заявка
+              </label>
+            ) : null}
+          </div>
 
           {admin ? (
             <div className="order-section">
@@ -888,7 +877,6 @@ export default function OrderDetailPage() {
           ) : null}
 
           {error ? <p className="error">{error}</p> : null}
-          {msg ? <p className="ok-msg">{msg}</p> : null}
 
           <div className="order-actions">
             <button className="btn" type="submit" disabled={doneBlocked}>
@@ -1199,46 +1187,52 @@ export default function OrderDetailPage() {
           </div>
           ) : null}
 
-          <div className="panel">
+          <div className="panel order-history-panel">
             <h2 className="order-side-title">История клиента</h2>
             {order.client.branchComment ? (
-              <p className="muted">Комментарий филиала: {order.client.branchComment}</p>
+              <p className="muted order-history-note">
+                Комментарий филиала: {order.client.branchComment}
+              </p>
             ) : null}
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Тип</th>
-                  <th>Статус</th>
-                  <th>Дата</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.client.orders.map((o) => (
-                  <tr
-                    key={o.id}
-                    className="row-link"
-                    role="link"
-                    tabIndex={0}
-                    onClick={() => goOrder(o.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        goOrder(o.id);
-                      }
-                    }}
-                  >
-                    <td>
-                      <strong>{o.publicId}</strong>
-                      {o.isClaim ? ' ⚠' : ''}
-                    </td>
-                    <td>{TYPE_LABELS[o.type]}</td>
-                    <td>{STATUS_LABELS[o.status]}</td>
-                    <td>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
+            <div className="order-history-table-wrap">
+              <table className="table order-history-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Тип</th>
+                    <th>Статус</th>
+                    <th>Дата</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {order.client.orders.map((o) => (
+                    <tr
+                      key={o.id}
+                      className="row-link"
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => goOrder(o.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          goOrder(o.id);
+                        }
+                      }}
+                    >
+                      <td>
+                        <strong>{o.publicId}</strong>
+                        {o.isClaim ? ' ⚠' : ''}
+                      </td>
+                      <td>{TYPE_LABELS[o.type]}</td>
+                      <td>{STATUS_LABELS[o.status]}</td>
+                      <td>
+                        {new Date(o.createdAt).toLocaleDateString('ru-RU')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

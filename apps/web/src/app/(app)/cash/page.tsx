@@ -475,13 +475,6 @@ export default function CashPage() {
             </div>
 
             <div className="field cash-expense-field">
-              <div className="cash-expense-label-row">
-                <label>Статья расхода</label>
-                <span className="cash-expense-picked">
-                  {CASH_EXPENSE_BASIS_LABELS[expense.expenseBasis] ??
-                    expense.expenseBasis}
-                </span>
-              </div>
               <div className="cash-expense-groups">
                 {EXPENSE_GROUPS.map((group) => (
                   <div key={group.title} className="cash-expense-group">
