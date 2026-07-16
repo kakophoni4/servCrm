@@ -1,9 +1,17 @@
 /** Цифры телефона РФ → 7XXXXXXXXXX (как на API). */
 export function digitsPhone(input: string): string {
   let digits = input.replace(/\D/g, '');
-  if (digits.startsWith('8')) digits = `7${digits.slice(1)}`;
-  if (digits.length === 10) digits = `7${digits}`;
-  if (!digits.startsWith('7')) digits = `7${digits}`;
+  if (!digits) return '';
+
+  // 8XXXXXXXXXX → 7XXXXXXXXXX
+  if (digits.startsWith('8')) {
+    digits = `7${digits.slice(1)}`;
+  } else if (!digits.startsWith('7')) {
+    // Локальный номер без кода: 916… → 7916…
+    // Не трогаем уже «7…» (в т.ч. 10 цифр после Backspace) — иначе появляется лишняя 7.
+    digits = `7${digits}`;
+  }
+
   return digits.slice(0, 11);
 }
 
