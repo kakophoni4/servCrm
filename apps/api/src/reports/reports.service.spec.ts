@@ -141,7 +141,7 @@ describe('ReportsService', () => {
       expect(result.orderPrice).toBe(50);
       expect(result.adsExpenseSum).toBe(500);
       expect(result.ordersInPeriod).toBe(10);
-      // paid=22000 за 10 дней июня → прогноз на месяц: 22000/10*30
+      // paid=22000 за 10 дней июня, осталось 20 → 22000 + 2200*20
       expect(result.forecastTurnover).toBe(66000);
     });
 

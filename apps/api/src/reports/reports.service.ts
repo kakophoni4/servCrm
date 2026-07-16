@@ -142,13 +142,13 @@ export class ReportsService {
       start.getMonth() + 1,
       0,
     ).getDate();
-    // Прогноз на месяц: средний дневной оборот × дней в месяце.
-    // Для текущего месяца считаем только прошедшие дни, не «пустой хвост».
+    // Прогноз за месяц = текущий оборот + средний дневной × оставшиеся дни.
     const now = new Date();
     const elapsedEnd = now < end ? now : end;
     const elapsedDays = inclusiveCalendarDays(start, elapsedEnd);
+    const remainingDays = Math.max(0, daysInMonth - elapsedDays);
     const avgDailyTurnover = paid / elapsedDays;
-    const forecastTurnover = avgDailyTurnover * daysInMonth;
+    const forecastTurnover = paid + avgDailyTurnover * remainingDays;
 
     const adsTxs = await this.prisma.cashTx.findMany({
       where: {
