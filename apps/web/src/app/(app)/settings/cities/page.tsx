@@ -1,12 +1,10 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, getStoredUser } from '@/lib/api';
 import { BotSettingsPanel } from '@/components/settings/BotSettingsPanel';
-import { CrmManagePanel } from '@/components/settings/CrmManagePanel';
 import { PartnersSettingsPanel } from '@/components/settings/PartnersSettingsPanel';
-import { hasPermission } from '@/lib/permissions';
 
 type City = {
   id: string;
@@ -16,24 +14,23 @@ type City = {
   active: boolean;
 };
 
-type Tab = 'branches' | 'partners' | 'bot' | 'crm';
+type Tab = 'branches' | 'partners' | 'bot';
+
+function tabFromSearch(raw: string | null): Tab {
+  if (raw === 'bot') return 'bot';
+  if (raw === 'partners') return 'partners';
+  // старые ссылки ?tab=crm → уводим в /manage
+  return 'branches';
+}
 
 function OwnerSettingsInner() {
-  const user = getStoredUser();
-  const role = user?.role ?? '';
+  const role = getStoredUser()?.role ?? '';
   const search = useSearchParams();
   const router = useRouter();
-  const isOwner = role === 'OWNER';
-  const canCrm = hasPermission(role, user?.permissions, [
-    'users.read',
-    'settlements.read',
-    'salary.read',
-    'settings.dispatcher_pay',
-  ]);
+  const [tab, setTab] = useState<Tab>(() => tabFromSearch(search.get('tab')));
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [cityName, setCityName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -41,56 +38,43 @@ function OwnerSettingsInner() {
   const [editName, setEditName] = useState('');
   const [editCityName, setEditCityName] = useState('');
 
-  const allowedTabs = useMemo(() => {
-    const tabs: Tab[] = [];
-    if (isOwner) {
-      tabs.push('branches', 'partners', 'bot');
-    }
-    if (canCrm) tabs.push('crm');
-    return tabs;
-  }, [isOwner, canCrm]);
-
-  function tabFromSearch(raw: string | null): Tab {
-    if (raw === 'bot' && isOwner) return 'bot';
-    if (raw === 'partners' && isOwner) return 'partners';
-    if (raw === 'crm' && canCrm) return 'crm';
-    if (raw === 'branches' && isOwner) return 'branches';
-    return allowedTabs[0] ?? 'crm';
-  }
-
-  const [tab, setTab] = useState<Tab>(() => tabFromSearch(search.get('tab')));
-
   async function load() {
     const data = await api<City[]>('/cities/manage');
     setCities(data);
   }
 
   useEffect(() => {
-    if (!isOwner && !canCrm) {
-      setError('Недостаточно прав для настроек');
+    if (search.get('tab') === 'crm') {
+      const q = new URLSearchParams();
+      const section = search.get('section');
+      const who = search.get('who');
+      if (section) q.set('section', section);
+      if (who) q.set('who', who);
+      router.replace(`/manage${q.toString() ? `?${q}` : ''}`);
       return;
     }
-    if (isOwner) {
-      load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+  }, [search, router]);
+
+  useEffect(() => {
+    if (role !== 'OWNER') {
+      setError('Настройки доступны только владельцу');
+      return;
     }
-  }, [isOwner, canCrm]);
+    load().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
+  }, [role]);
 
   useEffect(() => {
     setTab(tabFromSearch(search.get('tab')));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, isOwner, canCrm, allowedTabs]);
+  }, [search]);
 
   function selectTab(next: Tab) {
-    if (!allowedTabs.includes(next)) return;
     setTab(next);
     const q =
       next === 'bot'
         ? '?tab=bot'
         : next === 'partners'
           ? '?tab=partners'
-          : next === 'crm'
-            ? '?tab=crm'
-            : '';
+          : '';
     router.replace(`/settings/cities${q}`);
   }
 
@@ -103,12 +87,10 @@ function OwnerSettingsInner() {
       await api('/cities', {
         method: 'POST',
         body: JSON.stringify({
-          code,
           name,
           cityName: cityName || undefined,
         }),
       });
-      setCode('');
       setName('');
       setCityName('');
       setMsg('Филиал создан');
@@ -154,10 +136,10 @@ function OwnerSettingsInner() {
     }
   }
 
-  if (role && !isOwner && !canCrm) {
+  if (role && role !== 'OWNER') {
     return (
       <div className="panel">
-        <p className="error">Недостаточно прав для настроек.</p>
+        <p className="error">Настройки доступны только владельцу.</p>
       </div>
     );
   }
@@ -167,64 +149,50 @@ function OwnerSettingsInner() {
       <h1 className="page-title">Настройки</h1>
 
       <div className="seg-tabs" role="tablist">
-        {isOwner ? (
-          <>
-            <button
-              type="button"
-              role="tab"
-              className={tab === 'branches' ? 'active' : ''}
-              onClick={() => selectTab('branches')}
-            >
-              Филиалы
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={tab === 'partners' ? 'active' : ''}
-              onClick={() => selectTab('partners')}
-            >
-              Партнёры
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={tab === 'bot' ? 'active' : ''}
-              onClick={() => selectTab('bot')}
-            >
-              Бот Telegram
-            </button>
-          </>
-        ) : null}
-        {canCrm ? (
-          <button
-            type="button"
-            role="tab"
-            className={tab === 'crm' ? 'active' : ''}
-            onClick={() => selectTab('crm')}
-          >
-            Управление CRM
-          </button>
-        ) : null}
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'branches' ? 'active' : ''}
+          onClick={() => selectTab('branches')}
+        >
+          Филиалы
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'partners' ? 'active' : ''}
+          onClick={() => selectTab('partners')}
+        >
+          Партнёры
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={tab === 'bot' ? 'active' : ''}
+          onClick={() => selectTab('bot')}
+        >
+          Бот Telegram
+        </button>
       </div>
 
-      {tab === 'crm' ? (
-        <CrmManagePanel />
-      ) : tab === 'bot' ? (
+      {tab === 'bot' ? (
         <BotSettingsPanel />
       ) : tab === 'partners' ? (
         <PartnersSettingsPanel />
       ) : (
         <>
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Новый филиал</h2>
-            <form onSubmit={create} className="grid-2">
+          <form className="panel branch-form" onSubmit={create}>
+            <div className="branch-form-head">
+              <h2 className="branch-form-title">Новый филиал</h2>
+            </div>
+            <div className="branch-form-row">
               <div className="field">
-                <label>Код (латиница, уникальный)</label>
+                <label>Город</label>
                 <input
                   required
-                  placeholder="msk-north"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Москва"
+                  value={cityName}
+                  onChange={(e) => setCityName(e.target.value)}
                 />
               </div>
               <div className="field">
@@ -236,118 +204,111 @@ function OwnerSettingsInner() {
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
-              <div className="field">
-                <label>Город</label>
-                <input
-                  required
-                  placeholder="Москва"
-                  value={cityName}
-                  onChange={(e) => setCityName(e.target.value)}
-                />
-              </div>
-              <div>
-                <button className="btn" type="submit" disabled={saving}>
-                  {saving ? 'Создание…' : 'Создать'}
-                </button>
-              </div>
-            </form>
-          </div>
+              <button
+                className="btn branch-form-submit"
+                type="submit"
+                disabled={saving}
+              >
+                {saving ? 'Создание…' : 'Создать'}
+              </button>
+            </div>
+          </form>
 
           <div className="panel">
             {error ? <p className="error">{error}</p> : null}
-            {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Код</th>
-                  <th>Филиал</th>
-                  <th>Город</th>
-                  <th>Статус</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {cities.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      <code>{c.code}</code>
-                    </td>
-                    <td>
-                      {editId === c.id ? (
-                        <input
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                        />
-                      ) : (
-                        c.name
-                      )}
-                    </td>
-                    <td>
-                      {editId === c.id ? (
-                        <input
-                          value={editCityName}
-                          onChange={(e) => setEditCityName(e.target.value)}
-                          placeholder="Город"
-                        />
-                      ) : (
-                        c.cityName || '—'
-                      )}
-                    </td>
-                    <td>
-                      <span className="badge">
-                        {c.active ? 'Активен' : 'Выключен'}
-                      </span>
-                    </td>
-                    <td style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {editId === c.id ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => saveEdit(c.id)}
-                          >
-                            OK
-                          </button>
+            {msg ? <p className="ok-msg">{msg}</p> : null}
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Филиал</th>
+                    <th>Город</th>
+                    <th>Статус</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cities.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        {editId === c.id ? (
+                          <input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                          />
+                        ) : (
+                          c.name
+                        )}
+                      </td>
+                      <td>
+                        {editId === c.id ? (
+                          <input
+                            value={editCityName}
+                            onChange={(e) => setEditCityName(e.target.value)}
+                            placeholder="Город"
+                          />
+                        ) : (
+                          c.cityName || '—'
+                        )}
+                      </td>
+                      <td>
+                        <span className="badge">
+                          {c.active ? 'Активен' : 'Выключен'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="branch-row-actions">
+                          {editId === c.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={() => saveEdit(c.id)}
+                              >
+                                OK
+                              </button>
+                              <button
+                                type="button"
+                                className="btn secondary"
+                                onClick={() => setEditId(null)}
+                              >
+                                Отмена
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn secondary"
+                              onClick={() => {
+                                setEditId(c.id);
+                                setEditName(c.name);
+                                setEditCityName(c.cityName ?? '');
+                              }}
+                            >
+                              Изменить
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn secondary"
-                            onClick={() => setEditId(null)}
+                            onClick={() => toggleActive(c)}
                           >
-                            Отмена
+                            {c.active ? 'Выключить' : 'Включить'}
                           </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn secondary"
-                          onClick={() => {
-                            setEditId(c.id);
-                            setEditName(c.name);
-                            setEditCityName(c.cityName ?? '');
-                          }}
-                        >
-                          Изменить
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        onClick={() => toggleActive(c)}
-                      >
-                        {c.active ? 'Выключить' : 'Включить'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {cities.length === 0 && !error ? (
-                  <tr>
-                    <td colSpan={5} className="muted">
-                      Филиалов пока нет. В одном городе можно создать несколько.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {cities.length === 0 && !error ? (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        Филиалов пока нет. В одном городе можно создать несколько.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

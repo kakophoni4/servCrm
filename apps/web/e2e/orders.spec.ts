@@ -42,9 +42,9 @@ test.describe('Заявки', () => {
 
     await expect(page.getByRole('heading', { name: /Заявка / })).toBeVisible();
     await expect(page.getByLabel('Статус')).toHaveCount(0);
-    await expect(
-      page.getByText('Смена статусов исполнения — у администратора'),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Документы' })).toHaveCount(
+      0,
+    );
   });
 
   test('admin: сменить статус заявки', async ({ page }) => {

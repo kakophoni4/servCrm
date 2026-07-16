@@ -103,9 +103,6 @@ export function MasterSalaryPanel() {
       <form className="panel salary-create" onSubmit={onCreate}>
         <div className="salary-create-head">
           <h2 className="salary-create-title">Новая категория</h2>
-          <p className="muted salary-create-hint">
-            Диапазон суммы работ и процент ЗП мастера
-          </p>
         </div>
 
         <div className="salary-create-grid">

@@ -3,8 +3,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { BranchSelect } from '@/components/BranchSelect';
 import { api } from '@/lib/api';
-import { ROLE_LABELS } from '@/lib/labels';
-
 type User = {
   id: string;
   fullName: string;
@@ -44,7 +42,12 @@ const MONTH_LABELS = [
   'Декабрь',
 ];
 
-const WEEKDAY = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+/** Пн…вс — для календарной сетки. */
+const WEEKDAY_MON = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+function mondayIndex(jsWeekday: number) {
+  return (jsWeekday + 6) % 7;
+}
 
 export function DispatcherPayPanel() {
   const now = new Date();
@@ -224,9 +227,6 @@ export function DispatcherPayPanel() {
       <form className="panel dispatcher-pay-form" onSubmit={onSave}>
         <div className="dispatcher-pay-head">
           <h2 className="dispatcher-pay-title">Параметры ЗП</h2>
-          <p className="muted dispatcher-pay-hint">
-            Оклад и бонусы для выбранного диспетчера
-          </p>
         </div>
 
         <div className="dispatcher-pay-who">
@@ -241,7 +241,7 @@ export function DispatcherPayPanel() {
             <select value={userId} onChange={(e) => setUserId(e.target.value)}>
               {branchDispatchers.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.fullName} ({ROLE_LABELS[u.role]})
+                  {u.fullName}
                 </option>
               ))}
             </select>
@@ -260,7 +260,6 @@ export function DispatcherPayPanel() {
               value={form.salaryBase}
               onChange={(e) => setForm({ ...form, salaryBase: e.target.value })}
             />
-            <p className="muted field-note">Фиксированная сумма за месяц</p>
           </div>
           <div className="field">
             <label>Бонус за 100 листовок, ₽</label>
@@ -274,58 +273,60 @@ export function DispatcherPayPanel() {
             />
           </div>
           <div className="field">
-            <label>% бонус от чистой прибыли в смены</label>
+            <label>% от прибыли в смены</label>
             <input
               inputMode="decimal"
-              placeholder="1"
+              placeholder="0"
               value={form.closedOrdersBonusPct}
               onChange={(e) =>
                 setForm({ ...form, closedOrdersBonusPct: e.target.value })
               }
             />
-            <p className="muted field-note">
-              По заявкам «Готов», закрытым в дни смен диспетчера
-            </p>
           </div>
         </div>
 
         {error ? <p className="error">{error}</p> : null}
-        {msg ? <p className="dispatcher-pay-msg">{msg}</p> : null}
+        {msg ? <p className="ok-msg">{msg}</p> : null}
 
-        <button className="btn" type="submit" disabled={!userId}>
+        <button
+          className="btn dispatcher-pay-submit"
+          type="submit"
+          disabled={!userId}
+        >
           Сохранить ЗП
         </button>
       </form>
 
       <div className="panel dispatcher-schedule">
-        <h2 className="dispatcher-pay-title">График смен</h2>
-
-        <div className="dispatcher-schedule-filters">
-          <div className="field">
-            <label>Месяц</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-            >
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Год</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+        <div className="dispatcher-pay-head dispatcher-schedule-head">
+          <h2 className="dispatcher-pay-title">График смен</h2>
+          <div className="dispatcher-schedule-filters">
+            <div className="field">
+              <label>Месяц</label>
+              <select
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Год</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -334,26 +335,40 @@ export function DispatcherPayPanel() {
         ) : days.length === 0 ? (
           <p className="muted">Загрузка графика…</p>
         ) : (
-          <div className="schedule-h-scroll">
-            <div className="schedule-h-row">
+          <div className="schedule-cal">
+            <div className="schedule-cal-weekdays">
+              {WEEKDAY_MON.map((w) => (
+                <div key={w} className="schedule-cal-weekday">
+                  {w}
+                </div>
+              ))}
+            </div>
+            <div className="schedule-cal-grid">
+              {Array.from({
+                length: mondayIndex(
+                  new Date(`${days[0].date}T12:00:00`).getDay(),
+                ),
+              }).map((_, i) => (
+                <div key={`pad-${i}`} className="schedule-cal-pad" />
+              ))}
               {days.map((d) => {
                 const wd = new Date(`${d.date}T12:00:00`).getDay();
                 const weekend = wd === 0 || wd === 6;
+                const assigned = Boolean(d.userId);
                 return (
                   <div
                     key={d.date}
-                    className={
-                      weekend
-                        ? 'schedule-h-cell schedule-h-weekend'
-                        : 'schedule-h-cell'
-                    }
+                    className={[
+                      'schedule-cal-cell',
+                      weekend ? 'is-weekend' : '',
+                      assigned ? 'is-assigned' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                   >
-                    <div className="schedule-h-date">
-                      <strong>{d.day}</strong>
-                      <span>{WEEKDAY[wd]}</span>
-                    </div>
+                    <div className="schedule-cal-day">{d.day}</div>
                     <select
-                      className="schedule-h-select"
+                      className="schedule-cal-select"
                       value={d.userId ?? ''}
                       disabled={scheduleSaving === d.date}
                       title={d.fullName ?? 'Свободно'}

@@ -62,17 +62,27 @@ export function AccountSettingsPanel() {
   }
 
   return (
-    <div>
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Тема</h2>
-        <div className="seg-tabs" role="radiogroup" aria-label="Тема оформления">
+    <div className="account-settings">
+      <div className="panel account-card">
+        <div className="account-card-head">
+          <h2 className="account-card-title">Тема</h2>
+        </div>
+        <div
+          className="account-theme-seg"
+          role="radiogroup"
+          aria-label="Тема оформления"
+        >
           {THEME_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               role="radio"
               aria-checked={theme === opt.value}
-              className={theme === opt.value ? 'active' : ''}
+              className={
+                theme === opt.value
+                  ? 'account-theme-btn active'
+                  : 'account-theme-btn'
+              }
               onClick={() => onThemeChange(opt.value)}
             >
               {opt.label}
@@ -81,20 +91,24 @@ export function AccountSettingsPanel() {
         </div>
       </div>
 
-      <form className="panel" onSubmit={onPassword}>
-        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Сменить пароль</h2>
-        <div className="grid-2">
-          <div className="field">
-            <label>Текущий пароль</label>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-            />
-          </div>
-          <div className="field" />
+      <form className="panel account-card" onSubmit={onPassword}>
+        <div className="account-card-head">
+          <h2 className="account-card-title">Сменить пароль</h2>
+        </div>
+
+        <div className="field">
+          <label>Текущий пароль</label>
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            placeholder="••••••••"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+          />
+        </div>
+
+        <div className="account-pwd-row">
           <div className="field">
             <label>Новый пароль</label>
             <input
@@ -102,6 +116,7 @@ export function AccountSettingsPanel() {
               required
               minLength={6}
               autoComplete="new-password"
+              placeholder="Минимум 6 символов"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -113,14 +128,21 @@ export function AccountSettingsPanel() {
               required
               minLength={6}
               autoComplete="new-password"
+              placeholder="Ещё раз"
               value={newPassword2}
               onChange={(e) => setNewPassword2(e.target.value)}
             />
           </div>
         </div>
-        {error ? <p className="error">{error}</p> : null}
-        {msg ? <p style={{ color: 'var(--accent)' }}>{msg}</p> : null}
-        <button className="btn" type="submit" disabled={saving}>
+
+        {error ? <p className="error account-msg">{error}</p> : null}
+        {msg ? <p className="account-msg ok">{msg}</p> : null}
+
+        <button
+          className="btn account-submit"
+          type="submit"
+          disabled={saving}
+        >
           {saving ? 'Сохранение…' : 'Сменить пароль'}
         </button>
       </form>

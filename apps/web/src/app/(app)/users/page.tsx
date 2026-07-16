@@ -1,5 +1,5 @@
-﻿import { redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 export default function UsersPage() {
-  redirect('/settings/cities?tab=crm&section=users');
+  redirect('/manage?section=users');
 }

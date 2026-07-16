@@ -262,12 +262,17 @@ export default function CashPage() {
 
       {tab === 'income' ? (
         <form className="panel cash-form" onSubmit={submitIncome}>
+          <div className="cash-form-head">
+            <h2 className="cash-form-title">Новый приход</h2>
+          </div>
+
           <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
                 inputMode="decimal"
+                placeholder="0"
                 value={income.amount}
                 onChange={(e) => setIncome({ ...income, amount: e.target.value })}
               />
@@ -282,15 +287,15 @@ export default function CashPage() {
 
           <div className="field">
             <label>Основание</label>
-            <div className="cash-chip-grid">
+            <div className="cash-seg" role="group" aria-label="Основание прихода">
               {Object.entries(MANUAL_INCOME_BASIS).map(([k, v]) => (
                 <button
                   key={k}
                   type="button"
                   className={
                     income.incomeBasis === k
-                      ? 'cash-chip cash-chip-active'
-                      : 'cash-chip'
+                      ? 'cash-seg-btn active'
+                      : 'cash-seg-btn'
                   }
                   onClick={() =>
                     setIncome({
@@ -306,40 +311,44 @@ export default function CashPage() {
             </div>
           </div>
 
-          {income.incomeBasis === 'FINE' ? (
+          <div
+            className={
+              income.incomeBasis === 'FINE'
+                ? 'cash-form-row cash-form-row-2'
+                : 'cash-form-row cash-form-row-1'
+            }
+          >
+            {income.incomeBasis === 'FINE' ? (
+              <div className="field">
+                <label>Мастер</label>
+                <select
+                  value={income.masterId}
+                  onChange={(e) =>
+                    setIncome({ ...income, masterId: e.target.value })
+                  }
+                >
+                  <option value="">Без привязки к мастеру</option>
+                  {masters.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.user.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="field">
-              <label>Мастер (необязательно)</label>
-              <select
-                value={income.masterId}
+              <label>Комментарий</label>
+              <input
+                placeholder="Необязательно"
+                value={income.description}
                 onChange={(e) =>
-                  setIncome({ ...income, masterId: e.target.value })
+                  setIncome({ ...income, description: e.target.value })
                 }
-              >
-                <option value="">Без привязки к мастеру</option>
-                {masters.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.user.fullName}
-                  </option>
-                ))}
-              </select>
-              <p className="muted field-note">
-                Если указать — мастеру придёт уведомление, сумма добавится к
-                сдаче и вычтется из ЗП
-              </p>
+              />
             </div>
-          ) : null}
-
-          <div className="field">
-            <label>Комментарий</label>
-            <input
-              value={income.description}
-              onChange={(e) =>
-                setIncome({ ...income, description: e.target.value })
-              }
-            />
           </div>
 
-          <button className="btn" type="submit">
+          <button className="btn cash-form-submit" type="submit">
             Записать приход
           </button>
         </form>
@@ -347,12 +356,16 @@ export default function CashPage() {
 
       {tab === 'expense' ? (
         <form className="panel cash-form" onSubmit={submitExpense}>
+          <div className="cash-form-head">
+            <h2 className="cash-form-title">Новый расход</h2>
+          </div>
           <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
                 inputMode="decimal"
+                placeholder="0"
                 value={expense.amount}
                 onChange={(e) =>
                   setExpense({ ...expense, amount: e.target.value })
@@ -367,15 +380,14 @@ export default function CashPage() {
             {fileField(expenseFile, setExpenseFile, true)}
           </div>
 
-          <div className="field">
-            <label>Статья расхода</label>
-            <p className="muted cash-selected">
-              Выбрано:{' '}
-              <strong>
+          <div className="field cash-expense-field">
+            <div className="cash-expense-label-row">
+              <label>Статья расхода</label>
+              <span className="cash-expense-picked">
                 {CASH_EXPENSE_BASIS_LABELS[expense.expenseBasis] ??
                   expense.expenseBasis}
-              </strong>
-            </p>
+              </span>
+            </div>
             <div className="cash-expense-groups">
               {EXPENSE_GROUPS.map((group) => (
                 <div key={group.title} className="cash-expense-group">
@@ -410,6 +422,7 @@ export default function CashPage() {
           <div className="field">
             <label>Комментарий</label>
             <input
+              placeholder="Необязательно"
               value={expense.description}
               onChange={(e) =>
                 setExpense({ ...expense, description: e.target.value })
@@ -417,7 +430,7 @@ export default function CashPage() {
             />
           </div>
 
-          <button className="btn" type="submit">
+          <button className="btn cash-form-submit" type="submit">
             Записать расход
           </button>
         </form>
@@ -425,12 +438,16 @@ export default function CashPage() {
 
       {tab === 'collection' && isOwner ? (
         <form className="panel cash-form" onSubmit={submitCollection}>
+          <div className="cash-form-head">
+            <h2 className="cash-form-title">Инкассация</h2>
+          </div>
           <div className="cash-form-row">
             <div className="field">
               <label>Сумма, ₽</label>
               <input
                 required
                 inputMode="decimal"
+                placeholder="0"
                 value={collection.amount}
                 onChange={(e) =>
                   setCollection({ ...collection, amount: e.target.value })
@@ -446,6 +463,7 @@ export default function CashPage() {
             <div className="field">
               <label>Комментарий</label>
               <input
+                placeholder="Необязательно"
                 value={collection.description}
                 onChange={(e) =>
                   setCollection({ ...collection, description: e.target.value })
@@ -453,7 +471,7 @@ export default function CashPage() {
               />
             </div>
           </div>
-          <button className="btn" type="submit">
+          <button className="btn cash-form-submit" type="submit">
             Записать инкассацию
           </button>
         </form>

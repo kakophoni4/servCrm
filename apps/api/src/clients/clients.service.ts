@@ -64,9 +64,13 @@ export class ClientsService {
   async search(phone: string) {
     const normalized = normalizePhone(phone);
     return this.prisma.client.findMany({
-      where: { phoneNormalized: { contains: normalized } },
+      where:
+        normalized.length >= 11
+          ? { phoneNormalized: normalized }
+          : { phoneNormalized: { contains: normalized } },
       take: 20,
       include: { _count: { select: { orders: true } } },
+      orderBy: { updatedAt: 'desc' },
     });
   }
 

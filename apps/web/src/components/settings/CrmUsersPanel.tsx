@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
 import {
@@ -216,12 +216,17 @@ export function CrmUsersPanel() {
   return (
     <div>
       {admin ? (
-        <form className="panel" onSubmit={onCreate} style={{ marginBottom: 16 }}>
-          <div className="grid-2">
+        <form className="panel user-form" onSubmit={onCreate}>
+          <div className="user-form-head">
+            <h2 className="user-form-title">Новый сотрудник</h2>
+          </div>
+
+          <div className="user-form-grid">
             <div className="field">
               <label>Логин</label>
               <input
                 required
+                autoComplete="off"
                 value={form.login}
                 onChange={(e) => setForm({ ...form, login: e.target.value })}
               />
@@ -231,6 +236,7 @@ export function CrmUsersPanel() {
               <input
                 required
                 type="password"
+                autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
@@ -292,11 +298,6 @@ export function CrmUsersPanel() {
                 }
                 placeholder="из /start в боте"
               />
-              {form.role === 'DISPATCHER' ? (
-                <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-                  Для чата с диспетчером из CRM
-                </p>
-              ) : null}
             </div>
             <div className="field">
               <label>Номер паспорта</label>
@@ -315,41 +316,35 @@ export function CrmUsersPanel() {
                 onChange={(e) => setForm({ ...form, hiredAt: e.target.value })}
               />
             </div>
-            {form.role === 'DIRECTOR' ? (
-              <div className="field" style={{ gridColumn: '1 / -1' }}>
-                <label>Филиалы под управлением директора</label>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 12,
-                    flexWrap: 'wrap',
-                    padding: '0.4rem 0',
-                  }}
-                >
-                  {cities.map((c) => (
-                    <label
-                      key={c.id}
-                      style={{ display: 'flex', gap: 4, alignItems: 'center' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.managedCityIds.includes(c.id)}
-                        onChange={() =>
-                          setForm({
-                            ...form,
-                            managedCityIds: toggle(form.managedCityIds, c.id),
-                          })
-                        }
-                      />
-                      {branchLabel(c)}
-                    </label>
-                  ))}
-                  {!cities.length ? (
-                    <span className="muted">Сначала добавьте филиалы</span>
-                  ) : null}
-                </div>
+          </div>
+
+          {form.role === 'DIRECTOR' ? (
+            <div className="field user-form-director">
+              <label>Филиалы под управлением</label>
+              <div className="user-form-checks">
+                {cities.map((c) => (
+                  <label key={c.id} className="user-form-check">
+                    <input
+                      type="checkbox"
+                      checked={form.managedCityIds.includes(c.id)}
+                      onChange={() =>
+                        setForm({
+                          ...form,
+                          managedCityIds: toggle(form.managedCityIds, c.id),
+                        })
+                      }
+                    />
+                    {branchLabel(c)}
+                  </label>
+                ))}
+                {!cities.length ? (
+                  <span className="muted">Сначала добавьте филиалы</span>
+                ) : null}
               </div>
-            ) : null}
+            </div>
+          ) : null}
+
+          <div className="user-form-files">
             <div className="field">
               <label>Фото паспорта</label>
               <label className="file-picker">
@@ -401,18 +396,10 @@ export function CrmUsersPanel() {
           </div>
 
           {officeTarget ? (
-            <div className="field" style={{ marginTop: 12 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <label style={{ margin: 0 }}>Разрешения</label>
-                <div style={{ display: 'flex', gap: 8 }}>
+            <div className="field user-form-perms">
+              <div className="user-form-perms-head">
+                <label>Разрешения</label>
+                <div className="user-form-perms-actions">
                   <button
                     type="button"
                     className="btn secondary"
@@ -449,7 +436,7 @@ export function CrmUsersPanel() {
             </div>
           ) : null}
 
-          <button className="btn" type="submit">
+          <button className="btn user-form-submit" type="submit">
             Создать сотрудника
           </button>
         </form>

@@ -47,8 +47,8 @@ const NAV: NavItem[] = [
     anyOf: ['reports.read'],
   },
   {
-    href: '/settings/cities',
-    label: 'Настройки',
+    href: '/manage',
+    label: 'Управление CRM',
     roles: ['ADMIN', 'DIRECTOR', 'OWNER'],
     anyOf: [
       'users.read',
@@ -56,6 +56,11 @@ const NAV: NavItem[] = [
       'salary.read',
       'settings.dispatcher_pay',
     ],
+  },
+  {
+    href: '/settings/cities',
+    label: 'Настройки',
+    roles: ['OWNER'],
   },
   {
     href: '/settings/account',
@@ -114,18 +119,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ? pathname.startsWith('/cash') ||
                     pathname.startsWith('/assets') ||
                     pathname.startsWith('/ads')
-                  : item.href === '/settings/cities'
-                    ? pathname.startsWith('/settings/cities') ||
-                      pathname.startsWith('/settings/bot') ||
+                  : item.href === '/manage'
+                    ? pathname.startsWith('/manage') ||
+                      pathname.startsWith('/settlements') ||
                       pathname.startsWith('/settings/salary') ||
                       pathname.startsWith('/settings/dispatcher-pay') ||
-                      pathname.startsWith('/settlements') ||
                       pathname.startsWith('/users') ||
                       pathname.startsWith('/masters')
-                    : item.href === '/settings/account'
-                      ? pathname.startsWith('/settings/account')
-                      : pathname === item.href ||
-                        pathname.startsWith(item.href + '/');
+                    : item.href === '/settings/cities'
+                      ? pathname.startsWith('/settings/cities') ||
+                        pathname.startsWith('/settings/bot')
+                      : item.href === '/settings/account'
+                        ? pathname.startsWith('/settings/account')
+                        : pathname === item.href ||
+                          pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.href}

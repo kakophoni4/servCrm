@@ -288,7 +288,9 @@ export default function ReportsPage() {
     );
   }
 
-  /** Метрики плитками — без горизонтального скролла. */
+  /**
+   * Сводка отчёта: одна главная цифра + группы строк (без плиток).
+   */
   function renderMetrics(
     obj: Record<string, unknown>,
     skipKeys: string[] = [],
@@ -300,19 +302,134 @@ export default function ReportsPage() {
     if (!entries.length && !period) {
       return <p className="muted">Нет данных за период.</p>;
     }
+
+    const byKey = new Map(entries);
+    const used = new Set<string>();
+
+    const groups: { title: string; keys: string[] }[] = [
+      {
+        title: 'Объём',
+        keys: [
+          'closed',
+          'ours',
+          'partner',
+          'our',
+          'ordersInPeriod',
+          'total',
+          'refusal',
+          'cancelledCc',
+          'byMasterFault',
+          'byAdminFault',
+          'faultUnset',
+          'promoters',
+          'leafletOrders',
+          'avitoOrders',
+          'avitoAds',
+        ],
+      },
+      {
+        title: 'Деньги',
+        keys: [
+          'netSum',
+          'ourNetSum',
+          'partnerNetSum',
+          'paid',
+          'turnover',
+          'salary',
+          'net',
+          'work',
+          'parts',
+          'adsExpenseSum',
+          'orderPrice',
+          'forecastTurnover',
+        ],
+      },
+      {
+        title: 'Средние и KPI',
+        keys: [
+          'avgCheckHandover',
+          'avgCheckSalary',
+          'avgCheckTotal',
+          'avgWorkSum',
+          'avgNet',
+          'avgWork',
+          'claimsPercent',
+          'kpiLeaflets',
+          'kpiAvito',
+          'pct4',
+          'micro',
+          'openSd',
+          'count',
+        ],
+      },
+      {
+        title: 'Остатки',
+        keys: ['leafletsStock', 'cardsStock'],
+      },
+    ];
+
+    const primaryKey =
+      (
+        [
+          'netSum',
+          'closed',
+          'total',
+          'balance',
+          'turnover',
+        ] as const
+      ).find((k) => byKey.has(k)) ?? entries[0]?.[0];
+
+    const renderedGroups = groups
+      .map((g) => {
+        const rows = g.keys
+          .filter((k) => byKey.has(k) && k !== primaryKey)
+          .map((k) => {
+            used.add(k);
+            return { key: k, value: byKey.get(k) };
+          });
+        return { title: g.title, rows };
+      })
+      .filter((g) => g.rows.length > 0);
+
+    const rest = entries
+      .filter(([k]) => k !== primaryKey && !used.has(k))
+      .map(([k, v]) => ({ key: k, value: v }));
+    if (rest.length) {
+      renderedGroups.push({ title: 'Прочее', rows: rest });
+    }
+
     return (
-      <div>
+      <div className="report-summary">
         {period ? (
           <p className="muted report-period">
-            Период: {formatCell(period, 'period')}
+            {formatCell(period, 'period')}
           </p>
         ) : null}
-        <div className="report-metrics">
-          {entries.map(([k, v]) => (
-            <div key={k} className="report-metric">
-              <div className="report-metric-label">{labelOf(k)}</div>
-              <div className="report-metric-value">{formatCell(v, k)}</div>
+
+        {primaryKey ? (
+          <div className="report-summary-hero">
+            <div className="report-summary-hero-label">
+              {labelOf(primaryKey)}
             </div>
+            <div className="report-summary-hero-value">
+              {formatCell(byKey.get(primaryKey), primaryKey)}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="report-summary-groups">
+          {renderedGroups.map((g) => (
+            <section key={g.title} className="report-summary-group">
+              <h3 className="report-summary-group-title">{g.title}</h3>
+              <dl className="report-kv-list">
+                {g.rows.map((row) => (
+                  <div key={row.key} className="report-kv">
+                    <dt>{labelOf(row.key)}</dt>
+                    <dd>{formatCell(row.value, row.key)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
           ))}
         </div>
       </div>

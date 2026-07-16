@@ -125,7 +125,7 @@ export function OrdersPanel() {
         {!loading && !error && !user?.cityId && !isOwner ? (
           <p className="error">
             Филиал не назначен — список заявок пуст. Укажите филиал сотруднику в
-            Настройки → Управление CRM.
+            Управление CRM → Сотрудники.
           </p>
         ) : null}
         {!loading && !error ? (

@@ -263,8 +263,7 @@ model Client {
   city        City?        @relation(fields: [cityId], references: [id])
   orders      Order[]
 
-  @@unique([phoneNormalized, name])
-  @@index([phoneNormalized])
+  @@unique([phoneNormalized])
   @@map("clients")
 }
 

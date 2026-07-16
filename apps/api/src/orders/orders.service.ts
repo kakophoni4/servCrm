@@ -170,9 +170,6 @@ export class OrdersService {
 
     const status = OrderStatus.WAITING;
 
-    const isWarranty = dto.type === OrderType.WARRANTY;
-    const isRepeat = dto.type === OrderType.REPEAT;
-
     // Филиал заявки: OWNER выбирает произвольно, остальные — свой филиал.
     let cityId = dto.cityId;
     if (role !== Role.OWNER) {
@@ -183,32 +180,44 @@ export class OrdersService {
       }
     }
 
+    const name = dto.clientName.trim();
+
     const created = await this.prisma.$transaction(async (tx) => {
+      // Ключ клиента — телефон. Имя при повторном обращении обновляем на последнее.
       let client = await tx.client.findUnique({
-        where: {
-          phoneNormalized_name: {
-            phoneNormalized: phone,
-            name: dto.clientName.trim(),
-          },
-        },
+        where: { phoneNormalized: phone },
       });
+      const returning = Boolean(client);
 
       if (!client) {
         client = await tx.client.create({
           data: {
             phoneNormalized: phone,
-            name: dto.clientName.trim(),
+            name,
             ageCategoryId: dto.ageCategoryId,
             cityId,
             branchComment,
           },
         });
-      } else if (branchComment) {
+      } else {
         client = await tx.client.update({
           where: { id: client.id },
-          data: { branchComment },
+          data: {
+            name,
+            ...(dto.ageCategoryId ? { ageCategoryId: dto.ageCategoryId } : {}),
+            ...(cityId ? { cityId } : {}),
+            ...(branchComment !== undefined ? { branchComment } : {}),
+          },
         });
       }
+
+      // NEW/REPEAT — автоматически по телефону; WARRANTY оставляем как выбрали.
+      let type = dto.type;
+      if (type !== OrderType.WARRANTY) {
+        type = returning ? OrderType.REPEAT : OrderType.NEW;
+      }
+      const orderIsWarranty = type === OrderType.WARRANTY;
+      const orderIsRepeat = type === OrderType.REPEAT;
 
       const now = new Date();
       const prefix = buildOrderPrefix(now);
@@ -225,7 +234,7 @@ export class OrdersService {
           seqPrefix: prefix,
           seq,
           clientId: client.id,
-          type: dto.type,
+          type,
           sourceKind: dto.sourceKind,
           sourceOur: dto.sourceKind === SourceKind.OUR ? dto.sourceOur : null,
           partnerId:
@@ -236,8 +245,8 @@ export class OrdersService {
           comment: dto.comment,
           status,
           isClaim: dto.isClaim ?? false,
-          isWarranty,
-          isRepeat,
+          isWarranty: orderIsWarranty,
+          isRepeat: orderIsRepeat,
           isProfile: dto.isProfile ?? true,
           typeTech: dto.typeTech,
           branchComment: branchComment ?? client.branchComment,

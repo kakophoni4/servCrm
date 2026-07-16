@@ -92,9 +92,6 @@ export function PartnersSettingsPanel() {
     <>
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Новый партнёр</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Имя появится в списке при создании партнёрской заявки.
-        </p>
         <form onSubmit={create} className="grid-2">
           <div className="field">
             <label>Название партнёра</label>

@@ -18,9 +18,11 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
 class CreateCityDto {
+  /** Технический код; если не передан — генерируется из названия. */
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  code!: string;
+  code?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -44,6 +46,56 @@ class UpdateCityDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+}
+
+const CYR_TO_LAT: Record<string, string> = {
+  а: 'a',
+  б: 'b',
+  в: 'v',
+  г: 'g',
+  д: 'd',
+  е: 'e',
+  ё: 'e',
+  ж: 'zh',
+  з: 'z',
+  и: 'i',
+  й: 'y',
+  к: 'k',
+  л: 'l',
+  м: 'm',
+  н: 'n',
+  о: 'o',
+  п: 'p',
+  р: 'r',
+  с: 's',
+  т: 't',
+  у: 'u',
+  ф: 'f',
+  х: 'h',
+  ц: 'ts',
+  ч: 'ch',
+  ш: 'sh',
+  щ: 'sch',
+  ъ: '',
+  ы: 'y',
+  ь: '',
+  э: 'e',
+  ю: 'yu',
+  я: 'ya',
+};
+
+function toSlug(text: string): string {
+  const lat = text
+    .toLowerCase()
+    .split('')
+    .map((ch) => CYR_TO_LAT[ch] ?? ch)
+    .join('');
+  return (
+    lat
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'branch'
+  );
 }
 
 @Controller('cities')
@@ -81,12 +133,18 @@ export class CitiesController {
   @Post()
   @Roles(Role.OWNER)
   @RequirePermissions('cities.manage')
-  create(@Body() dto: CreateCityDto) {
+  async create(@Body() dto: CreateCityDto) {
+    const name = dto.name.trim();
+    const cityName = dto.cityName?.trim() || null;
+    const code = dto.code?.trim()
+      ? dto.code.trim().toLowerCase()
+      : await this.uniqueCode(toSlug([cityName, name].filter(Boolean).join('-')));
+
     return this.prisma.city.create({
       data: {
-        code: dto.code.trim().toLowerCase(),
-        name: dto.name.trim(),
-        cityName: dto.cityName?.trim() || null,
+        code,
+        name,
+        cityName,
       },
     });
   }
@@ -108,5 +166,18 @@ export class CitiesController {
         active: dto.active,
       },
     });
+  }
+
+  private async uniqueCode(base: string): Promise<string> {
+    let code = base;
+    let n = 2;
+    while (await this.prisma.city.findUnique({ where: { code } })) {
+      code = `${base}-${n++}`;
+      if (n > 100) {
+        code = `${base}-${Date.now().toString(36)}`;
+        break;
+      }
+    }
+    return code;
   }
 }

@@ -46,6 +46,12 @@ function money(n: number) {
   });
 }
 
+function ordersLabel(n: number) {
+  if (n === 1) return '1 заявка';
+  if (n > 1 && n < 5) return `${n} заявки`;
+  return `${n} заявок`;
+}
+
 export function MasterSettlementsPanel() {
   const user = getStoredUser();
   const canPay =
@@ -72,6 +78,20 @@ export function MasterSettlementsPanel() {
   const [paying, setPaying] = useState(false);
 
   const { from, to } = monthBounds(year, month);
+
+  const totals = useMemo(() => {
+    return rows.reduce(
+      (acc, r) => {
+        acc.due += r.due;
+        acc.fines += r.fines ?? 0;
+        acc.salaryNet += r.salaryNet ?? 0;
+        acc.paid += r.paid;
+        acc.remaining += r.remaining;
+        return acc;
+      },
+      { due: 0, fines: 0, salaryNet: 0, paid: 0, remaining: 0 },
+    );
+  }, [rows]);
 
   async function load() {
     setLoading(true);
@@ -153,115 +173,170 @@ export function MasterSettlementsPanel() {
   }
 
   return (
-    <div>
-      <div
-        className="panel"
-        style={{
-          marginBottom: 16,
-          display: 'flex',
-          gap: 12,
-          flexWrap: 'wrap',
-          alignItems: 'flex-end',
-        }}
-      >
-        <div className="field" style={{ margin: 0, minWidth: 140 }}>
-          <label>Месяц</label>
-          <select
-            value={month}
-            onChange={(e) => setMonth(Number(e.target.value))}
-          >
-            {MONTH_LABELS.map((label, i) => (
-              <option key={label} value={i + 1}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field" style={{ margin: 0, minWidth: 100 }}>
-          <label>Год</label>
-          <select
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
+    <div className="settle-board">
+      <div className="panel settle-filters">
+        <div className="settle-filters-row">
+          <div className="field">
+            <label>Месяц</label>
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+            >
+              {MONTH_LABELS.map((label, i) => (
+                <option key={label} value={i + 1}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Год</label>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settle-period">
+            <span className="settle-period-label">Период</span>
+            <strong>
+              {MONTH_LABELS[month - 1]} {year}
+            </strong>
+          </div>
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel settle-panel">
         {error && !payRow ? <p className="error">{error}</p> : null}
-        {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+        {msg ? <p className="ok-msg">{msg}</p> : null}
         {loading ? <p className="muted">Загрузка…</p> : null}
 
+        {!loading && rows.length > 0 ? (
+          <div className="settle-summary">
+            <div className="settle-summary-item">
+              <span>К сдаче</span>
+              <strong>{money(totals.due)} ₽</strong>
+            </div>
+            <div className="settle-summary-item">
+              <span>Штрафы</span>
+              <strong>{money(totals.fines)} ₽</strong>
+            </div>
+            <div className="settle-summary-item">
+              <span>ЗП нетто</span>
+              <strong>{money(totals.salaryNet)} ₽</strong>
+            </div>
+            <div className="settle-summary-item">
+              <span>Оплачено</span>
+              <strong>{money(totals.paid)} ₽</strong>
+            </div>
+            <div className="settle-summary-item accent">
+              <span>Остаток</span>
+              <strong>{money(totals.remaining)} ₽</strong>
+            </div>
+          </div>
+        ) : null}
+
         {!loading ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Мастер</th>
-                <th>К сдаче</th>
-                <th>Штрафы</th>
-                <th>ЗП (нетто)</th>
-                <th>Оплачено</th>
-                <th>Остаток</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.masterId}>
-                  <td>
-                    {row.name}
-                    {row.orderCount > 0 ? (
-                      <div className="muted">
-                        {row.orderCount}{' '}
-                        {row.orderCount === 1
-                          ? 'заявка'
-                          : row.orderCount < 5
-                            ? 'заявки'
-                            : 'заявок'}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>{money(row.due)}</td>
-                  <td>{money(row.fines ?? 0)}</td>
-                  <td>
-                    {money(row.salaryNet ?? 0)}
-                    {(row.fines ?? 0) > 0 ? (
-                      <div className="muted">
-                        из {money(row.salary ?? 0)}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>{money(row.paid)}</td>
-                  <td>{money(row.remaining)}</td>
-                  <td>
-                    {canPay && row.remaining > 0 ? (
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={() => openPay(row)}
-                      >
-                        Принять оплату
-                      </button>
-                    ) : row.remaining <= 0 && row.due > 0 ? (
-                      <span className="muted">Сдано</span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 ? (
+          <div className="table-scroll">
+            <table className="table settle-table">
+              <thead>
                 <tr>
-                  <td colSpan={7} className="muted">
-                    Нет закрытых заявок и штрафов мастеров за этот месяц.
-                  </td>
+                  <th>Мастер</th>
+                  <th className="num">К сдаче</th>
+                  <th className="num">Штрафы</th>
+                  <th className="num">ЗП (нетто)</th>
+                  <th className="num">Оплачено</th>
+                  <th className="num">Остаток</th>
+                  <th></th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const done = row.remaining <= 0 && row.due > 0;
+                  return (
+                    <tr
+                      key={row.masterId}
+                      className={
+                        done
+                          ? 'settle-row done'
+                          : row.remaining > 0
+                            ? 'settle-row due'
+                            : 'settle-row'
+                      }
+                    >
+                      <td>
+                        <div className="settle-master">
+                          <span className="settle-master-name">{row.name}</span>
+                          {row.orderCount > 0 ? (
+                            <span className="settle-master-meta">
+                              {ordersLabel(row.orderCount)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="num">{money(row.due)}</td>
+                      <td className="num">
+                        <span
+                          className={
+                            (row.fines ?? 0) > 0 ? 'settle-fines' : undefined
+                          }
+                        >
+                          {money(row.fines ?? 0)}
+                        </span>
+                      </td>
+                      <td className="num">
+                        <div className="settle-salary">
+                          <span>{money(row.salaryNet ?? 0)}</span>
+                          {(row.fines ?? 0) > 0 ? (
+                            <span className="settle-master-meta">
+                              из {money(row.salary ?? 0)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="num">{money(row.paid)}</td>
+                      <td className="num">
+                        <span
+                          className={
+                            row.remaining > 0
+                              ? 'settle-remain'
+                              : 'settle-remain zero'
+                          }
+                        >
+                          {money(row.remaining)}
+                        </span>
+                      </td>
+                      <td className="settle-actions">
+                        {canPay && row.remaining > 0 ? (
+                          <button
+                            type="button"
+                            className="btn settle-pay-btn"
+                            onClick={() => openPay(row)}
+                          >
+                            Принять оплату
+                          </button>
+                        ) : done ? (
+                          <span className="settle-badge">Сдано</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      Нет закрытых заявок и штрафов мастеров за этот месяц.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </div>
 
@@ -272,29 +347,31 @@ export function MasterSettlementsPanel() {
           aria-modal="true"
           aria-labelledby="pay-modal-title"
         >
-          <div className="notify-card">
+          <div className="notify-card settle-pay-modal">
             <h2 id="pay-modal-title" className="notify-title">
               Принять оплату
             </h2>
-            <p className="muted" style={{ marginTop: 0 }}>
-              {payRow.name} · остаток {money(payRow.remaining)} ₽
+            <p className="settle-pay-meta">
+              {payRow.name}
+              <span>· остаток {money(payRow.remaining)} ₽</span>
             </p>
 
             {error ? <p className="error">{error}</p> : null}
 
             {payStep === 1 ? (
-              <form onSubmit={onPayNext}>
+              <form onSubmit={onPayNext} className="settle-pay-form">
                 <div className="field">
                   <label>Сумма, ₽</label>
                   <input
                     required
                     inputMode="decimal"
                     autoFocus
+                    placeholder="0"
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value)}
                   />
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <div className="settle-pay-actions">
                   <button className="btn" type="submit">
                     Далее
                   </button>
@@ -308,13 +385,13 @@ export function MasterSettlementsPanel() {
                 </div>
               </form>
             ) : (
-              <form onSubmit={onPayConfirm}>
-                <p style={{ margin: '0 0 1rem' }}>
-                  Подтвердите ещё раз: принять{' '}
+              <form onSubmit={onPayConfirm} className="settle-pay-form">
+                <p className="settle-pay-confirm">
+                  Подтвердите: принять{' '}
                   <strong>{money(Number(payAmount) || 0)} ₽</strong> от{' '}
                   <strong>{payRow.name}</strong>?
                 </p>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div className="settle-pay-actions">
                   <button className="btn" type="submit" disabled={paying}>
                     {paying ? 'Сохранение…' : 'Подтверждаю'}
                   </button>

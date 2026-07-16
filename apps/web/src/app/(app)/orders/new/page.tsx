@@ -1,11 +1,18 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
 import { api } from '@/lib/api';
+import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
 
 type Dict = { id: string; name?: string; label?: string };
+type ClientHit = {
+  id: string;
+  name: string;
+  phoneNormalized: string;
+  _count?: { orders: number };
+};
 
 export default function NewOrderPage() {
   const router = useRouter();
@@ -14,10 +21,12 @@ export default function NewOrderPage() {
   const [cities, setCities] = useState<BranchCity[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [clientHint, setClientHint] = useState('');
+  const phoneLookupSeq = useRef(0);
 
   const [form, setForm] = useState({
     clientName: '',
-    clientPhone: '',
+    clientPhone: '+7 ',
     type: 'NEW',
     sourceKind: 'OUR',
     sourceOur: 'AVITO',
@@ -45,17 +54,57 @@ export default function NewOrderPage() {
         if (c[0]) setForm((f) => ({ ...f, cityId: c[0].id }));
         if (p[0]) setForm((f) => ({ ...f, partnerId: p[0].id }));
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка справочников'));
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : 'Ошибка справочников'),
+      );
   }, []);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  async function lookupClientByPhone(phoneRaw: string) {
+    const digits = digitsPhone(phoneRaw);
+    if (digits.length < 11) {
+      setClientHint('');
+      return;
+    }
+    const seq = ++phoneLookupSeq.current;
+    try {
+      const hits = await api<ClientHit[]>(
+        `/clients?phone=${encodeURIComponent(digits)}`,
+      );
+      if (seq !== phoneLookupSeq.current) return;
+      const exact =
+        hits.find((c) => c.phoneNormalized === digits) ?? hits[0] ?? null;
+      if (!exact) {
+        setClientHint('Новый клиент');
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        clientName: exact.name,
+        type: f.type === 'WARRANTY' ? 'WARRANTY' : 'REPEAT',
+      }));
+      const n = exact._count?.orders ?? 0;
+      setClientHint(
+        n > 0 ? `Клиент уже есть · ${n} заявок` : 'Клиент уже есть',
+      );
+    } catch {
+      if (seq === phoneLookupSeq.current) setClientHint('');
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
+    const phoneDigits = digitsPhone(form.clientPhone);
+    if (phoneDigits.length < 11) {
+      setError('Укажите полный номер телефона');
+      setLoading(false);
+      return;
+    }
     if (!form.scheduledAt) {
       setError('Укажите время по заказу');
       setLoading(false);
@@ -70,7 +119,7 @@ export default function NewOrderPage() {
     try {
       const body = {
         clientName: form.clientName,
-        clientPhone: form.clientPhone,
+        clientPhone: phoneDigits,
         type: form.type,
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
@@ -98,8 +147,27 @@ export default function NewOrderPage() {
   return (
     <div>
       <h1 className="page-title">Новая заявка</h1>
-      <form className="panel" onSubmit={onSubmit}>
+      <form className="panel order-new-form" onSubmit={onSubmit}>
         <div className="grid-2">
+          <div className="field">
+            <label>Телефон</label>
+            <input
+              required
+              inputMode="tel"
+              autoComplete="tel"
+              value={form.clientPhone}
+              onChange={(e) => {
+                const next = formatRuPhoneInput(e.target.value);
+                set('clientPhone', next);
+                if (digitsPhone(next).length < 11) setClientHint('');
+              }}
+              onBlur={() => void lookupClientByPhone(form.clientPhone)}
+              placeholder="+7 (999) 123-45-67"
+            />
+            {clientHint ? (
+              <p className="muted order-new-phone-hint">{clientHint}</p>
+            ) : null}
+          </div>
           <div className="field">
             <label>Имя клиента</label>
             <input
@@ -109,20 +177,13 @@ export default function NewOrderPage() {
             />
           </div>
           <div className="field">
-            <label>Телефон</label>
-            <input
-              required
-              value={form.clientPhone}
-              onChange={(e) => set('clientPhone', e.target.value)}
-              placeholder="+7…"
-            />
-          </div>
-          <div className="field">
             <label>Тип</label>
-            <select value={form.type} onChange={(e) => set('type', e.target.value)}>
-              <option value="NEW">Новый клиент</option>
+            <select
+              value={form.type === 'REPEAT' ? 'NEW' : form.type}
+              onChange={(e) => set('type', e.target.value)}
+            >
+              <option value="NEW">Обычная</option>
               <option value="WARRANTY">Гарантия</option>
-              <option value="REPEAT">Повторный заказ</option>
             </select>
           </div>
           <div className="field">
@@ -161,11 +222,6 @@ export default function NewOrderPage() {
                   </option>
                 ))}
               </select>
-              {partners.length === 0 ? (
-                <p className="muted" style={{ margin: '4px 0 0' }}>
-                  Список пуст — добавьте партнёра в Настройки → Партнёры.
-                </p>
-              ) : null}
             </div>
           )}
           <div className="field">

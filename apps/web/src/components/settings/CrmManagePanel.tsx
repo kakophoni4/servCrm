@@ -63,14 +63,14 @@ export function CrmManagePanel() {
   function go(nextSection: Section, nextWho: Who = 'master') {
     setSection(nextSection);
     setWho(nextWho);
-    const q = new URLSearchParams({ tab: 'crm', section: nextSection });
+    const q = new URLSearchParams({ section: nextSection });
     if (
       (nextSection === 'settlements' || nextSection === 'salary') &&
       nextWho === 'dispatcher'
     ) {
       q.set('who', 'dispatcher');
     }
-    router.replace(`/settings/cities?${q}`);
+    router.replace(`/manage?${q}`);
   }
 
   if (!sections.length) {

@@ -28,6 +28,7 @@ describe('OrdersService', () => {
   let txMock: {
     client: {
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };

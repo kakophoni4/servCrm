@@ -68,6 +68,16 @@ export function IconReports({ className }: IconProps) {
   );
 }
 
+/** Управление CRM */
+export function IconManage({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 7h8M8 11h8M8 15h5" />
+    </Svg>
+  );
+}
+
 /** Настройки */
 export function IconSettings({ className }: IconProps) {
   return (
@@ -93,6 +103,7 @@ const BY_HREF: Record<string, (p: IconProps) => ReactNode> = {
   '/orders': IconOrders,
   '/cash': IconCash,
   '/reports': IconReports,
+  '/manage': IconManage,
   '/settings/cities': IconSettings,
   '/settings/account': IconAccount,
 };

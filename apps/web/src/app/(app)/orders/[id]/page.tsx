@@ -19,6 +19,7 @@ import {
   isAdminRole,
   requiredOrderDocKinds,
 } from '@/lib/labels';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 import { downloadFilesAsZipOrSingle } from '@/lib/zip-store';
 
 type Master = { id: string; user: { fullName: string } };
@@ -519,18 +520,40 @@ export default function OrderDetailPage() {
 
   const selectedLabel = fileNamesLabel(docFiles);
 
-  return (
-    <div>
-      <h1 className="page-title">
-        Заявка {order.publicId}{' '}
-        <span className="badge">{STATUS_LABELS[order.status]}</span>{' '}
-        <span className={isProfile ? 'badge' : 'badge badge-warn'}>
-          {isProfile ? 'Профильная' : 'Непрофильная'}
-        </span>
-      </h1>
+  const scheduledLabel = order.scheduledAt
+    ? new Date(order.scheduledAt).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
 
-      <div className="grid-2" style={{ alignItems: 'start' }}>
-        <form className="panel" onSubmit={save}>
+  return (
+    <div className="order-page">
+      <div className="order-page-head">
+        <h1 className="page-title order-page-title">
+          Заявка <span className="order-page-id">{order.publicId}</span>
+        </h1>
+        <div className="order-page-badges">
+          <span className="badge order-badge-status">
+            {STATUS_LABELS[order.status]}
+          </span>
+          <span className={isProfile ? 'badge' : 'badge badge-warn'}>
+            {isProfile ? 'Профильная' : 'Непрофильная'}
+          </span>
+          <span className="badge order-badge-type">
+            {TYPE_LABELS[order.type] ?? order.type}
+          </span>
+          {order.isClaim ? (
+            <span className="badge badge-warn">Претензия</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="order-page-grid">
+        <form className="panel order-card" onSubmit={save}>
           {order.docsViaAdmin ? (
             <div className="banner-warn">
               Мастер попросил загрузить документы через администратора и закрыть
@@ -538,22 +561,23 @@ export default function OrderDetailPage() {
             </div>
           ) : null}
 
-          <p>
-            <strong>{order.client.name}</strong> · {order.client.phoneNormalized}
-            <br />
-            <Link href={`/clients/${order.client.id}`}>Карточка клиента →</Link>
-          </p>
-          <p className="muted">{TYPE_LABELS[order.type]}</p>
+          <div className="order-client">
+            <div className="order-client-main">
+              <div className="order-client-name">{order.client.name}</div>
+              <a
+                className="order-client-phone"
+                href={`tel:+${order.client.phoneNormalized.replace(/\D/g, '')}`}
+              >
+                {formatRuPhoneDisplay(order.client.phoneNormalized)}
+              </a>
+            </div>
+            <Link className="order-client-link" href={`/clients/${order.client.id}`}>
+              Карточка клиента
+            </Link>
+          </div>
 
           {admin ? (
-            <label
-              style={{
-                display: 'flex',
-                gap: 8,
-                alignItems: 'center',
-                marginBottom: 12,
-              }}
-            >
+            <label className="order-profile-check">
               <input
                 type="checkbox"
                 checked={isProfile}
@@ -561,130 +585,146 @@ export default function OrderDetailPage() {
               />
               Профильная заявка
             </label>
-          ) : (
-            <p style={{ marginBottom: 12 }}>
-              <strong>{isProfile ? 'Профильная' : 'Непрофильная'}</strong> заявка
-            </p>
-          )}
-
-          {admin ? (
-            <div className="grid-2" style={{ marginBottom: 12 }}>
-              <div className="field">
-                <label>Адрес</label>
-                <input
-                  required
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Тип техники</label>
-                <input
-                  value={typeTech}
-                  onChange={(e) => setTypeTech(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Дата/время выполнения</label>
-                <input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Диспетчер</label>
-                <input
-                  readOnly
-                  disabled
-                  value={order.createdBy?.fullName ?? '—'}
-                />
-              </div>
-              <div className="field" style={{ gridColumn: '1 / -1' }}>
-                <label>Комментарий диспетчера</label>
-                <textarea
-                  readOnly
-                  disabled
-                  rows={2}
-                  value={order.comment?.trim() ? order.comment : '—'}
-                />
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="muted">
-                {order.address}
-                {order.typeTech ? ` · ${order.typeTech}` : ''}
-                {order.scheduledAt
-                  ? ` · ${new Date(order.scheduledAt).toLocaleString('ru-RU')}`
-                  : ''}
-              </p>
-              <p className="muted" style={{ marginBottom: 4 }}>
-                Диспетчер: {order.createdBy?.fullName ?? '—'}
-              </p>
-              {order.comment ? <p>{order.comment}</p> : null}
-            </>
-          )}
-
-          {order.isClaim ? (
-            <p className="muted" style={{ marginBottom: 12 }}>
-              По заявке есть претензия
-            </p>
           ) : null}
 
           {admin ? (
-            <>
-              <div className="field">
-                <label>Статус</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {status === 'CANCELLED_CC' || status === 'REFUSAL' ? (
+            <div className="order-section">
+              <div className="order-section-title">Детали</div>
+              <div className="order-fields-grid">
                 <div className="field">
-                  <label>Виновник отмены</label>
-                  <select
-                    value={cancelFault}
-                    onChange={(e) =>
-                      setCancelFault(
-                        e.target.value === 'master' || e.target.value === 'admin'
-                          ? e.target.value
-                          : '',
-                      )
-                    }
-                  >
-                    <option value="">—</option>
-                    <option value="master">Мастер</option>
-                    <option value="admin">Администратор</option>
-                  </select>
+                  <label>Адрес</label>
+                  <input
+                    required
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Тип техники</label>
+                  <input
+                    value={typeTech}
+                    onChange={(e) => setTypeTech(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Дата/время выполнения</label>
+                  <input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Диспетчер</label>
+                  <input
+                    readOnly
+                    disabled
+                    value={order.createdBy?.fullName ?? '—'}
+                  />
+                </div>
+                <div className="field order-field-full">
+                  <label>Комментарий диспетчера</label>
+                  <textarea
+                    readOnly
+                    disabled
+                    rows={2}
+                    value={order.comment?.trim() ? order.comment : '—'}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="order-meta">
+              <div className="order-meta-item">
+                <span>Адрес</span>
+                <strong>{order.address}</strong>
+              </div>
+              <div className="order-meta-item">
+                <span>Техника</span>
+                <strong>{order.typeTech?.trim() || '—'}</strong>
+              </div>
+              <div className="order-meta-item">
+                <span>Время</span>
+                <strong>{scheduledLabel}</strong>
+              </div>
+              <div className="order-meta-item">
+                <span>Диспетчер</span>
+                <strong>{order.createdBy?.fullName ?? '—'}</strong>
+              </div>
+              <div className="order-meta-item">
+                <span>Мастер</span>
+                <strong>{order.master?.user.fullName ?? 'не назначен'}</strong>
+              </div>
+              {order.comment?.trim() ? (
+                <div className="order-meta-item order-meta-full">
+                  <span>Комментарий</span>
+                  <strong>{order.comment}</strong>
                 </div>
               ) : null}
-              <div className="field">
-                <label>
-                  Мастер
-                  {status === 'DONE' ? ' *' : ''}
-                </label>
-                <select
-                  value={masterId}
-                  onChange={(e) => setMasterId(e.target.value)}
-                  required={status === 'DONE'}
-                >
-                  <option value="">Не назначен</option>
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.user.fullName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid-2">
+            </div>
+          )}
+
+          {admin ? (
+            <div className="order-section">
+              <div className="order-section-title">Исполнение</div>
+              <div className="order-fields-grid">
+                <div className="field">
+                  <label>Статус</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {status === 'CANCELLED_CC' || status === 'REFUSAL' ? (
+                  <div className="field">
+                    <label>Виновник отмены</label>
+                    <select
+                      value={cancelFault}
+                      onChange={(e) =>
+                        setCancelFault(
+                          e.target.value === 'master' ||
+                            e.target.value === 'admin'
+                            ? e.target.value
+                            : '',
+                        )
+                      }
+                    >
+                      <option value="">—</option>
+                      <option value="master">Мастер</option>
+                      <option value="admin">Администратор</option>
+                    </select>
+                  </div>
+                ) : null}
+                <div className="field">
+                  <label>
+                    Мастер
+                    {status === 'DONE' ? ' *' : ''}
+                  </label>
+                  <select
+                    value={masterId}
+                    onChange={(e) => setMasterId(e.target.value)}
+                    required={status === 'DONE'}
+                  >
+                    <option value="">Не назначен</option>
+                    {masters.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.user.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="field">
                   <label>Оплачено клиентом</label>
-                  <input value={paid} onChange={(e) => setPaid(e.target.value)} />
+                  <input
+                    value={paid}
+                    onChange={(e) => setPaid(e.target.value)}
+                  />
                 </div>
                 <div className="field">
                   <label>Комплектующие, ₽</label>
@@ -696,43 +736,34 @@ export default function OrderDetailPage() {
               </div>
 
               {order.payment ? (
-                <div
-                  className="panel"
-                  style={{ marginBottom: 12, background: '#f9fafb', padding: '0.75rem 1rem' }}
-                >
-                  <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>Расчёт выплат</p>
-                  <div className="grid-2">
-                    <p className="muted" style={{ margin: 0 }}>
-                      Сумма работ: <strong>{String(order.payment.workSum)}</strong> ₽
-                    </p>
-                    <p className="muted" style={{ margin: 0 }}>
-                      % мастера:{' '}
-                      <strong>{(Number(order.payment.masterPct) * 100).toFixed(1)}</strong>%
-                    </p>
-                    <p className="muted" style={{ margin: 0 }}>
-                      ЗП мастера:{' '}
-                      <strong>{String(order.payment.masterSalary)}</strong> ₽
-                    </p>
-                    <p className="muted" style={{ margin: 0 }}>
-                      Сумма к сдаче:{' '}
-                      <strong>{String(order.payment.toCompany)}</strong> ₽
-                    </p>
+                <div className="order-pay-summary">
+                  <div className="order-pay-item">
+                    <span>Сумма работ</span>
+                    <strong>{String(order.payment.workSum)} ₽</strong>
+                  </div>
+                  <div className="order-pay-item">
+                    <span>% мастера</span>
+                    <strong>
+                      {(Number(order.payment.masterPct) * 100).toFixed(1)}%
+                    </strong>
+                  </div>
+                  <div className="order-pay-item">
+                    <span>ЗП мастера</span>
+                    <strong>{String(order.payment.masterSalary)} ₽</strong>
+                  </div>
+                  <div className="order-pay-item accent">
+                    <span>К сдаче</span>
+                    <strong>{String(order.payment.toCompany)} ₽</strong>
                   </div>
                 </div>
               ) : null}
-
-            </>
-          ) : (
-            <p className="muted">
-              Мастер: {order.master?.user.fullName ?? 'не назначен'}. Смена статусов
-              исполнения — у администратора.
-            </p>
-          )}
+            </div>
+          ) : null}
 
           {error ? <p className="error">{error}</p> : null}
-          {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
+          {msg ? <p className="ok-msg">{msg}</p> : null}
 
-          <div className="actions-row">
+          <div className="order-actions">
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
@@ -745,19 +776,27 @@ export default function OrderDetailPage() {
                 Создать претензию
               </button>
             ) : null}
-            <button className="btn secondary" type="button" onClick={makeRepeat}>
+            <button
+              className="btn secondary"
+              type="button"
+              onClick={makeRepeat}
+            >
               На повтор
             </button>
-            <button className="btn secondary" type="button" onClick={makeWarranty}>
+            <button
+              className="btn secondary"
+              type="button"
+              onClick={makeWarranty}
+            >
               Гарантия
             </button>
           </div>
         </form>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="order-side">
           {showClaimForm && admin ? (
             <form className="panel" onSubmit={createClaim}>
-              <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Новая претензия</h2>
+              <h2 className="order-side-title">Новая претензия</h2>
               <div className="grid-2">
                 <div className="field">
                   <label>Тип</label>
@@ -816,8 +855,9 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
+          {admin ? (
           <div className="panel">
-            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Документы</h2>
+            <h2 className="order-side-title">Документы</h2>
             <ul className="docs-checklist">
               {checklistKinds.map((k) => {
                 const ok = presentKinds.has(k);
@@ -1028,9 +1068,10 @@ export default function OrderDetailPage() {
               </button>
             </form>
           </div>
+          ) : null}
 
           <div className="panel">
-            <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История клиента</h2>
+            <h2 className="order-side-title">История клиента</h2>
             {order.client.branchComment ? (
               <p className="muted">Комментарий филиала: {order.client.branchComment}</p>
             ) : null}
