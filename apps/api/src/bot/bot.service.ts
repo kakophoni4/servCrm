@@ -143,6 +143,8 @@ const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
 export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
   private readonly docSessions = new Map<string, DocUploadSession>();
+  /** Эфемерные UI-сообщения бота (список заявок, ЗП) — удаляем перед новым экраном. */
+  private readonly ephemeralMsgs = new Map<string, number[]>();
   private escalateTimer: ReturnType<typeof setInterval> | null = null;
   /** Long-polling getUpdates вместо webhook (удобно без домена/HTTPS). */
   private pollStop = false;
@@ -279,10 +281,60 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     text: string,
     extra?: Record<string, unknown>,
   ) {
-    return this.telegram('sendMessage', {
+    return this.telegram<{ ok?: boolean; result?: { message_id?: number } }>(
+      'sendMessage',
+      {
+        chat_id: chatId,
+        text,
+        ...extra,
+      },
+    );
+  }
+
+  private tgMessageId(
+    res: { ok?: boolean; result?: { message_id?: number } } | null,
+  ): number | null {
+    if (!res?.ok || typeof res.result?.message_id !== 'number') return null;
+    return res.result.message_id;
+  }
+
+  deleteMessage(chatId: string, messageId: number) {
+    return this.telegram('deleteMessage', {
       chat_id: chatId,
-      text,
-      ...extra,
+      message_id: messageId,
+    });
+  }
+
+  private async clearEphemeral(chatId: string) {
+    const ids = this.ephemeralMsgs.get(chatId) ?? [];
+    for (const id of ids) {
+      await this.deleteMessage(chatId, id).catch(() => undefined);
+    }
+    this.ephemeralMsgs.set(chatId, []);
+  }
+
+  private trackEphemeral(chatId: string, messageId: number | null) {
+    if (messageId == null) return;
+    const list = this.ephemeralMsgs.get(chatId) ?? [];
+    list.push(messageId);
+    this.ephemeralMsgs.set(chatId, list);
+  }
+
+  /** Удалить карточку заявки в Telegram у текущего мастера. */
+  async clearMasterOrderCard(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { masterTgChatId: true, masterTgMessageId: true },
+    });
+    if (order?.masterTgChatId && order.masterTgMessageId != null) {
+      await this.deleteMessage(
+        order.masterTgChatId,
+        order.masterTgMessageId,
+      ).catch(() => undefined);
+    }
+    await this.prisma.order.updateMany({
+      where: { id: orderId },
+      data: { masterTgChatId: null, masterTgMessageId: null },
     });
   }
 
@@ -331,21 +383,25 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   /** Список активных заявок (кнопки по адресу). */
   async sendActiveOrdersMenu(chatId: string, telegramId: string) {
+    await this.clearEphemeral(chatId);
+
     let orders;
     try {
       orders = await this.myActiveOrders(telegramId);
     } catch {
-      await this.sendMessage(
+      const res = await this.sendMessage(
         chatId,
         'Меню доступно только мастеру. Передайте ID администратору.',
       );
+      this.trackEphemeral(chatId, this.tgMessageId(res));
       return;
     }
 
     if (!orders.length) {
-      await this.sendMessage(chatId, 'Нет активных заявок.', {
+      const res = await this.sendMessage(chatId, 'Нет активных заявок.', {
         reply_markup: this.masterReplyKeyboard(),
       });
+      this.trackEphemeral(chatId, this.tgMessageId(res));
       return;
     }
 
@@ -361,7 +417,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       ];
     });
 
-    await this.sendMessage(
+    const res = await this.sendMessage(
       chatId,
       `Активные заявки (${orders.length}). Выберите одну — откроется карточка со статусами.`,
       {
@@ -370,6 +426,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
+    this.trackEphemeral(chatId, this.tgMessageId(res));
   }
 
   /** Открыть карточку заявки; сбрасывает сессию документов другой заявки. */
@@ -402,6 +459,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           `Заявка ${order.publicId} уже закрыта («${STATUS_LABELS[order.status]}»).`,
         );
         return;
+      }
+      // Новая карточка из меню — старую удаляем, чтобы не копить экраны.
+      if (order.masterTgChatId && order.masterTgMessageId != null) {
+        await this.deleteMessage(
+          order.masterTgChatId,
+          order.masterTgMessageId,
+        ).catch(() => undefined);
       }
       await this.sendMasterOrderCard(chatId, order);
     } catch {
@@ -453,9 +517,20 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       { text: '« К списку', callback_data: 'ml' },
     ];
 
-    return this.sendMessage(chatId, lines.join('\n'), {
+    const res = await this.sendMessage(chatId, lines.join('\n'), {
       reply_markup: { inline_keyboard: [row1, row2, rowNav] },
     });
+    const messageId = this.tgMessageId(res);
+    if (messageId != null) {
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          masterTgChatId: chatId,
+          masterTgMessageId: messageId,
+        },
+      });
+    }
+    return res;
   }
 
   async aboutMe(telegramId: string) {
@@ -654,11 +729,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       `notifyMasterOrder → telegramId=${telegramId} order=${order.publicId}`,
     );
 
-    // Меню снизу + карточка (старые сообщения в чате остаются, но статусы
-    // меняют только через актуальную карточку / список — setStatus проверяет masterId).
-    await this.sendMessage(telegramId, 'Новая заявка назначена.', {
+    // Снять предыдущую карточку этой заявки (если была у другого мастера).
+    await this.clearMasterOrderCard(orderId);
+
+    await this.clearEphemeral(telegramId);
+    const intro = await this.sendMessage(telegramId, 'Новая заявка назначена.', {
       reply_markup: this.masterReplyKeyboard(),
     });
+    this.trackEphemeral(telegramId, this.tgMessageId(intro));
     return this.sendMasterOrderCard(telegramId, order);
   }
 
@@ -687,29 +765,19 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** Старому мастеру при переназначении / снятии. */
+  /**
+   * Старому мастеру при переназначении / снятии: удаляем карточку в Telegram.
+   * (publicId/address оставлены для совместимости вызовов.)
+   */
   async notifyMasterOrderRevoked(
-    masterId: string,
-    publicId: string,
-    address?: string | null,
+    _masterId: string,
+    _publicId: string,
+    _address?: string | null,
+    orderId?: string,
   ) {
-    const master = await this.prisma.master.findUnique({
-      where: { id: masterId },
-      include: { user: true },
-    });
-    const telegramId = master?.user.telegramId;
-    if (!telegramId) return null;
-
-    const lines = [
-      `Заявка ${publicId} снята с вас (переназначена или закрыта офисом).`,
-      address ? `Адрес: ${address}` : null,
-      'Старые кнопки по этой заявке больше не действуют.',
-      'Актуальный список — кнопка «Активные заявки».',
-    ].filter(Boolean);
-
-    return this.sendMessage(telegramId, lines.join('\n'), {
-      reply_markup: this.masterReplyKeyboard(),
-    });
+    if (!orderId) return null;
+    await this.clearMasterOrderCard(orderId);
+    return null;
   }
 
   /** Уведомить мастера о смене статуса (например админ закрыл заявку). */
@@ -1132,9 +1200,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (text === MASTER_BTN_PAY || /^\/pay(?:@\w+)?$/i.test(text)) {
+      await this.clearEphemeral(chatId);
       try {
         const info = await this.aboutMe(telegramId);
-        await this.sendMessage(
+        const res = await this.sendMessage(
           chatId,
           [
             `Начислено ЗП: ${info.salaryMonth.toLocaleString('ru-RU')} ₽`,
@@ -1144,8 +1213,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           ].join('\n'),
           { reply_markup: this.masterReplyKeyboard() },
         );
+        this.trackEphemeral(chatId, this.tgMessageId(res));
       } catch {
-        await this.sendMessage(chatId, 'Доступно только мастеру.');
+        const res = await this.sendMessage(chatId, 'Доступно только мастеру.');
+        this.trackEphemeral(chatId, this.tgMessageId(res));
       }
       return;
     }

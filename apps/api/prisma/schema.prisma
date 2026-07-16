@@ -300,6 +300,10 @@ model Order {
   notifyAckedAt DateTime?   @map("notify_acked_at")
   /// Уже отправили эскалацию директору/владельцу.
   notifyEscalatedAt DateTime? @map("notify_escalated_at")
+  /// Telegram chat_id карточки заявки у текущего мастера (для deleteMessage).
+  masterTgChatId    String? @map("master_tg_chat_id")
+  /// Telegram message_id карточки заявки у текущего мастера.
+  masterTgMessageId Int?    @map("master_tg_message_id")
   /// Когда заявка впервые переведена в «Готов» (для расчётов мастера).
   completedAt   DateTime?   @map("completed_at")
   createdAt     DateTime    @default(now()) @map("created_at")

@@ -927,45 +927,199 @@ label.file-picker:focus-within,
   box-sizing: border-box;
 }
 
-/* Чат: master-detail на узких экранах */
-.chat-layout {
-  align-items: start;
+/* Чаты с мастерами: список | переписка | свободные заявки */
+.chat-workspace {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.9fr) minmax(0, 1.4fr) minmax(220px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  min-height: min(70vh, 720px);
 }
 
-.chat-layout .chat-thread-panel .chat-back {
-  display: none;
-}
-
-.chat-thread-actions {
+.chat-workspace > .panel {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
 }
 
-.chat-thread-actions select {
+.chat-panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-orders-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--btn-secondary-bg);
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.chat-thread-list,
+.chat-order-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
   flex: 1;
-  min-width: 140px;
+  min-height: 0;
+}
+
+.chat-thread-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  border-radius: 0.55rem;
+  padding: 0.65rem 0.7rem;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+}
+
+.chat-thread-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.chat-thread-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.chat-thread-name {
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.chat-thread-preview {
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-empty {
+  margin: auto 0;
+  text-align: center;
+}
+
+.chat-thread-panel .chat-back {
+  display: none;
+  align-self: flex-start;
+  margin-bottom: 0.65rem;
 }
 
 .chat-messages {
-  max-height: min(360px, 45vh);
+  flex: 1;
+  min-height: 220px;
+  max-height: none;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
+  background: color-mix(in srgb, var(--bg) 65%, var(--panel));
+}
+
+.chat-bubble {
+  margin-bottom: 0.65rem;
+  max-width: 88%;
+}
+
+.chat-bubble-in {
+  margin-right: auto;
+}
+
+.chat-bubble-out {
+  margin-left: auto;
+  text-align: right;
+}
+
+.chat-bubble-body {
+  display: inline-block;
+  text-align: left;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.65rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  line-height: 1.35;
+}
+
+.chat-bubble-out .chat-bubble-body {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.chat-bubble-meta {
+  font-size: 0.72rem;
+  margin-top: 0.2rem;
 }
 
 .chat-compose {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .chat-compose input {
   flex: 1;
   min-width: 140px;
+}
+
+.chat-order-card {
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+  margin-bottom: 0.55rem;
+  background: var(--panel);
+}
+
+.chat-order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.chat-order-id {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-order-line {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.chat-order-comment {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chat-order-send {
+  width: 100%;
+  margin-top: 0.65rem;
 }
 
 /* Модалка (например, оплата в расчёте) — блокирует фон */
@@ -4270,17 +4424,28 @@ label.file-picker:focus-within,
     white-space: nowrap;
   }
 
-  .chat-layout.chat-show-thread .chat-list-panel {
+  .chat-workspace {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .chat-workspace.chat-show-thread .chat-list-panel {
     display: none;
   }
 
-  .chat-layout.chat-show-list .chat-thread-panel {
+  .chat-workspace.chat-show-list .chat-thread-panel,
+  .chat-workspace.chat-show-list .chat-orders-panel {
     display: none;
   }
 
-  .chat-layout .chat-thread-panel .chat-back {
+  .chat-workspace .chat-thread-panel .chat-back {
     display: inline-flex;
     margin-bottom: 0.75rem;
+  }
+
+  .chat-messages {
+    min-height: 180px;
+    max-height: 40vh;
   }
 
   .salary-create-grid {

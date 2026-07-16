@@ -34,6 +34,12 @@ class SendToMasterDto {
   masterId!: string;
 }
 
+class AssignOrderDto {
+  @IsString()
+  @IsNotEmpty()
+  orderId!: string;
+}
+
 class IngestDto {
   @IsEnum(ChatChannel)
   channel!: ChatChannel;
@@ -61,6 +67,13 @@ export class ChatController {
   @RequirePermissions('chat.read')
   threads(@CurrentUser() user: { userId: string; role: string }) {
     return this.chat.threads(user.userId, user.role);
+  }
+
+  @Get('unassigned-orders')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.read')
+  unassignedOrders(@CurrentUser() user: { userId: string; role: string }) {
+    return this.chat.unassignedOrders(user.userId, user.role);
   }
 
   @Get('threads/:id')
@@ -93,6 +106,17 @@ export class ChatController {
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.chat.linkOrder(id, dto.orderId, user.userId, user.role);
+  }
+
+  @Post('threads/:id/assign-order')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.write')
+  assignOrder(
+    @Param('id') id: string,
+    @Body() dto: AssignOrderDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.chat.assignOrder(id, dto.orderId, user.userId, user.role);
   }
 
   @Post('threads/:id/send-to-master')

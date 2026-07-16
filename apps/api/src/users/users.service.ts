@@ -220,11 +220,8 @@ export class UsersService {
       return created;
     });
 
-    // Telegram ID диспетчера — канал CRM-чата (не мастерские заявки).
-    if (
-      input.role === Role.DISPATCHER &&
-      user.telegramId
-    ) {
+    // Telegram ID мастера — тред в разделе «Чаты».
+    if (input.role === Role.MASTER && user.telegramId) {
       await this.chat
         .ensureTelegramThread({
           telegramId: user.telegramId,
@@ -314,7 +311,7 @@ export class UsersService {
       select: userSelect,
     });
 
-    if (user.role === Role.DISPATCHER && user.telegramId) {
+    if (user.role === Role.MASTER && user.telegramId) {
       await this.chat
         .ensureTelegramThread({
           telegramId: user.telegramId,

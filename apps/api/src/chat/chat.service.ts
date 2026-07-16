@@ -6,7 +6,13 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { ChatChannel, ChatStatus, Role, UserStatus } from '@prisma/client';
+import {
+  ChatChannel,
+  ChatStatus,
+  OrderStatus,
+  Role,
+  UserStatus,
+} from '@prisma/client';
 import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +20,12 @@ import { PrismaService } from '../prisma/prisma.service';
 const orderInclude = {
   client: true,
 } as const;
+
+const TERMINAL: OrderStatus[] = [
+  OrderStatus.DONE,
+  OrderStatus.REFUSAL,
+  OrderStatus.CANCELLED_CC,
+];
 
 @Injectable()
 export class ChatService {
@@ -24,17 +36,55 @@ export class ChatService {
     private readonly bot: BotService,
   ) {}
 
+  /**
+   * Чаты с мастерами филиала: синхронизируем треды по telegramId
+   * активных мастеров и отдаём только их.
+   */
   async threads(userId: string, role: Role | string) {
     const allowed = await this.branch.allowedCityIds(userId, role);
-    const where =
-      allowed === null
-        ? { status: ChatStatus.OPEN }
-        : {
-            status: ChatStatus.OPEN,
-            OR: [{ cityId: { in: allowed } }, { cityId: null }],
-          };
+    const masters = await this.prisma.master.findMany({
+      where: {
+        status: UserStatus.ACTIVE,
+        ...(allowed === null ? {} : { cityId: { in: allowed } }),
+        user: {
+          status: UserStatus.ACTIVE,
+          telegramId: { not: null },
+        },
+      },
+      include: {
+        user: {
+          select: {
+            fullName: true,
+            telegramId: true,
+            cityId: true,
+          },
+        },
+      },
+      orderBy: { user: { fullName: 'asc' } },
+    });
+
+    for (const m of masters) {
+      const tg = m.user.telegramId?.trim();
+      if (!tg) continue;
+      await this.ensureTelegramThread({
+        telegramId: tg,
+        title: m.user.fullName,
+        cityId: m.cityId ?? m.user.cityId,
+      });
+    }
+
+    const tgIds = masters
+      .map((m) => m.user.telegramId?.trim())
+      .filter((id): id is string => Boolean(id));
+
+    if (!tgIds.length) return [];
+
     return this.prisma.chatThread.findMany({
-      where,
+      where: {
+        status: ChatStatus.OPEN,
+        channel: ChatChannel.TELEGRAM,
+        externalId: { in: tgIds },
+      },
       include: {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
         order: { include: orderInclude },
@@ -74,9 +124,37 @@ export class ChatService {
     }
   }
 
+  /** Свободные заявки филиала (без мастера, не терминальные). */
+  async unassignedOrders(userId: string, role: Role | string) {
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    return this.prisma.order.findMany({
+      where: {
+        masterId: null,
+        status: { notIn: TERMINAL },
+        ...(allowed === null ? {} : { cityId: { in: allowed } }),
+      },
+      select: {
+        id: true,
+        publicId: true,
+        address: true,
+        comment: true,
+        adminComment: true,
+        scheduledAt: true,
+        status: true,
+        typeTech: true,
+        createdAt: true,
+        client: {
+          select: { name: true, phoneNormalized: true },
+        },
+        city: { select: { id: true, name: true, cityName: true } },
+      },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+  }
+
   /**
-   * Тред CRM ↔ Telegram для сотрудника (диспетчер и т.п.) по telegramId.
-   * Создаётся при сохранении Telegram ID, чтобы можно было писать из CRM сразу.
+   * Тред CRM ↔ Telegram для мастера по telegramId.
    */
   async ensureTelegramThread(input: {
     telegramId: string;
@@ -109,7 +187,7 @@ export class ChatService {
     });
   }
 
-  /** Входящее из бота / веб. */
+  /** Входящее из бота / веб — в тред мастера (или офиса по telegramId). */
   async ingest(input: {
     channel: ChatChannel;
     externalId?: string;
@@ -125,7 +203,13 @@ export class ChatService {
           telegramId: input.externalId,
           status: UserStatus.ACTIVE,
           role: {
-            in: [Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER],
+            in: [
+              Role.MASTER,
+              Role.DISPATCHER,
+              Role.ADMIN,
+              Role.DIRECTOR,
+              Role.OWNER,
+            ],
           },
         },
         select: { fullName: true, cityId: true, role: true },
@@ -142,8 +226,7 @@ export class ChatService {
         data: {
           channel: input.channel,
           externalId: input.externalId,
-          title:
-            staff?.fullName ?? input.title ?? input.externalId ?? 'Чат',
+          title: staff?.fullName ?? input.title ?? input.externalId ?? 'Чат',
           cityId: staff?.cityId ?? null,
         },
       });
@@ -184,7 +267,7 @@ export class ChatService {
 
     if (thread.channel === ChatChannel.TELEGRAM && thread.externalId) {
       const sent = await this.bot.sendMessage(thread.externalId, body);
-      if (!sent) {
+      if (!sent?.ok) {
         throw new BadRequestException(
           'Не удалось отправить в Telegram. Проверьте, что бот включён.',
         );
@@ -225,7 +308,83 @@ export class ChatService {
     });
   }
 
-  /** Привязать заявку треда к мастеру и отправить карточку в Telegram. */
+  private async masterFromThread(thread: {
+    externalId: string | null;
+    title: string | null;
+  }) {
+    if (!thread.externalId) {
+      throw new BadRequestException('У чата нет Telegram ID мастера');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: {
+        telegramId: thread.externalId,
+        role: Role.MASTER,
+        status: UserStatus.ACTIVE,
+      },
+      include: { masterProfile: true },
+    });
+    if (!user?.masterProfile) {
+      throw new NotFoundException('Мастер для этого чата не найден');
+    }
+    return user.masterProfile;
+  }
+
+  /**
+   * Назначить свободную заявку мастеру открытого чата и отправить карточку в TG.
+   */
+  async assignOrder(
+    threadId: string,
+    orderId: string,
+    userId: string,
+    role: Role | string,
+  ) {
+    const thread = await this.get(threadId, userId, role);
+    const master = await this.masterFromThread(thread);
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+    if (!order) throw new NotFoundException('Заявка не найдена');
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    if (
+      allowed !== null &&
+      order.cityId &&
+      !allowed.includes(order.cityId)
+    ) {
+      throw new ForbiddenException('Заявка вне вашего филиала');
+    }
+
+    if (order.masterId) {
+      throw new BadRequestException('Заявка уже назначена мастеру');
+    }
+    if (TERMINAL.includes(order.status)) {
+      throw new BadRequestException('Заявку нельзя назначить в этом статусе');
+    }
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { masterId: master.id },
+    });
+
+    await this.bot.notifyMasterOrder(master.id, orderId);
+
+    await this.prisma.chatThread.update({
+      where: { id: threadId },
+      data: {
+        linkedOrderId: orderId,
+        cityId: order.cityId ?? thread.cityId,
+        updatedAt: new Date(),
+      },
+    });
+
+    return {
+      thread: await this.get(threadId),
+      orderId,
+    };
+  }
+
+  /** @deprecated — используйте assignOrder (мастер = текущий чат). */
   async sendToMaster(
     threadId: string,
     masterId: string,
@@ -245,6 +404,20 @@ export class ChatService {
       where: { id: masterId },
     });
     if (!master) throw new NotFoundException('Мастер не найден');
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: thread.linkedOrderId },
+    });
+    if (order?.masterId && order.masterId !== masterId) {
+      await this.bot
+        .notifyMasterOrderRevoked(
+          order.masterId,
+          order.publicId,
+          order.address,
+          order.id,
+        )
+        .catch(() => undefined);
+    }
 
     await this.prisma.order.update({
       where: { id: thread.linkedOrderId },

@@ -1,23 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { CHAT_CHANNEL_LABELS, CHAT_STATUS_LABELS } from '@/lib/labels';
+import { STATUS_LABELS } from '@/lib/labels';
 
 type Thread = {
   id: string;
   title?: string | null;
   channel: string;
   status: string;
-  linkedOrderId?: string | null;
+  externalId?: string | null;
   updatedAt: string;
-  order?: {
-    id: string;
-    publicId: string;
-    client?: { name: string; phoneNormalized?: string } | null;
-  } | null;
-  _count?: { messages: number };
+  messages?: { body: string; createdAt: string; fromClient: boolean }[];
 };
 
 type Message = {
@@ -30,68 +25,94 @@ type Message = {
 
 type ThreadDetail = Thread & { messages: Message[] };
 
-type Master = { id: string; user: { fullName: string } };
-type OrderOpt = {
+type UnassignedOrder = {
   id: string;
   publicId: string;
-  client?: { name: string } | null;
+  address: string;
+  comment?: string | null;
+  adminComment?: string | null;
+  scheduledAt?: string | null;
+  status: string;
+  typeTech?: string | null;
+  client: { name: string; phoneNormalized: string };
+  city?: { id: string; name: string; cityName?: string | null } | null;
 };
+
+const POLL_MS = 3000;
 
 export default function ChatPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadDetail | null>(null);
+  const [orders, setOrders] = useState<UnassignedOrder[]>([]);
   const [message, setMessage] = useState('');
-  const [linkOrderId, setLinkOrderId] = useState('');
-  const [masterId, setMasterId] = useState('');
-  const [masters, setMasters] = useState<Master[]>([]);
-  const [orders, setOrders] = useState<OrderOpt[]>([]);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState('');
-  /** На телефоне: список или тред; на desktop оба видны. */
+  const [assigningId, setAssigningId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list');
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
 
-  async function loadThreads() {
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  const loadThreads = useCallback(async () => {
     const list = await api<Thread[]>('/chat/threads');
     setThreads(list);
-  }
-
-  async function loadThread(id: string) {
-    setThread(await api<ThreadDetail>(`/chat/threads/${id}`));
-  }
-
-  useEffect(() => {
-    loadThreads().catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
-    Promise.all([
-      api<Master[]>('/masters'),
-      api<OrderOpt[]>('/orders'),
-    ])
-      .then(([m, o]) => {
-        setMasters(m);
-        setOrders(o);
-        if (m[0]) setMasterId(m[0].id);
-      })
-      .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (!selectedId) {
-      setThread(null);
-      return;
+  const loadOrders = useCallback(async () => {
+    const list = await api<UnassignedOrder[]>('/chat/unassigned-orders');
+    setOrders(list);
+  }, []);
+
+  const loadThread = useCallback(async (id: string) => {
+    const detail = await api<ThreadDetail>(`/chat/threads/${id}`);
+    setThread(detail);
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    if (document.visibilityState === 'hidden') return;
+    try {
+      await Promise.all([loadThreads(), loadOrders()]);
+      const id = selectedIdRef.current;
+      if (id) await loadThread(id);
+    } catch (e) {
+      /* silent poll errors */
+      if (e instanceof Error && !selectedIdRef.current) {
+        setError(e.message);
+      }
     }
-    setMsg('');
-    loadThread(selectedId).catch((e) =>
+  }, [loadThreads, loadOrders, loadThread]);
+
+  useEffect(() => {
+    refreshAll().catch((e) =>
       setError(e instanceof Error ? e.message : 'Ошибка'),
     );
-  }, [selectedId]);
+    const t = setInterval(() => {
+      void refreshAll();
+    }, POLL_MS);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refreshAll();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [refreshAll]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [thread?.messages?.length]);
 
   function openThread(id: string) {
     setSelectedId(id);
     setMobileView('thread');
-  }
-
-  function backToList() {
-    setMobileView('list');
+    setError('');
+    loadThread(id).catch((e) =>
+      setError(e instanceof Error ? e.message : 'Ошибка'),
+    );
   }
 
   async function sendMessage(e: FormEvent) {
@@ -111,191 +132,122 @@ export default function ChatPage() {
     }
   }
 
-  async function linkOrder(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedId || !linkOrderId.trim()) return;
-    setError('');
-    setMsg('');
-    try {
-      await api(`/chat/threads/${selectedId}/link-order`, {
-        method: 'POST',
-        body: JSON.stringify({ orderId: linkOrderId.trim() }),
-      });
-      setLinkOrderId('');
-      await loadThread(selectedId);
-      await loadThreads();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+  async function assignOrder(orderId: string) {
+    if (!selectedId) {
+      setError('Сначала выберите чат мастера слева');
+      return;
     }
-  }
-
-  async function sendToMaster(e: FormEvent) {
-    e.preventDefault();
-    if (!selectedId || !masterId) return;
     setError('');
-    setMsg('');
+    setAssigningId(orderId);
     try {
-      await api(`/chat/threads/${selectedId}/send-to-master`, {
+      await api(`/chat/threads/${selectedId}/assign-order`, {
         method: 'POST',
-        body: JSON.stringify({ masterId }),
+        body: JSON.stringify({ orderId }),
       });
-      setMsg('Заявка отправлена мастеру');
-      await loadThread(selectedId);
-      await loadThreads();
+      await Promise.all([loadOrders(), loadThreads(), loadThread(selectedId)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
+    } finally {
+      setAssigningId(null);
     }
   }
 
   const layoutClass =
     mobileView === 'thread'
-      ? 'grid-2 chat-layout chat-show-thread'
-      : 'grid-2 chat-layout chat-show-list';
+      ? 'chat-workspace chat-show-thread'
+      : 'chat-workspace chat-show-list';
+
+  const preview = (t: Thread) => {
+    const last = t.messages?.[0];
+    if (!last) return 'Нет сообщений';
+    const prefix = last.fromClient ? '' : 'Вы: ';
+    const body =
+      last.body.length > 48 ? `${last.body.slice(0, 45)}…` : last.body;
+    return `${prefix}${body}`;
+  };
 
   return (
-    <div>
-      <h1 className="page-title">Чаты</h1>
+    <div className="chat-page">
+      <h1 className="page-title">Чаты с мастерами</h1>
+      {error ? <p className="error">{error}</p> : null}
 
       <div className={layoutClass}>
-        <div className="panel chat-list-panel">
-          <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Диалоги</h2>
+        <aside className="panel chat-list-panel">
+          <h2 className="chat-panel-title">Мастера</h2>
           {threads.length === 0 ? (
-            <p className="muted">Диалогов пока нет.</p>
+            <p className="muted">
+              Нет мастеров с Telegram ID. Укажите ID в карточке сотрудника.
+            </p>
           ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            <ul className="chat-thread-list">
               {threads.map((t) => (
-                <li key={t.id} style={{ marginBottom: 4 }}>
+                <li key={t.id}>
                   <button
                     type="button"
-                    className={selectedId === t.id ? 'btn' : 'btn secondary'}
-                    style={{ width: '100%', textAlign: 'left' }}
+                    className={
+                      selectedId === t.id
+                        ? 'chat-thread-item active'
+                        : 'chat-thread-item'
+                    }
                     onClick={() => openThread(t.id)}
                   >
-                    <div>{t.title ?? t.id.slice(0, 8)}</div>
-                    <div className="muted" style={{ fontSize: '0.8rem' }}>
-                      {CHAT_CHANNEL_LABELS[t.channel] ?? t.channel} ·{' '}
-                      {CHAT_STATUS_LABELS[t.status] ?? t.status}
-                      {t.order ? ` · ${t.order.publicId}` : ''}
+                    <div className="chat-thread-name">
+                      {t.title ?? t.externalId ?? 'Мастер'}
                     </div>
+                    <div className="chat-thread-preview muted">{preview(t)}</div>
                   </button>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </aside>
 
-        <div className="panel chat-thread-panel">
+        <section className="panel chat-thread-panel">
           {!thread ? (
-            <p className="muted">Выберите диалог</p>
+            <p className="muted chat-empty">Выберите мастера слева</p>
           ) : (
             <>
               <button
                 type="button"
                 className="btn secondary chat-back"
-                onClick={backToList}
+                onClick={() => setMobileView('list')}
               >
-                ← К диалогам
+                ← К списку
               </button>
-              <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>
-                {thread.title ?? 'Диалог'}{' '}
-                <span className="badge">
-                  {CHAT_STATUS_LABELS[thread.status]}
-                </span>
+              <h2 className="chat-panel-title">
+                {thread.title ?? 'Мастер'}
               </h2>
-
-              {thread.order ? (
-                <p style={{ marginTop: 0 }}>
-                  Привязанная заявка:{' '}
-                  <Link href={`/orders/${thread.order.id}`}>
-                    {thread.order.publicId}
-                  </Link>
-                  {thread.order.client?.name
-                    ? ` · ${thread.order.client.name}`
-                    : ''}
-                </p>
-              ) : (
-                <p className="muted" style={{ marginTop: 0 }}>
-                  Заявка не привязана
-                </p>
-              )}
-
-              <form onSubmit={linkOrder} className="chat-thread-actions">
-                <select
-                  value={linkOrderId}
-                  onChange={(e) => setLinkOrderId(e.target.value)}
-                  required
-                >
-                  <option value="">Выберите заявку…</option>
-                  {orders.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.publicId}
-                      {o.client?.name ? ` — ${o.client.name}` : ''}
-                    </option>
-                  ))}
-                </select>
-                <button type="submit" className="btn secondary">
-                  Привязать
-                </button>
-              </form>
-
-              <form onSubmit={sendToMaster} className="chat-thread-actions">
-                <select
-                  value={masterId}
-                  onChange={(e) => setMasterId(e.target.value)}
-                  required
-                >
-                  <option value="">Мастер…</option>
-                  {masters.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.user.fullName}
-                    </option>
-                  ))}
-                </select>
-                <button type="submit" className="btn">
-                  Отправить заявку мастеру
-                </button>
-              </form>
 
               <div className="chat-messages">
                 {thread.messages.length === 0 ? (
-                  <p className="muted">Сообщений нет.</p>
+                  <p className="muted">Переписки пока нет — напишите мастеру.</p>
                 ) : (
                   thread.messages.map((m) => (
                     <div
                       key={m.id}
-                      style={{
-                        marginBottom: 8,
-                        textAlign: m.fromClient ? 'left' : 'right',
-                      }}
+                      className={
+                        m.fromClient
+                          ? 'chat-bubble chat-bubble-in'
+                          : 'chat-bubble chat-bubble-out'
+                      }
                     >
-                      <div
-                        style={{
-                          display: 'inline-block',
-                          background: m.fromClient ? '#f3f4f6' : '#ecfeff',
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          maxWidth: '85%',
-                        }}
-                      >
-                        {m.body}
-                      </div>
-                      <div className="muted" style={{ fontSize: '0.75rem' }}>
+                      <div className="chat-bubble-body">{m.body}</div>
+                      <div className="chat-bubble-meta muted">
                         {m.fromClient
-                          ? thread.order
-                            ? 'Клиент'
-                            : 'Сотрудник'
-                          : (m.author?.fullName ?? 'Оператор')}{' '}
+                          ? 'Мастер'
+                          : (m.author?.fullName ?? 'Офис')}{' '}
                         · {new Date(m.createdAt).toLocaleString('ru-RU')}
                       </div>
                     </div>
                   ))
                 )}
+                <div ref={messagesEndRef} />
               </div>
 
               <form onSubmit={sendMessage} className="chat-compose">
                 <input
                   required
-                  placeholder="Сообщение"
+                  placeholder="Сообщение мастеру…"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                 />
@@ -305,9 +257,65 @@ export default function ChatPage() {
               </form>
             </>
           )}
-          {msg ? <p style={{ color: '#0f766e' }}>{msg}</p> : null}
-          {error ? <p className="error">{error}</p> : null}
-        </div>
+        </section>
+
+        <aside className="panel chat-orders-panel">
+          <h2 className="chat-panel-title">
+            Свободные заявки
+            <span className="chat-orders-count">{orders.length}</span>
+          </h2>
+          {!selectedId ? (
+            <p className="muted">
+              Выберите мастера — затем отправьте ему заявку из списка.
+            </p>
+          ) : null}
+          {orders.length === 0 ? (
+            <p className="muted">Свободных заявок нет.</p>
+          ) : (
+            <ul className="chat-order-list">
+              {orders.map((o) => (
+                <li key={o.id} className="chat-order-card">
+                  <div className="chat-order-head">
+                    <Link href={`/orders/${o.id}`} className="chat-order-id">
+                      {o.publicId}
+                    </Link>
+                    <span className="badge">
+                      {STATUS_LABELS[o.status] ?? o.status}
+                    </span>
+                  </div>
+                  <div className="chat-order-line">
+                    <strong>{o.client.name}</strong>
+                  </div>
+                  <div className="chat-order-line muted">{o.address}</div>
+                  {o.scheduledAt ? (
+                    <div className="chat-order-line muted">
+                      Визит:{' '}
+                      {new Date(o.scheduledAt).toLocaleString('ru-RU', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </div>
+                  ) : null}
+                  {o.comment?.trim() ? (
+                    <div className="chat-order-comment">{o.comment.trim()}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn chat-order-send"
+                    disabled={!selectedId || assigningId === o.id}
+                    onClick={() => void assignOrder(o.id)}
+                  >
+                    {assigningId === o.id
+                      ? 'Отправка…'
+                      : 'Отправить мастеру'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
       </div>
     </div>
   );
