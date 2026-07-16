@@ -31,7 +31,7 @@ type Thread = {
 
 type ThreadDetail = Omit<Thread, 'messages'> & { messages: Message[] };
 
-type UnassignedOrder = {
+type ChatOrder = {
   id: string;
   publicId: string;
   address: string;
@@ -40,17 +40,32 @@ type UnassignedOrder = {
   scheduledAt?: string | null;
   status: string;
   typeTech?: string | null;
+  docsViaAdmin?: boolean;
   client: { name: string; phoneNormalized: string };
   city?: { id: string; name: string; cityName?: string | null } | null;
+  payment?: {
+    paid?: string | number | null;
+    partsCost?: string | number | null;
+  } | null;
 };
 
+type OrdersTab = 'free' | 'master';
+
 const POLL_MS = 3000;
+
+function money(v: unknown) {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString('ru-RU')} ₽`;
+}
 
 export default function ChatPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [thread, setThread] = useState<ThreadDetail | null>(null);
-  const [orders, setOrders] = useState<UnassignedOrder[]>([]);
+  const [freeOrders, setFreeOrders] = useState<ChatOrder[]>([]);
+  const [masterOrders, setMasterOrders] = useState<ChatOrder[]>([]);
+  const [ordersTab, setOrdersTab] = useState<OrdersTab>('free');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -68,9 +83,14 @@ export default function ChatPage() {
     setThreads(list);
   }, []);
 
-  const loadOrders = useCallback(async () => {
-    const list = await api<UnassignedOrder[]>('/chat/unassigned-orders');
-    setOrders(list);
+  const loadFreeOrders = useCallback(async () => {
+    const list = await api<ChatOrder[]>('/chat/unassigned-orders');
+    setFreeOrders(list);
+  }, []);
+
+  const loadMasterOrders = useCallback(async (threadId: string) => {
+    const list = await api<ChatOrder[]>(`/chat/threads/${threadId}/orders`);
+    setMasterOrders(list);
   }, []);
 
   const loadThread = useCallback(async (id: string) => {
@@ -81,16 +101,18 @@ export default function ChatPage() {
   const refreshAll = useCallback(async () => {
     if (document.visibilityState === 'hidden') return;
     try {
-      await Promise.all([loadThreads(), loadOrders()]);
+      await Promise.all([loadThreads(), loadFreeOrders()]);
       const id = selectedIdRef.current;
-      if (id) await loadThread(id);
+      if (id) {
+        await loadThread(id);
+        await loadMasterOrders(id);
+      }
     } catch (e) {
-      /* silent poll errors */
       if (e instanceof Error && !selectedIdRef.current) {
         setError(e.message);
       }
     }
-  }, [loadThreads, loadOrders, loadThread]);
+  }, [loadThreads, loadFreeOrders, loadThread, loadMasterOrders]);
 
   useEffect(() => {
     refreshAll().catch((e) =>
@@ -119,9 +141,11 @@ export default function ChatPage() {
     setSelectedId(id);
     setMobileView('thread');
     setError('');
+    setOrdersTab('master');
     loadThread(id).catch((e) =>
       setError(e instanceof Error ? e.message : 'Ошибка'),
     );
+    loadMasterOrders(id).catch(() => setMasterOrders([]));
   }
 
   useEffect(() => {
@@ -162,7 +186,13 @@ export default function ChatPage() {
         method: 'POST',
         body: JSON.stringify({ orderId }),
       });
-      await Promise.all([loadOrders(), loadThreads(), loadThread(selectedId)]);
+      await Promise.all([
+        loadFreeOrders(),
+        loadThreads(),
+        loadThread(selectedId),
+        loadMasterOrders(selectedId),
+      ]);
+      setOrdersTab('master');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     } finally {
@@ -183,6 +213,67 @@ export default function ChatPage() {
       last.body.length > 48 ? `${last.body.slice(0, 45)}…` : last.body;
     return `${prefix}${body}`;
   };
+
+  const listOrders = ordersTab === 'free' ? freeOrders : masterOrders;
+
+  function renderOrderCard(o: ChatOrder) {
+    const paid = Number(o.payment?.paid ?? 0);
+    const parts = Number(o.payment?.partsCost ?? 0);
+    return (
+      <li key={o.id} className="chat-order-card">
+        <div className="chat-order-head">
+          <Link href={`/orders/${o.id}`} className="chat-order-id">
+            {o.publicId}
+          </Link>
+          <span className="badge">
+            {STATUS_LABELS[o.status] ?? o.status}
+          </span>
+        </div>
+        <div className="chat-order-line">
+          <strong>{o.client.name}</strong>
+        </div>
+        <div className="chat-order-line muted">{o.address}</div>
+        {o.scheduledAt ? (
+          <div className="chat-order-line muted">
+            Визит:{' '}
+            {new Date(o.scheduledAt).toLocaleString('ru-RU', {
+              day: '2-digit',
+              month: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
+        ) : null}
+        {paid > 0 || parts > 0 ? (
+          <div className="chat-order-line muted">
+            Оплата {money(paid)}
+            {parts > 0 ? ` · запчасти ${money(parts)}` : ''}
+          </div>
+        ) : null}
+        {o.docsViaAdmin ? (
+          <div className="chat-order-line chat-order-flag">Через админа</div>
+        ) : null}
+        {o.comment?.trim() ? (
+          <div className="chat-order-comment">{o.comment.trim()}</div>
+        ) : null}
+        <div className="chat-order-actions">
+          <Link className="btn secondary chat-order-open" href={`/orders/${o.id}`}>
+            Открыть
+          </Link>
+          {ordersTab === 'free' ? (
+            <button
+              type="button"
+              className="btn chat-order-send"
+              disabled={!selectedId || assigningId === o.id}
+              onClick={() => void assignOrder(o.id)}
+            >
+              {assigningId === o.id ? 'Отправка…' : 'Отправить мастеру'}
+            </button>
+          ) : null}
+        </div>
+      </li>
+    );
+  }
 
   return (
     <div className="chat-page">
@@ -277,61 +368,56 @@ export default function ChatPage() {
         </section>
 
         <aside className="panel chat-orders-panel">
-          <h2 className="chat-panel-title">
-            Свободные заявки
-            <span className="chat-orders-count">{orders.length}</span>
-          </h2>
-          {!selectedId ? (
+          <h2 className="chat-panel-title">Заявки</h2>
+          <div className="chat-orders-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={ordersTab === 'free'}
+              className={
+                ordersTab === 'free' ? 'btn' : 'btn secondary'
+              }
+              onClick={() => setOrdersTab('free')}
+            >
+              Свободные
+              <span className="chat-orders-count">{freeOrders.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={ordersTab === 'master'}
+              className={
+                ordersTab === 'master' ? 'btn' : 'btn secondary'
+              }
+              disabled={!selectedId}
+              onClick={() => setOrdersTab('master')}
+            >
+              У мастера
+              <span className="chat-orders-count">{masterOrders.length}</span>
+            </button>
+          </div>
+
+          {ordersTab === 'free' && !selectedId ? (
             <p className="muted">
               Выберите мастера — затем отправьте ему заявку из списка.
             </p>
           ) : null}
-          {orders.length === 0 ? (
-            <p className="muted">Свободных заявок нет.</p>
-          ) : (
-            <ul className="chat-order-list">
-              {orders.map((o) => (
-                <li key={o.id} className="chat-order-card">
-                  <div className="chat-order-head">
-                    <Link href={`/orders/${o.id}`} className="chat-order-id">
-                      {o.publicId}
-                    </Link>
-                    <span className="badge">
-                      {STATUS_LABELS[o.status] ?? o.status}
-                    </span>
-                  </div>
-                  <div className="chat-order-line">
-                    <strong>{o.client.name}</strong>
-                  </div>
-                  <div className="chat-order-line muted">{o.address}</div>
-                  {o.scheduledAt ? (
-                    <div className="chat-order-line muted">
-                      Визит:{' '}
-                      {new Date(o.scheduledAt).toLocaleString('ru-RU', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </div>
-                  ) : null}
-                  {o.comment?.trim() ? (
-                    <div className="chat-order-comment">{o.comment.trim()}</div>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn chat-order-send"
-                    disabled={!selectedId || assigningId === o.id}
-                    onClick={() => void assignOrder(o.id)}
-                  >
-                    {assigningId === o.id
-                      ? 'Отправка…'
-                      : 'Отправить мастеру'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {ordersTab === 'master' && !selectedId ? (
+            <p className="muted">Выберите мастера слева.</p>
+          ) : null}
+          {selectedId || ordersTab === 'free' ? (
+            listOrders.length === 0 ? (
+              <p className="muted">
+                {ordersTab === 'free'
+                  ? 'Свободных заявок нет.'
+                  : 'У мастера нет активных заявок.'}
+              </p>
+            ) : (
+              <ul className="chat-order-list">
+                {listOrders.map((o) => renderOrderCard(o))}
+              </ul>
+            )
+          ) : null}
         </aside>
       </div>
     </div>

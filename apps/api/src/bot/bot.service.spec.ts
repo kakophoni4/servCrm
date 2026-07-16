@@ -31,6 +31,9 @@ describe('BotService', () => {
     syncForCompletedOrder: jest.fn().mockResolvedValue(null),
     syncMasterMonth: jest.fn().mockResolvedValue(null),
   };
+  const salary = {
+    percentFor: jest.fn().mockResolvedValue(0.4),
+  };
 
   const txMock = {
     order: { update: jest.fn() },
@@ -54,6 +57,7 @@ describe('BotService', () => {
     },
     cashTx: { findMany: jest.fn() },
     orderDocument: { findMany: jest.fn(), count: jest.fn() },
+    orderPayment: { upsert: jest.fn() },
     $transaction: jest.fn(),
   } as any;
 
@@ -82,6 +86,7 @@ describe('BotService', () => {
       settings as any,
       documents as any,
       settlements as any,
+      salary as any,
     );
     prisma.$transaction.mockImplementation((cb: (tx: typeof txMock) => unknown) =>
       cb(txMock),
@@ -612,6 +617,7 @@ describe('BotService', () => {
 
     it('calls setStatus and refreshes card when docs present', async () => {
       documents.missingRequiredKinds.mockResolvedValue([]);
+      documents.missingKindsForStatus.mockResolvedValue([]);
       const setStatusSpy = jest
         .spyOn(svc, 'setStatus')
         .mockResolvedValue({ id: orderId, status: OrderStatus.DONE } as any);
@@ -626,6 +632,7 @@ describe('BotService', () => {
         status: OrderStatus.DONE,
         masterTgChatId: null,
         masterTgMessageId: null,
+        payment: { paid: 1500, partsCost: 0 },
         client: { name: 'К', phoneNormalized: '+7' },
       });
       prisma.order.update.mockResolvedValue({});
@@ -642,6 +649,37 @@ describe('BotService', () => {
         orderId,
         OrderStatus.DONE,
         true,
+      );
+    });
+
+    it('asks for payment before DONE when paid is 0', async () => {
+      documents.missingKindsForStatus.mockResolvedValue([]);
+      prisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        payment: { paid: 0, partsCost: 0 },
+      });
+      const sendMessageSpy = jest
+        .spyOn(svc, 'sendMessage')
+        .mockResolvedValue({ ok: true, result: { message_id: 2 } } as any);
+      jest.spyOn(svc as any, 'clearEphemeral').mockResolvedValue(undefined);
+      const setStatusSpy = jest.spyOn(svc, 'setStatus');
+
+      await (svc as any).handleCallbackQuery({
+        id: 'cq-pay',
+        data: `c:${orderId}:${OrderStatus.DONE}`,
+        from: { id: 111 },
+        message: { chat: { id: 222 } },
+      });
+
+      expect(setStatusSpy).not.toHaveBeenCalled();
+      expect((svc as any).paySessions.get('111')).toMatchObject({
+        orderId,
+        step: 'paid',
+        resumeStatus: OrderStatus.DONE,
+      });
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        '222',
+        expect.stringContaining('сумму оплаты'),
       );
     });
 

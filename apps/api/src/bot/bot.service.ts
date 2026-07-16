@@ -22,12 +22,14 @@ import {
 } from '@prisma/client';
 import { extname } from 'path';
 import { ChatService } from '../chat/chat.service';
+import { calcPayment } from '../common/utils/formulas';
 import {
   DOC_KIND_RU,
   DocumentsService,
   REQUIRED_ORDER_DOC_KINDS,
 } from '../documents/documents.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SalaryService } from '../salary/salary.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettlementsService } from '../settlements/settlements.service';
 
@@ -134,6 +136,14 @@ type DocUploadSession = {
   viaAdminDump?: boolean;
 };
 
+type PaySession = {
+  orderId: string;
+  step: 'paid' | 'parts';
+  paid?: number;
+  /** После сохранения сумм продолжить этот статус (обычно DONE) */
+  resumeStatus?: OrderStatus;
+};
+
 const ESCALATE_AFTER_MS = 10 * 60 * 1000;
 const ESCALATE_POLL_MS = 60 * 1000;
 /** Статусы, при которых реакция уже не нужна (не эскалируем «без ответа»). */
@@ -168,6 +178,7 @@ const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
 export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
   private readonly docSessions = new Map<string, DocUploadSession>();
+  private readonly paySessions = new Map<string, PaySession>();
   /** Эфемерные UI-сообщения бота (список заявок, ЗП) — удаляем перед новым экраном. */
   private readonly ephemeralMsgs = new Map<string, number[]>();
   private escalateTimer: ReturnType<typeof setInterval> | null = null;
@@ -183,6 +194,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: SettingsService,
     private readonly documents: DocumentsService,
     private readonly settlements: SettlementsService,
+    private readonly salary: SalaryService,
   ) {}
 
   onModuleInit() {
@@ -560,8 +572,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       scheduledAt?: Date | null;
       status: OrderStatus;
       client: { name: string; phoneNormalized: string };
+      payment?: {
+        paid?: unknown;
+        partsCost?: unknown;
+      } | null;
     },
   ) {
+    const paid = Number(order.payment?.paid ?? 0);
+    const partsCost = Number(order.payment?.partsCost ?? 0);
     const lines = [
       `Заявка ${order.publicId}`,
       `Клиент: ${order.client.name}`,
@@ -579,6 +597,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
     }
     lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
+    if (paid > 0 || partsCost > 0) {
+      lines.push(`Оплата: ${paid.toLocaleString('ru-RU')} ₽`);
+      lines.push(`Запчасти: ${partsCost.toLocaleString('ru-RU')} ₽`);
+    }
 
     const statusBtns = this.buttonsForStatus(order.status).map((b) => ({
       text: b.label,
@@ -590,9 +612,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
 
     const isActive = MASTER_ACTIVE_STATUSES.includes(order.status);
-    const rowExtra = isActive
-      ? [{ text: '+ Документ', callback_data: `xd:${order.id}` }]
-      : [];
+    const rowExtra: { text: string; callback_data: string }[] = [];
+    if (isActive) {
+      rowExtra.push({ text: 'Суммы', callback_data: `ps:${order.id}` });
+      rowExtra.push({ text: '+ Документ', callback_data: `xd:${order.id}` });
+    }
     const rowNav = [{ text: '« К списку', callback_data: 'ml' }];
 
     const inline_keyboard = [
@@ -1288,6 +1312,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (await this.handlePayText(telegramId, chatId, text)) {
+      return;
+    }
+
     if (text === MASTER_BTN_ACTIVE || /^\/orders(?:@\w+)?$/i.test(text)) {
       await this.sendActiveOrdersMenu(chatId, telegramId);
       return;
@@ -1319,6 +1347,208 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const title =
       from?.username || from?.first_name || String(msg.chat.id);
     await this.incomingMessage(chatId, text, title);
+  }
+
+  private parseMoney(text: string): number | null {
+    const normalized = text
+      .trim()
+      .replace(/\s/g, '')
+      .replace(',', '.')
+      .replace(/[^\d.]/g, '');
+    if (!normalized) return null;
+    const n = Number(normalized);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  private async startPaySession(
+    chatId: string,
+    telegramId: string,
+    orderId: string,
+    resumeStatus?: OrderStatus,
+  ) {
+    this.docSessions.delete(telegramId);
+    this.paySessions.set(telegramId, {
+      orderId,
+      step: 'paid',
+      resumeStatus,
+    });
+    await this.clearEphemeral(chatId);
+    const res = await this.sendMessage(
+      chatId,
+      resumeStatus === OrderStatus.DONE
+        ? 'Перед закрытием укажите сумму оплаты от клиента (₽):'
+        : 'Сумма оплаты от клиента (₽):',
+    );
+    this.trackEphemeral(chatId, this.tgMessageId(res));
+  }
+
+  /** true — сообщение обработано как ввод сумм. */
+  private async handlePayText(
+    telegramId: string,
+    chatId: string,
+    text: string,
+  ): Promise<boolean> {
+    const session = this.paySessions.get(telegramId);
+    if (!session) return false;
+
+    if (/^\/cancel$/i.test(text.trim()) || text.trim() === 'Отмена') {
+      this.paySessions.delete(telegramId);
+      await this.sendMessage(chatId, 'Ввод сумм отменён.');
+      return true;
+    }
+
+    const amount = this.parseMoney(text);
+    if (amount == null) {
+      await this.sendMessage(
+        chatId,
+        'Введите число, например 4500 или 0. Для отмены — «Отмена».',
+      );
+      return true;
+    }
+
+    if (session.step === 'paid') {
+      this.paySessions.set(telegramId, {
+        ...session,
+        step: 'parts',
+        paid: amount,
+      });
+      await this.clearEphemeral(chatId);
+      const res = await this.sendMessage(
+        chatId,
+        'Сумма запчастей / расходов (₽). Если нет — напишите 0:',
+      );
+      this.trackEphemeral(chatId, this.tgMessageId(res));
+      return true;
+    }
+
+    const paid = session.paid ?? 0;
+    const partsCost = amount;
+    try {
+      await this.saveMasterPayment(telegramId, session.orderId, paid, partsCost);
+    } catch (e) {
+      const msg =
+        e instanceof BadRequestException || e instanceof NotFoundException
+          ? String(
+              (e.getResponse() as { message?: string | string[] })?.message ??
+                e.message,
+            )
+          : 'Не удалось сохранить суммы';
+      await this.sendMessage(
+        chatId,
+        Array.isArray(msg) ? msg.join('; ') : msg,
+      );
+      return true;
+    }
+
+    const resume = session.resumeStatus;
+    this.paySessions.delete(telegramId);
+    await this.clearEphemeral(chatId);
+    await this.sendMessage(
+      chatId,
+      `Сохранено: оплата ${paid.toLocaleString('ru-RU')} ₽, запчасти ${partsCost.toLocaleString('ru-RU')} ₽.`,
+    );
+
+    if (resume === OrderStatus.DONE || resume === OrderStatus.IN_PROGRESS_SD) {
+      const missing = await this.documents.missingKindsForStatus(
+        session.orderId,
+        resume,
+      );
+      if (missing.length) {
+        await this.requestMissingDocuments(
+          chatId,
+          telegramId,
+          session.orderId,
+          missing,
+          resume,
+        );
+        return true;
+      }
+      try {
+        await this.setStatus(telegramId, session.orderId, resume, true);
+        await this.sendMessage(
+          chatId,
+          `Статус обновлён: ${STATUS_LABELS[resume] ?? resume}`,
+        );
+      } catch (e) {
+        const msg =
+          e instanceof BadRequestException || e instanceof NotFoundException
+            ? String(
+                (e.getResponse() as { message?: string | string[] })?.message ??
+                  e.message,
+              )
+            : 'Не удалось сменить статус';
+        await this.sendMessage(
+          chatId,
+          Array.isArray(msg) ? msg.join('; ') : msg,
+        );
+      }
+    }
+
+    await this.refreshMasterOrderCard(chatId, session.orderId);
+    return true;
+  }
+
+  async saveMasterPayment(
+    telegramId: string,
+    orderId: string,
+    paid: number,
+    partsCost: number,
+  ) {
+    const user = await this.masterByTelegram(telegramId);
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { payment: true, master: { include: { user: true } } },
+    });
+    if (!order || order.masterId !== user.masterProfile!.id) {
+      throw new NotFoundException('Заявка не найдена у мастера');
+    }
+    if (ESCALATE_SKIP_STATUSES.includes(order.status)) {
+      throw new BadRequestException('Заявка уже закрыта');
+    }
+    if (paid < 0 || partsCost < 0) {
+      throw new BadRequestException('Суммы не могут быть отрицательными');
+    }
+    if (partsCost > paid) {
+      throw new BadRequestException('Запчасти не могут быть больше оплаты');
+    }
+
+    const masterPct = await this.salary.percentFor(paid - partsCost);
+    const calc = calcPayment(paid, partsCost, masterPct);
+    await this.prisma.orderPayment.upsert({
+      where: { orderId },
+      create: {
+        orderId,
+        paid,
+        partsCost,
+        partsYesNo: partsCost > 0,
+        workSum: calc.workSum,
+        masterPct: calc.masterPct,
+        masterSalary: calc.masterSalary,
+        toCompany: calc.toCompany,
+      },
+      update: {
+        paid,
+        partsCost,
+        partsYesNo: partsCost > 0,
+        workSum: calc.workSum,
+        masterPct: calc.masterPct,
+        masterSalary: calc.masterSalary,
+        toCompany: calc.toCompany,
+      },
+    });
+
+    const masterName = order.master?.user.fullName ?? 'мастер';
+    await this.incomingMessage(
+      telegramId,
+      [
+        `💰 Заявка ${order.publicId}`,
+        `Мастер ${masterName} указал суммы:`,
+        `Оплата: ${paid.toLocaleString('ru-RU')} ₽`,
+        `Запчасти: ${partsCost.toLocaleString('ru-RU')} ₽`,
+      ].join('\n'),
+      masterName,
+    ).catch(() => undefined);
   }
 
   private async requestMissingDocuments(
@@ -1893,12 +2123,40 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (data.startsWith('ps:')) {
+      const orderId = data.slice(3);
+      try {
+        await this.masterByTelegram(telegramId);
+        await this.startPaySession(chatId, telegramId, orderId);
+      } catch {
+        await this.sendMessage(chatId, 'Не удалось начать ввод сумм.');
+      }
+      return;
+    }
+
     if (data.startsWith('c:')) {
       const rest = data.slice(2);
       const sep = rest.lastIndexOf(':');
       if (sep <= 0) return;
       const orderId = rest.slice(0, sep);
       const status = rest.slice(sep + 1) as OrderStatus;
+
+      if (status === OrderStatus.DONE) {
+        const order = await this.prisma.order.findUnique({
+          where: { id: orderId },
+          include: { payment: true },
+        });
+        const paid = Number(order?.payment?.paid ?? 0);
+        if (paid <= 0) {
+          await this.startPaySession(
+            chatId,
+            telegramId,
+            orderId,
+            OrderStatus.DONE,
+          );
+          return;
+        }
+      }
 
       if (
         status === OrderStatus.DONE ||
@@ -1923,6 +2181,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.setStatus(telegramId, orderId, status, true);
         this.docSessions.delete(telegramId);
+        this.paySessions.delete(telegramId);
         await this.clearEphemeral(chatId);
         await this.sendMessage(
           chatId,

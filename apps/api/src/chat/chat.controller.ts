@@ -76,6 +76,16 @@ export class ChatController {
     return this.chat.unassignedOrders(user.userId, user.role);
   }
 
+  @Get('threads/:id/orders')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('chat.read')
+  masterOrders(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.chat.masterOrders(id, user.userId, user.role);
+  }
+
   @Get('threads/:id')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('chat.read')

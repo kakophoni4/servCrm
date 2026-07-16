@@ -1097,6 +1097,42 @@ label.file-picker:focus-within,
   color: var(--muted);
 }
 
+.chat-orders-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.chat-orders-tabs .btn,
+.chat-orders-tabs .btn.secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.7rem;
+}
+
+.chat-order-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.chat-order-open,
+.chat-order-send {
+  width: 100%;
+  margin-top: 0;
+}
+
+.chat-order-flag {
+  color: #9a3412;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .chat-thread-list,
 .chat-order-list {
   list-style: none;
@@ -1251,10 +1287,6 @@ label.file-picker:focus-within,
   overflow: hidden;
 }
 
-.chat-order-send {
-  width: 100%;
-  margin-top: 0.65rem;
-}
 
 /* Модалка (например, оплата в расчёте) — блокирует фон */
 .notify-overlay {

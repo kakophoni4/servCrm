@@ -147,6 +147,56 @@ export class ChatService {
           select: { name: true, phoneNormalized: true },
         },
         city: { select: { id: true, name: true, cityName: true } },
+        payment: { select: { paid: true, partsCost: true } },
+      },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+  }
+
+  /** Активные заявки мастера выбранного чата. */
+  async masterOrders(
+    threadId: string,
+    userId: string,
+    role: Role | string,
+  ) {
+    const thread = await this.get(threadId, userId, role);
+    const tg = thread.externalId?.trim();
+    if (!tg) return [];
+
+    const masterUser = await this.prisma.user.findFirst({
+      where: {
+        telegramId: tg,
+        role: Role.MASTER,
+        status: UserStatus.ACTIVE,
+      },
+      include: { masterProfile: true },
+    });
+    if (!masterUser?.masterProfile) return [];
+
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    return this.prisma.order.findMany({
+      where: {
+        masterId: masterUser.masterProfile.id,
+        status: { notIn: TERMINAL },
+        ...(allowed === null ? {} : { cityId: { in: allowed } }),
+      },
+      select: {
+        id: true,
+        publicId: true,
+        address: true,
+        comment: true,
+        adminComment: true,
+        scheduledAt: true,
+        status: true,
+        typeTech: true,
+        createdAt: true,
+        docsViaAdmin: true,
+        client: {
+          select: { name: true, phoneNormalized: true },
+        },
+        city: { select: { id: true, name: true, cityName: true } },
+        payment: { select: { paid: true, partsCost: true } },
       },
       orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'desc' }],
       take: 100,
