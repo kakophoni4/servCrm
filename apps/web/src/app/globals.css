@@ -594,6 +594,44 @@ label.file-picker:focus-within,
   color: var(--muted);
 }
 
+.docs-empty {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.docs-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.docs-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+}
+
+.docs-list-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+
+.docs-list-date {
+  font-size: 0.82rem;
+}
+
 .docs-upload-form {
   display: grid;
   gap: 0.85rem;
@@ -2309,28 +2347,17 @@ label.file-picker:focus-within,
 }
 
 .order-side .docs-checklist {
-  align-items: center;
+  align-items: stretch;
 }
 
 .order-side .docs-checklist li {
-  justify-content: center;
-  text-align: center;
+  justify-content: flex-start;
+  text-align: left;
 }
 
-.order-side .docs-table {
-  width: 100%;
-}
-
-.order-side .docs-table th,
-.order-side .docs-table td {
-  text-align: center;
-  vertical-align: middle;
-}
-
-.order-side .docs-col-actions,
 .order-side .docs-actions {
-  text-align: center;
-  justify-content: center;
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .order-side .docs-count {
@@ -2338,41 +2365,46 @@ label.file-picker:focus-within,
   color: var(--accent);
 }
 
-.order-side .field {
-  text-align: center;
+.order-docs-panel {
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
 }
 
-.order-side .field label {
+.order-docs-panel .order-side-title {
+  text-align: left;
+}
+
+.order-docs-panel .field {
+  text-align: left;
+}
+
+.order-docs-panel .field label {
   display: block;
   width: 100%;
-  text-align: center;
+  text-align: left;
   color: var(--ink);
   font-weight: 600;
 }
 
-.order-side .field input,
-.order-side .field select,
-.order-side .field textarea,
-.order-side .file-picker {
-  text-align: center;
+.order-docs-panel .field input,
+.order-docs-panel .field select,
+.order-docs-panel .field textarea,
+.order-docs-panel .file-picker {
+  text-align: left;
 }
 
-.order-side .file-picker {
-  align-items: center;
+.order-docs-panel .file-picker {
+  align-items: flex-start;
   overflow: hidden;
 }
 
-.order-side .docs-upload-form {
-  justify-items: center;
+.order-docs-panel .docs-upload-form {
+  justify-items: stretch;
 }
 
-.order-side .docs-upload-row {
+.order-docs-panel .docs-upload-row {
   width: 100%;
-}
-
-.order-docs-panel {
-  min-width: 0;
-  overflow: hidden;
 }
 
 .order-history-panel {
