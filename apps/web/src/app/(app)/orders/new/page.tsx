@@ -257,6 +257,7 @@ export default function NewOrderPage() {
               <label>Время по заказу</label>
               <DateTimeField
                 required
+                showQuickPicks
                 value={form.scheduledAt}
                 onChange={(scheduledAt) => set('scheduledAt', scheduledAt)}
               />

@@ -7,6 +7,8 @@ type Props = {
   id?: string;
   /** Подсказка времени при выборе только даты */
   defaultTime?: string;
+  /** «Сегодня» / «Завтра» — только при создании заявки */
+  showQuickPicks?: boolean;
 };
 
 function pad(n: number) {
@@ -37,6 +39,7 @@ export function DateTimeField({
   required,
   id,
   defaultTime = '10:00',
+  showQuickPicks = false,
 }: Props) {
   const { date, time } = splitValue(value);
 
@@ -75,14 +78,16 @@ export function DateTimeField({
           aria-label="Время"
         />
       </div>
-      <div className="datetime-field-quick">
-        <button type="button" className="btn-link" onClick={() => pickDay(0)}>
-          Сегодня
-        </button>
-        <button type="button" className="btn-link" onClick={() => pickDay(1)}>
-          Завтра
-        </button>
-      </div>
+      {showQuickPicks ? (
+        <div className="datetime-field-quick">
+          <button type="button" className="btn-link" onClick={() => pickDay(0)}>
+            Сегодня
+          </button>
+          <button type="button" className="btn-link" onClick={() => pickDay(1)}>
+            Завтра
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
