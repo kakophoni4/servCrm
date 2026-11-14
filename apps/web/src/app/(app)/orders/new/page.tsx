@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
 import { DateTimeField } from '@/components/DateTimeField';
-import { api } from '@/lib/api';
+import { api, getStoredUser } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
 
 type Dict = { id: string; name?: string; label?: string };
@@ -52,8 +52,8 @@ export default function NewOrderPage() {
         setPartners(p);
         setAges(a);
         setCities(c);
-        if (a[0]) setForm((f) => ({ ...f, ageCategoryId: a[0].id }));
-        if (c[0]) setForm((f) => ({ ...f, cityId: c[0].id }));
+
+        if (c[0]) setForm((f) => ({ ...f, cityId: getStoredUser()?.cityId || c[0].id }));
         if (p[0]) setForm((f) => ({ ...f, partnerId: p[0].id }));
       })
       .catch((e) =>
@@ -236,24 +236,6 @@ export default function NewOrderPage() {
               </div>
             )}
             <div className="field">
-              <label>Возраст</label>
-              <select
-                value={form.ageCategoryId}
-                onChange={(e) => set('ageCategoryId', e.target.value)}
-              >
-                {ages.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <BranchSelect
-              cities={cities}
-              value={form.cityId}
-              onChange={(cityId) => set('cityId', cityId)}
-            />
-            <div className="field">
               <label>Время по заказу</label>
               <DateTimeField
                 required
@@ -297,14 +279,6 @@ export default function NewOrderPage() {
         </section>
 
         <div className="order-new-footer">
-          <label className="order-new-check">
-            <input
-              type="checkbox"
-              checked={form.isProfile}
-              onChange={(e) => set('isProfile', e.target.checked)}
-            />
-            Профильная заявка
-          </label>
           {error ? <p className="error order-new-error">{error}</p> : null}
           <button
             className="btn order-new-submit"

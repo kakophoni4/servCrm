@@ -1,5 +1,2 @@
 import { redirect } from 'next/navigation';
-
-export default function UsersPage() {
-  redirect('/manage?section=users');
-}
+export default function Page() { redirect('/orders'); }

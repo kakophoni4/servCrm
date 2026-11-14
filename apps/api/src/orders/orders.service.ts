@@ -501,29 +501,6 @@ export class OrdersService {
         ? dto.paid
         : Number(existingPayment?.paid ?? 0);
 
-    if (status === OrderStatus.DONE && requiresDocsForDone(nextPaid)) {
-      const missing = await this.documents.missingRequiredKinds(id);
-      if (missing.length) {
-        throw new BadRequestException(
-          `При оплате >500 ₽ нельзя поставить Готов без документов: ${missing
-            .map((k) => DOC_KIND_RU[k])
-            .join(', ')}`,
-        );
-      }
-    }
-
-    if (status === OrderStatus.IN_PROGRESS_SD) {
-      const missing = await this.documents.missingKindsForStatus(
-        id,
-        OrderStatus.IN_PROGRESS_SD,
-      );
-      if (missing.length) {
-        throw new BadRequestException(
-          'Для статуса «В работе СД» нужна сохранная расписка',
-        );
-      }
-    }
-
     if (status === OrderStatus.DONE) {
       data.docsViaAdmin = false;
     }

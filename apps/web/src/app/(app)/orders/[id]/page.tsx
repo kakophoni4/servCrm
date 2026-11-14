@@ -376,8 +376,8 @@ export default function OrderDetailPage() {
   const sdMissing =
     status === 'IN_PROGRESS_SD' && !presentKinds.has(SD_UPLOAD_DOC_KIND);
   const hasAllDocs = missingKinds.length === 0;
-  const doneBlocked = status === 'DONE' && needsDocs && !hasAllDocs;
-  const sdBlocked = sdMissing;
+  const doneBlocked = false;
+  const sdBlocked = false;
 
   useEffect(() => {
     if (
@@ -482,7 +482,7 @@ export default function OrderDetailPage() {
 
       const fd = new FormData();
       Array.from(docFiles).forEach((f) => fd.append('files', f));
-      const qs = new URLSearchParams({ kind: docKind });
+      const qs = new URLSearchParams({ kind: 'OTHER' });
       if (docKind === SD_UPLOAD_DOC_KIND) {
         qs.set('forStatus', 'IN_PROGRESS_SD');
       }
@@ -743,9 +743,7 @@ export default function OrderDetailPage() {
               <span className="badge order-badge-status">
                 {STATUS_LABELS[order.status]}
               </span>
-              <span className={isProfile ? 'badge' : 'badge badge-warn'}>
-                {isProfile ? 'Профильная' : 'Непрофильная'}
-              </span>
+
               <span className="badge order-badge-type">
                 {TYPE_LABELS[order.type] ?? order.type}
               </span>
@@ -768,16 +766,7 @@ export default function OrderDetailPage() {
                 </span>
               </div>
             </Link>
-            {admin ? (
-              <label className="order-profile-check">
-                <input
-                  type="checkbox"
-                  checked={isProfile}
-                  onChange={(e) => setIsProfile(e.target.checked)}
-                />
-                Профильная заявка
-              </label>
-            ) : null}
+
           </div>
 
           {admin ? (
@@ -806,16 +795,8 @@ export default function OrderDetailPage() {
                     onChange={setScheduledAt}
                   />
                 </div>
-                <div className="field">
-                  <label>Диспетчер</label>
-                  <input
-                    readOnly
-                    disabled
-                    value={order.createdBy?.fullName ?? '—'}
-                  />
-                </div>
                 <div className="field order-field-full">
-                  <label>Комментарий диспетчера</label>
+                  <label>Описание заявки</label>
                   <AutoTextarea
                     readOnly
                     disabled
@@ -823,7 +804,7 @@ export default function OrderDetailPage() {
                   />
                 </div>
                 <div className="field order-field-full">
-                  <label>Комментарий администратора</label>
+                  <label>Заметки по работе</label>
                   <AutoTextarea
                     value={adminComment}
                     onChange={(e) => setAdminComment(e.target.value)}
@@ -964,7 +945,7 @@ export default function OrderDetailPage() {
                     <strong>{String(order.payment.masterSalary)} ₽</strong>
                   </div>
                   <div className="order-pay-item accent">
-                    <span>К сдаче</span>
+                    <span>Доля владельца</span>
                     <strong>{String(order.payment.toCompany)} ₽</strong>
                   </div>
                 </div>
@@ -1068,7 +1049,7 @@ export default function OrderDetailPage() {
 
           {admin ? (
           <div className="panel order-docs-panel">
-            <h2 className="order-side-title">Документы</h2>
+            <h2 className="order-side-title">Фото и документы</h2><p className="muted">Необязательно. Прикрепите фото техники, чек или акт — заявку можно закрыть без вложений.</p>
             {pendingDocs.length ? (
               <div className="docs-inbox">
                 <h3 className="docs-inbox-title">Входящие от мастера</h3>
@@ -1151,24 +1132,6 @@ export default function OrderDetailPage() {
                 </ul>
               </div>
             ) : null}
-            <ul className="docs-checklist">
-              {checklistKinds.map((k) => {
-                const ok = presentKinds.has(k);
-                const required =
-                  k === SD_UPLOAD_DOC_KIND
-                    ? status === 'IN_PROGRESS_SD'
-                    : requiredKinds.includes(k as (typeof ORDER_UPLOAD_DOC_KINDS)[number]);
-                return (
-                  <li
-                    key={k}
-                    className={ok ? 'ok' : required ? 'miss' : 'optional'}
-                  >
-                    <span>{ok ? '✓' : required ? '○' : '–'}</span>
-                    <span>{DOC_KIND_LABELS[k]}</span>
-                  </li>
-                );
-              })}
-            </ul>
             {docGroups.length === 0 ? (
               <p className="muted docs-empty">Документов нет.</p>
             ) : (
@@ -1309,19 +1272,6 @@ export default function OrderDetailPage() {
 
             <form onSubmit={uploadDoc} className="docs-upload-form">
               <div className="docs-upload-row">
-                <div className="field">
-                  <label>Тип документа</label>
-                  <select
-                    value={docKind}
-                    onChange={(e) => setDocKind(e.target.value)}
-                  >
-                    {uploadKinds.map((k) => (
-                      <option key={k} value={k}>
-                        {DOC_KIND_LABELS[k]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
                 <div className="field">
                   <label>Файлы</label>
                   <label className="file-picker">

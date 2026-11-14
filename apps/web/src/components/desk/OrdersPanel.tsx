@@ -71,6 +71,8 @@ function formatSchedule(iso: string): string {
 
 export function OrdersPanel() {
   const router = useRouter();
+  const [view,setView]=useState('active');
+  const [query,setQuery]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [cityFilter, setCityFilter] = useState('');
@@ -117,6 +119,7 @@ export function OrdersPanel() {
     return () => clearInterval(timer);
   }, []);
 
+  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
@@ -125,20 +128,6 @@ export function OrdersPanel() {
     <section className="desk-panel">
       <div className="desk-panel-head">
         <div className="desk-panel-actions desk-panel-actions-end">
-          {isOwner ? (
-            <select
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              className="desk-select"
-            >
-              <option value="">Все филиалы</option>
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          ) : null}
           {canWrite ? (
             <Link className="btn" href="/orders/new">
               Новая заявка
@@ -146,7 +135,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body">
+      <div className="desk-panel-body"><div className="field"><input aria-label="Поиск заявок" placeholder="Имя, телефон, адрес, мастер или номер заявки" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="all">Все заявки</option></select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
@@ -168,7 +157,7 @@ export function OrdersPanel() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => {
+                {visible.map((o) => {
                   const urgent = isUrgentUnassigned(o, now);
                   const source = [
                     SOURCE_KIND_LABELS[o.sourceKind] ?? o.sourceKind,
@@ -245,12 +234,10 @@ export function OrdersPanel() {
                     </tr>
                   );
                 })}
-                {orders.length === 0 ? (
+                {visible.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="muted desk-col-center">
-                      {user?.cityName
-                        ? `В филиале «${user.cityName}» заявок пока нет.`
-                        : 'Заявок пока нет.'}
+                      {'Нет заявок по выбранным условиям.'}
                     </td>
                   </tr>
                 ) : null}

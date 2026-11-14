@@ -1,5 +1,2 @@
 import { redirect } from 'next/navigation';
-
-export default function SettlementsPage() {
-  redirect('/manage?section=settlements');
-}
+export default function Page() { redirect('/orders'); }

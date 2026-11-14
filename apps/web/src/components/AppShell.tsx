@@ -24,49 +24,11 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  {
-    href: '/chat',
-    label: 'Чаты',
-    roles: ['ADMIN', 'DIRECTOR', 'OWNER'],
-    anyOf: ['chat.read'],
-  },
-  {
-    href: '/orders',
-    label: 'Заявки и клиенты',
-    anyOf: ['orders.read', 'clients.read', 'claims.read'],
-  },
-  {
-    href: '/cash',
-    label: 'Касса и ресурсы',
-    roles: ['ADMIN', 'DIRECTOR', 'OWNER'],
-    anyOf: ['cash.read', 'assets.read', 'ads.read'],
-  },
-  {
-    href: '/reports',
-    label: 'Отчёты',
-    roles: ['DIRECTOR', 'OWNER'],
-    anyOf: ['reports.read'],
-  },
-  {
-    href: '/manage',
-    label: 'Управление CRM',
-    roles: ['ADMIN', 'DIRECTOR', 'OWNER'],
-    anyOf: [
-      'users.read',
-      'settlements.read',
-      'salary.read',
-      'settings.dispatcher_pay',
-    ],
-  },
-  {
-    href: '/settings/cities',
-    label: 'Настройки',
-    roles: ['OWNER'],
-  },
-  {
-    href: '/settings/account',
-    label: 'Аккаунт',
-  },
+ {href:'/orders',label:'Заявки и клиенты'},
+ {href:'/masters',label:'Мастера'},
+ {href:'/reports',label:'Деньги и статистика'},
+ {href:'/settings/salary',label:'Расчёт долей'},
+ {href:'/settings/account',label:'Аккаунт'},
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -223,8 +185,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="main">{children}</main>
       </div>
       <div className="notify-stack">
-        <ChatMessageNotifier />
-        <NewOrderNotifier />
+
+
       </div>
     </div>
   );

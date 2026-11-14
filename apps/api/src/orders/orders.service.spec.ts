@@ -438,22 +438,13 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Для статуса «Готов» назначьте мастера');
     });
 
-    it('throws BadRequestException when DONE with paid>500 and missing required receipts', async () => {
+    it('closes a paid order without attachments', async () => {
       mockExistingOrder({ masterId: 'm-1' });
       documents.missingRequiredKinds.mockResolvedValue(['CONTRACT' as any]);
-      documents.hasRequiredReceipts.mockResolvedValue(false);
-      const dto: UpdateOrderDto = {
-        status: OrderStatus.DONE,
-        paid: 600,
-      };
-
-      await expect(
-        service.update(orderId, dto, userId, Role.ADMIN),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.update(orderId, dto, userId, Role.ADMIN),
-      ).rejects.toThrow('При оплате >500 ₽ нельзя поставить Готов');
-      expect(documents.missingRequiredKinds).toHaveBeenCalledWith(orderId);
+      setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:'m-1'}});
+      await expect(service.update(orderId,{status:OrderStatus.DONE,paid:600},userId,Role.OWNER)).resolves.toBeDefined();
+      expect(documents.missingRequiredKinds).not.toHaveBeenCalled();
+      expect(settlements.syncForCompletedOrder).toHaveBeenCalledWith(orderId);
     });
 
     it('passes when DONE with paid>500 and required receipts exist', async () => {
@@ -470,7 +461,7 @@ describe('OrdersService', () => {
 
       const result = await service.update(orderId, dto, userId, Role.ADMIN);
 
-      expect(documents.missingRequiredKinds).toHaveBeenCalledWith(orderId);
+      expect(documents.missingRequiredKinds).not.toHaveBeenCalled();
       expect(result).toBeDefined();
       expect(prisma.$transaction).toHaveBeenCalled();
       expect(settlements.syncForCompletedOrder).toHaveBeenCalledWith(orderId);
