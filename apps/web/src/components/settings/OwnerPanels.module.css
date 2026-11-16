@@ -38,3 +38,4 @@
 .masterFields > :last-child { grid-column: 1 / -1; }
 .pairedFields :global(.field label) { min-height: 2.8em; display: flex; align-items: end; }
 @media(max-width:480px) { .masterFields, .pairedFields { grid-template-columns: minmax(0,1fr); } .pairedFields :global(.field label) { min-height: 0; } }
+.shares strong { margin-top: auto; }
