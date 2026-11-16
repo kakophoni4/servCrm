@@ -820,6 +820,52 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return value ? JSON.parse(value) : null;
   }
 
+  async getMasterGroup(masterId: string): Promise<{chatId:string;title:string}|null> {
+    const value=await this.settings.get('bot.master.group.'+masterId);
+    return value ? JSON.parse(value) : null;
+  }
+
+  async getOrderDestination(orderId: string) {
+    const order=await this.prisma.order.findUnique({where:{id:orderId},select:{masterId:true}});
+    return (order?.masterId ? await this.getMasterGroup(order.masterId) : null) || await this.getOrderGroup();
+  }
+
+  async createMasterGroupLink(masterId: string) {
+    const master=await this.prisma.master.findUnique({where:{id:masterId}});
+    if(!master || master.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
+    const config=await this.settings.getBotConfig();
+    if(!config.hasToken || !config.enabled)throw new BadRequestException('Сначала включите бота');
+    const bot=await this.settings.testBot();
+    if(!bot.ok || !bot.username)throw new BadRequestException('Бот недоступен');
+    const token=randomBytes(16).toString('hex');
+    await this.settings.set('bot.master.group.bind.'+masterId,JSON.stringify({hash:createHash('sha256').update(token).digest('hex'),expires:Date.now()+86400000}));
+    return {command:`/connect_master@${bot.username} ${masterId} ${token}`};
+  }
+
+  async disconnectMasterGroup(masterId:string) {
+    await this.prisma.appSetting.deleteMany({where:{key:{in:['bot.master.group.'+masterId,'bot.master.group.bind.'+masterId]}}});
+    return {ok:true};
+  }
+
+  async bindMasterGroup(masterId:string, token:string, chat:TgChat, senderId:string) {
+    if(!['group','supergroup'].includes(chat.type || '') || !chat.id)throw new BadRequestException('Отправьте команду в группу мастера');
+    const key='bot.master.group.bind.'+masterId;
+    const row=await this.prisma.appSetting.findUnique({where:{key}});
+    const data=row ? JSON.parse(row.value) : null;
+    if(!data || data.expires<Date.now() || data.hash!==createHash('sha256').update(token).digest('hex'))throw new BadRequestException('Создайте новую команду в карточке мастера');
+    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
+    if(!master || master.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
+    const member=await this.telegram<{ok:boolean;result?:{status:string}}>('getChatMember',{chat_id:chat.id,user_id:Number(senderId)});
+    if(!member?.ok || !['creator','administrator'].includes(member.result?.status || ''))throw new BadRequestException('Команду должен отправить администратор группы');
+    const value=JSON.stringify({chatId:String(chat.id),title:chat.title || 'Группа мастера'});
+    await this.prisma.$transaction(async tx=>{
+      const used=await tx.appSetting.deleteMany({where:{key,value:row!.value}});
+      if(used.count!==1)throw new BadRequestException('Команда уже использована');
+      await tx.appSetting.upsert({where:{key:'bot.master.group.'+masterId},create:{key:'bot.master.group.'+masterId,value},update:{value}});
+    });
+    return master.user.fullName;
+  }
+
   async createGroupLink() {
     const config = await this.settings.getBotConfig();
     if (!config.hasToken || !config.enabled) throw new BadRequestException('Сначала включите бота');
@@ -884,7 +930,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     // A group member replying to someone else's prompt cannot hijack the session.
     if(flow.telegramId!==String(msg.from.id))return true;
     try {
-      const group=await this.getOrderGroup();
+      const group=await this.getOrderDestination(flow.orderId);
       if(!group || group.chatId!==flow.chatId)throw new BadRequestException('Группа отключена');
       if(flow.expires<Date.now())throw new BadRequestException('Время ввода истекло. Нажмите кнопку заявки заново');
       const user=await this.masterByTelegram(flow.telegramId);
@@ -931,7 +977,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const raw=await this.settings.get(key);
       if(!raw)throw new BadRequestException('Уже обработано или отменено');
       const flow:GroupFlow=JSON.parse(raw);
-      const group=await this.getOrderGroup();
+      const group=await this.getOrderDestination(flow.orderId);
       if(!group || group.chatId!==flow.chatId || String(cq.message?.chat?.id)!==flow.chatId || String(cq.from?.id)!==flow.telegramId)throw new BadRequestException('Подтвердить может только назначенный мастер');
       if(cq.data?.startsWith('gx:')) {
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
@@ -996,12 +1042,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return {order,text,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
 
-  async sendOrderToGroup(orderId: string) {
+  async sendOrderToGroup(orderId: string, masterOnly = false) {
     const config = await this.settings.getBotConfig();
     if (!config.enabled || !config.hasToken) throw new BadRequestException('Бот выключен');
-    const group = await this.getOrderGroup();
-    if (!group) throw new BadRequestException('Подключите группу в настройках Telegram');
     const card = await this.groupOrderCard(orderId);
+    const group = masterOnly ? (card.order.masterId ? await this.getMasterGroup(card.order.masterId) : null) : await this.getOrderDestination(orderId);
+    if (!group) throw new BadRequestException('Подключите группу в карточке назначенного мастера');
     if (!card.order.masterId || card.order.isPersonal) throw new BadRequestException('Сначала назначьте мастера');
     const result = await this.sendMessage(group.chatId,card.text,{reply_markup:card.reply_markup});
     return {sent:!!result?.ok};
@@ -1011,10 +1057,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (/^(gf|gx):/.test(cq.data || '')) { await this.confirmGroupFlow(cq); return; }
     const answer = (text:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
     try {
-      const group = await this.getOrderGroup();
-      if (!group || String(cq.message?.chat?.id)!==group.chatId) throw new BadRequestException('Эта группа больше не подключена');
       const match = /^(ga|gs):([a-z0-9-]+)(?::([A-Z_]+))?$/.exec(cq.data || '');
       if (!match || !cq.from?.id) throw new BadRequestException('Некорректное действие');
+      const group = await this.getOrderDestination(match[2]);
+      if (!group || String(cq.message?.chat?.id)!==group.chatId) throw new BadRequestException('Эта группа больше не подключена к заявке');
       const user = await this.masterByTelegram(String(cq.from.id));
       const card = await this.groupOrderCard(match[2]);
       if (card.order.masterId !== user.masterProfile!.id || card.order.isPersonal) throw new BadRequestException('Эта заявка назначена другому мастеру');
@@ -1109,6 +1155,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.adminComment ? 'Комментарий: '+order.adminComment : '',
     ].filter(Boolean).join('\n');
 
+    if (await this.getMasterGroup(masterId)) {
+      const result=await this.sendOrderToGroup(orderId,true);
+      return {ok:result.sent,groupSent:result.sent};
+    }
     const group = await this.getOrderGroup();
     // Each destination is independent: a missing private chat must not suppress the group copy.
     let groupSent: boolean | undefined;
@@ -1546,6 +1596,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const telegramId =
       msg.from?.id != null ? String(msg.from.id) : chatId;
 
+    const masterGroupCommand = /^\/connect_master(?:@\w+)?\s+([a-z0-9-]+)\s+([a-f0-9]{32})$/i.exec(msg.text?.trim() || '');
+    if(masterGroupCommand){
+      try{const name=await this.bindMasterGroup(masterGroupCommand[1],masterGroupCommand[2],msg.chat!,telegramId);await this.sendMessage(chatId,'Группа подключена к мастеру: '+name+'. Его заявки будут приходить сюда.');}
+      catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить группу');}
+      return;
+    }
     const groupCommand = /^\/connect_group(?:@\w+)?\s+(\S+)$/i.exec(msg.text?.trim() || '');
     if (groupCommand) {
       try {

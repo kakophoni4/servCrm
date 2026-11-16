@@ -16,13 +16,14 @@ let user, client, master, rule;
 let messageId = 100;
 const messages = [], calls = [];
 const settings = {
-  get: async key => key === 'bot.orders.group' ? JSON.stringify({chatId, title:'Test'}) : (await p.appSetting.findUnique({where:{key}}))?.value,
+  get: async key => key === 'bot.orders.group' ? JSON.stringify({chatId:'-111111', title:'Legacy group'}) : (await p.appSetting.findUnique({where:{key}}))?.value,
   set: async (key,value) => { settingsKeys.add(key); await p.appSetting.upsert({where:{key},create:{key,value},update:{value}}); },
   getBotConfig: async () => ({enabled:true,hasToken:true}),
+  testBot: async () => ({ok:true,username:'TestBot'}),
 };
 const svc = new BotService(p, {}, settings, {}, new SettlementsService(p, {}), new SalaryService(p));
 svc.sendMessage = async (chat,text,options={}) => { assert.equal(String(chat),chatId); const message={id:++messageId,text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
-svc.telegram = async (method,body) => { assert(['editMessageText','answerCallbackQuery'].includes(method)); calls.push({method,...body}); return {ok:true}; };
+svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery'].includes(method)); calls.push({method,...body}); return {ok:true}; };
 const click = (data, from=telegramId, chat=chatId) => svc.processUpdate({callback_query:{id:'q'+messageId,data,from:{id:Number(from)},message:{chat:{id:Number(chat),type:'supergroup'},message_id:50}}});
 const reply = (text, prompt=messages.at(-1), from=telegramId) => svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chatId),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},text}});
 const read = id => p.order.findUnique({where:{id},include:{payment:true}});
@@ -64,6 +65,22 @@ async function close(id, text, expected) {
     user=await p.user.create({data:{login:tag,passwordHash:'test-no-login',fullName:'Workflow test',role:'MASTER',telegramId,masterProfile:{create:{}}},include:{masterProfile:true}}); master=user.masterProfile;
     client=await p.client.create({data:{name:'Workflow test',phoneNormalized:tag}});
     rule=await p.salaryCategory.create({data:{typeTech:tag,masterId:master.id,minSum:0,percent:0.5,reinvestPct:0.5}});
+    const link=await svc.createMasterGroupLink(master.id);
+    const token=link.command.split(' ').at(-1);
+    await assert.rejects(()=>svc.bindMasterGroup(master.id,token,{id:Number(telegramId),type:'private'},telegramId));
+    await svc.bindMasterGroup(master.id,token,{id:Number(chatId),type:'supergroup',title:'Master group'},telegramId);
+    settingsKeys.add('bot.master.group.'+master.id);
+    await assert.rejects(()=>svc.bindMasterGroup(master.id,token,{id:Number(chatId),type:'supergroup'},telegramId));
+    assert.equal((await svc.getMasterGroup(master.id)).chatId,chatId);
+    const routing=await createOrder();
+    await svc.notifyMasterOrder(master.id,routing);
+    assert.equal(messages.length,1); assert(messages[0].text.includes('Workflow test'));
+    await svc.sendOrderToGroup(routing,true); assert.equal(messages.length,2);
+    await svc.disconnectMasterGroup(master.id);
+    await assert.rejects(()=>svc.sendOrderToGroup(routing,true));
+    await click(`ga:${routing}`); assert.deepEqual(await buttons(routing),['Принять']);
+    await settings.set('bot.master.group.'+master.id,JSON.stringify({chatId,title:'Master group'}));
+    console.log('PASS master group binding, one-time code, private-chat rejection, group-only routing, disconnect');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
     console.log('PASS direct: accept -> depart -> arrive -> close; 5500 / 2750 / 2750');

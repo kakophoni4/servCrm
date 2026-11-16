@@ -9,15 +9,20 @@ type Master = {id:string;address?:string; user:{telegramId?:string|null;fullName
 type Order = {id:string;publicId:string;masterId?:string;status:string;client:{name:string}};
 export default function MastersPage(){
  const [showForm,setShowForm]=useState(false);
+ const [groups,setGroups]=useState<Record<string,{chatId:string;title:string}|null>>({});
+ const [commands,setCommands]=useState<Record<string,string>>({});
+ const [groupBusy,setGroupBusy]=useState('');
  const [links,setLinks]=useState<Record<string,string>>({});
  const [masters,setMasters]=useState<Master[]>([]);
  const [orders,setOrders]=useState<Order[]>([]);
  const [address,setAddress]=useState('');const [editId,setEditId]=useState('');
  const [name,setName]=useState('');const [phone,setPhone]=useState('');
  const [error,setError]=useState('');const [busy,setBusy]=useState(false);
- async function load(){const [m,o]=await Promise.all([api<Master[]>('/masters'),api<Order[]>('/orders')]);setMasters(m);setOrders(o)}
+ async function load(){const [m,o]=await Promise.all([api<Master[]>('/masters'),api<Order[]>('/orders')]);setMasters(m);setOrders(o);const g=await Promise.all(m.map(async x=>[x.id,await api<{chatId:string;title:string}|null>(`/bot/masters/${x.id}/group`)] as const));setGroups(Object.fromEntries(g))}
  useEffect(()=>{load().catch(e=>setError(e.message))},[]);
  async function connect(id:string){setError('');try{const result=await api<{url:string}>('/bot/masters/'+id+'/link',{method:'POST'});setLinks(v=>({...v,[id]:result.url}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}}
+ async function connectGroup(id:string){setGroupBusy(id);setError('');try{const r=await api<{command:string}>(`/bot/masters/${id}/group/link`,{method:'POST'});setCommands(v=>({...v,[id]:r.command}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}finally{setGroupBusy('')}}
+ async function disconnectGroup(id:string){setGroupBusy(id);setError('');try{await api(`/bot/masters/${id}/group/disconnect`,{method:'POST'});setCommands(v=>({...v,[id]:''}));await load()}catch(e){setError(e instanceof Error?e.message:'Ошибка отключения')}finally{setGroupBusy('')}}
  async function archive(id:string){if(!window.confirm('Убрать мастера? Его открытым заявкам понадобится новый исполнитель.'))return;setError('');try{await api('/masters/'+id+'/deactivate',{method:'POST'});await load()}catch(e){setError(e instanceof Error?e.message:'Ошибка')}}
  async function add(e:FormEvent){e.preventDefault();setBusy(true);setError('');try{await api('/masters'+(editId?'/'+editId:''),{method:editId?'PATCH':'POST',body:JSON.stringify({fullName:name.trim(),phone,address,cityId:getStoredUser()?.cityId||undefined})});setName('');setPhone('');setAddress('');setEditId('');setShowForm(false);await load()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}finally{setBusy(false)}}
  return <div className={`${styles.page} ${styles.mastersPage}`}>
@@ -38,7 +43,9 @@ export default function MastersPage(){
  {active.length>0&&<MobileFold title={`Открыть заявки · ${active.length}`} className={styles.masterJobs}><div className={styles.jobs}>{active.map(o=><Link key={o.id} href={'/orders/'+o.id}><span>№ {o.publicId}</span><strong>{o.client.name}</strong><span aria-hidden="true">›</span></Link>)}</div></MobileFold>}
  <MobileFold title="Настройки мастера" className={styles.masterSettings}>
  {m.address&&<p className={styles.address}>{m.address}</p>}
- <div className={styles.telegram}><span className={m.user.telegramId?styles.connected:styles.disconnected}>Telegram {m.user.telegramId?'подключён':'не подключён'}</span><button className="btn secondary" onClick={()=>connect(m.id)}>{m.user.telegramId?'Переподключить':'Подключить'}</button></div>
+ <div className={styles.telegram}><span className={groups[m.id]?styles.connected:styles.disconnected}>{groups[m.id]?'Группа: '+groups[m.id]!.title:'Группа для заявок не подключена'}</span><button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>connectGroup(m.id)}>{groups[m.id]?'Сменить группу':'Подключить группу'}</button>{groups[m.id]&&<button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>disconnectGroup(m.id)}>Отключить группу</button>}</div>
+ {commands[m.id]&&<div className={styles.linkBox}><label htmlFor={'group-'+m.id}>Добавьте бота в группу мастера и отправьте туда эту команду от администратора группы.</label><input id={'group-'+m.id} readOnly value={commands[m.id]} onFocus={e=>e.target.select()}/><button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(commands[m.id])}catch{window.prompt('Команда для группы',commands[m.id])}}}>Скопировать команду</button><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Проверить подключение</button></div>}
+ <div className={styles.telegram}><span className={m.user.telegramId?styles.connected:styles.disconnected}>Личный Telegram {m.user.telegramId?'подключён':'не подключён'}</span><button className="btn secondary" onClick={()=>connect(m.id)}>{m.user.telegramId?'Переподключить':'Подключить'}</button></div>
  {links[m.id]&&<div className={styles.linkBox}><label htmlFor={'link-'+m.id}>Ссылка для мастера (на сутки)</label><input id={'link-'+m.id} readOnly value={links[m.id]} onFocus={e=>e.target.select()}/><button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(links[m.id])}catch{window.prompt('Ссылка для мастера',links[m.id])}}}>Скопировать ссылку</button></div>}
  <div className={styles.footer}><button className="btn secondary" onClick={()=>{setShowForm(true);setEditId(m.id);setName(m.user.fullName);setPhone(m.user.phone||'');setAddress(m.address||'');window.scrollTo({top:0,behavior:'smooth'})}}>Изменить</button><button className={styles.remove} onClick={()=>archive(m.id)}>Убрать из активных</button></div>
  </MobileFold>

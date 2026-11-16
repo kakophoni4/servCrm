@@ -7,7 +7,7 @@ describe('Assignment group', () => {
     let pending:string|null=JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+10000});
     const appSetting={findUnique:jest.fn(async()=>pending?{value:pending}:null),deleteMany:jest.fn(async()=>{const count=pending?1:0;pending=null;return {count};}),upsert:jest.fn()};
     const prisma:any={appSetting,$transaction:jest.fn(async f=>f({appSetting})),master:{findUnique:jest.fn(async()=>({user:{fullName:'Master',telegramId}}))},order:{findUnique:jest.fn(async()=>({id:'o',masterId:'m',status:'WAITING',master:{user:{fullName:'Master'}},publicId:'123',client:{name:'Client',phoneNormalized:'7999'},address:'Address',isPersonal:false})),update:jest.fn()}};
-    const settings:any={set:jest.fn(),getBotConfig:jest.fn(async()=>({hasToken:true,enabled:true})),get:jest.fn(async()=>JSON.stringify({chatId:'-123',title:'Orders'}))};
+    const settings:any={set:jest.fn(),getBotConfig:jest.fn(async()=>({hasToken:true,enabled:true})),get:jest.fn(async(key:string)=>key==='bot.orders.group'?JSON.stringify({chatId:'-123',title:'Orders'}):null)};
     const svc=new BotService(prisma,{} as any,settings,{} as any,{} as any,{} as any);
     jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{status:'administrator'}});
     const send=jest.spyOn(svc,'sendMessage').mockResolvedValue({ok:true,result:{message_id:1}});
@@ -32,7 +32,7 @@ describe('Assignment group', () => {
     expect(set).not.toHaveBeenCalled();expect(svc.telegram).toHaveBeenCalledWith('answerCallbackQuery',expect.objectContaining({show_alert:true}));
   });
   it('applies a status for the assigned master and refreshes the group message',async()=>{
-    const {svc,settings}=setup();settings.get.mockImplementation(async(key:string)=>key.startsWith('bot.orders.accepted.')?'m':JSON.stringify({chatId:'-123',title:'Orders'}));jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'m'}} as any);const set=jest.spyOn(svc,'setStatus').mockResolvedValue({} as any);
+    const {svc,settings}=setup();settings.get.mockImplementation(async(key:string)=>key.startsWith('bot.orders.accepted.')?'m':key==='bot.orders.group'?JSON.stringify({chatId:'-123',title:'Orders'}):null);jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'m'}} as any);const set=jest.spyOn(svc,'setStatus').mockResolvedValue({} as any);
     await svc.processUpdate({callback_query:{id:'q',from:{id:456},message:{chat:{id:-123},message_id:9},data:'gs:o:ON_THE_WAY'}});
     expect(set).toHaveBeenCalledWith('456','o','ON_THE_WAY',true);expect(svc.telegram).toHaveBeenCalledWith('editMessageText',expect.objectContaining({chat_id:'-123',message_id:9}));
   });

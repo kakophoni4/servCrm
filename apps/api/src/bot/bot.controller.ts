@@ -75,6 +75,26 @@ export class BotController {
   @Roles(Role.OWNER)
   masterLink(@Param('id') id: string) { return this.bot.createMasterLink(id); }
 
+  @Get('masters/:id/group')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  masterGroup(@Param('id') id:string) { return this.bot.getMasterGroup(id); }
+
+  @Post('masters/:id/group/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  masterGroupLink(@Param('id') id:string) { return this.bot.createMasterGroupLink(id); }
+
+  @Post('masters/:id/group/disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  disconnectMasterGroup(@Param('id') id:string) { return this.bot.disconnectMasterGroup(id); }
+
+  @Post('orders/:id/send-master-group')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  sendMasterGroup(@Param('id') id:string) { return this.bot.sendOrderToGroup(id,true); }
+
   @Post('orders/:id/send-group')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)
