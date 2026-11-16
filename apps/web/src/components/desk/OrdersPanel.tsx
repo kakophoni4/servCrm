@@ -126,7 +126,7 @@ export function OrdersPanel() {
     return () => clearInterval(timer);
   }, []);
 
-  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='personal'&&o.isPersonal)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
+  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
@@ -142,7 +142,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="all">Все заявки</option></select></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="center">СЦ</option><option value="all">Все заявки</option></select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
