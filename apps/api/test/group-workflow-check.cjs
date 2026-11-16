@@ -60,7 +60,7 @@ async function close(id, text, expected) {
   await Promise.all([click(token),click(token)]); await click(`gs:${id}:DONE`);
   assert.equal(await p.cashTx.count({where:{orderId:id}}),1);
   assert.equal((await read(id)).completedAt.toISOString(),order.completedAt.toISOString());
-  assert(calls.some(c=>c.method==='editMessageText' && c.text.includes('Получено всего:') && c.reply_markup.inline_keyboard.length===0));
+  assert(calls.some(c=>c.method==='editMessageText' && c.text.endsWith(`Всего: ${Number(order.payment.paid)} ₽\nЧистыми: ${Number(order.payment.paid)-Number(order.payment.partsCost)} ₽`) && c.reply_markup.inline_keyboard.length===0));
 }
 (async()=>{
   try {
