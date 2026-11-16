@@ -92,8 +92,6 @@ async function close(id, text, expected) {
     await svc.sendOrderToGroup(personal,true); assert.equal(messages.at(-1).chatId,'-222222');assert(messages.at(-1).text.includes('Исполнитель: владелец'));
     const center=await createOrder({masterId:null,isServiceCenter:true});
     await svc.sendOrderToGroup(center,true); assert.equal(messages.at(-1).chatId,'-333333');
-    const both=await createOrder({masterId:null,isPersonal:true,isServiceCenter:true});
-    await svc.sendOrderToGroup(both,true); assert.equal(messages.at(-1).chatId,'-333333');
     const unassigned=await createOrder({masterId:null});await svc.sendOrderToGroup(unassigned,true);assert.equal(messages.at(-1).chatId,'-222222');
     await svc.disconnectGroup('center');await assert.rejects(()=>svc.sendOrderToGroup(center,true));
     console.log('PASS owner and service-center routing without master, center priority, no fallback when disconnected');
@@ -117,7 +115,7 @@ async function close(id, text, expected) {
       await click(token,Number(telegramId)+555,chat);assert.notEqual((await read(id)).status,'DONE');
       await click(token,actor,chat);const done=await read(id);assert.equal(done.status,'DONE');
       for(const [key,value] of Object.entries(expected))assert.equal(Number(done.payment[key]),value,key);
-      if(own)assert.equal(done.isPersonal,true);
+      if(own)assert.equal(done.isPersonal,!done.isServiceCenter);
       await click(token,actor,chat);assert.equal(await p.cashTx.count({where:{orderId:id}}),1);
     }
     await click(`ga:${personal}`,telegramId,'-222222');assert.deepEqual(await buttons(personal),['Принять']);

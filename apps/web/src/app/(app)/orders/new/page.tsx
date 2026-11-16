@@ -196,7 +196,7 @@ export default function NewOrderPage() {
 
         <section className="order-new-section">
           <h2 className="order-new-section-title">Заявка</h2>
-          <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ - на Авито 30%</label>
+          <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>setForm(f=>({...f,isServiceCenter:e.target.checked,...(e.target.checked?{isPersonal:false}:{})}))}/> Привезут в СЦ - на Авито 30%</label>
           <div className="order-new-grid order-new-grid-details">
             {!form.isServiceCenter && <div className="field order-new-field-wide">
               <label htmlFor="new-address">Адрес</label>
@@ -235,7 +235,7 @@ export default function NewOrderPage() {
 
         <MobileFold title="Условия заявки" className="order-new-section order-new-extra">
           <h2 className="order-new-section-title">Условия заявки</h2>
-          <label className="service-center-check"><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Выполняю сам</label>
+          <label className="service-center-check"><input type="checkbox" checked={form.isPersonal} onChange={e=>setForm(f=>({...f,isPersonal:e.target.checked,...(e.target.checked?{isServiceCenter:false}:{})}))}/> Выполняю сам</label>
           <div className="order-new-grid">
             <div className="field">
               <label>Тип</label>

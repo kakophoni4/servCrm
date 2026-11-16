@@ -148,6 +148,7 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto, userId: string, role: Role) {
+    if(dto.isPersonal && dto.isServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
     if (!dto.isServiceCenter && !dto.address?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     if (dto.sourceKind === SourceKind.OUR && !dto.sourceOur) {
       throw new BadRequestException('Укажите Авито или листовку');
@@ -442,11 +443,12 @@ export class OrdersService {
     if (!nextServiceCenter && (dto.address !== undefined || dto.isServiceCenter === false) && !(dto.address ?? existing.address)?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     const centerChanged = dto.isServiceCenter !== undefined && dto.isServiceCenter !== existing.isServiceCenter;
     const nextPersonal = dto.isPersonal ?? existing.isPersonal;
+    if(nextPersonal && nextServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
     const nextStatus = status ?? existing.status;
     if (nextPersonal) dto.masterId = null;
     const nextMasterId =
       dto.masterId !== undefined ? dto.masterId || null : existing.masterId;
-    if (nextStatus === OrderStatus.DONE && !nextMasterId && !nextPersonal) {
+    if (nextStatus === OrderStatus.DONE && !nextMasterId && !nextPersonal && !nextServiceCenter) {
       throw new BadRequestException(
         'Для статуса «Готов» назначьте мастера',
       );
@@ -554,7 +556,7 @@ export class OrdersService {
         if (partsCost > paid) throw new BadRequestException('Запчасти не могут превышать оплату клиента');
         const locked = existing.status === OrderStatus.DONE && !masterChanged && (dto.typeTech === undefined || dto.typeTech === existing.typeTech) && (dto.isPersonal === undefined || dto.isPersonal === existing.isPersonal);
         const terms = locked && existingPayment && !centerChanged ? {masterPct: Number(existingPayment.masterPct), reinvestPct: Number(existingPayment.reinvestPct)} : await this.salary.termsFor(paid - partsCost, dto.typeTech ?? existing.typeTech, nextMasterId);
-        const masterPct = nextPersonal ? 0 : locked && existingPayment ? Number(existingPayment.masterPct) : terms.masterPct;
+        const masterPct = nextPersonal || (nextServiceCenter && !nextMasterId) ? 0 : locked && existingPayment ? Number(existingPayment.masterPct) : terms.masterPct;
         const reinvestPct = nextServiceCenter ? 0.3 : nextPersonal ? 0.5 : terms.reinvestPct;
         const base = calcPayment(paid, partsCost, masterPct);
         const reinvestAmount = Math.round(base.toCompany * reinvestPct * 100) / 100;

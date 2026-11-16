@@ -453,6 +453,16 @@ describe('OrdersService', () => {
       expect(result).toEqual(expect.objectContaining({masterId:'m-1',telegramDelivery:'failed'}));
       expect(txMock.order.update).toHaveBeenCalled();
     });
+    it('rejects both personal and service-center modes',async()=>{
+      await expect(service.create({...baseCreateDto(),isPersonal:true,isServiceCenter:true},userId,Role.OWNER)).rejects.toThrow('либо');
+      mockExistingOrder({isPersonal:true});
+      await expect(service.update(orderId,{isServiceCenter:true},userId,Role.OWNER)).rejects.toThrow('либо');
+    });
+    it('closes unassigned service-center orders with 30/70 without making them personal',async()=>{
+      mockExistingOrder({masterId:null,isServiceCenter:true,isPersonal:false});setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:null}});
+      await service.update(orderId,{status:OrderStatus.DONE,paid:11000,partsCost:1000},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:3000,ownerNet:7000})}));
+    });
     it('uses 30 percent of owner share for service center orders',async()=>{
       mockExistingOrder({masterId:'m-1'});setupUpdateTransaction({resultOrder:{masterId:'m-1'}});
       await service.update(orderId,{isServiceCenter:true,paid:12000,partsCost:1000},userId,Role.OWNER);

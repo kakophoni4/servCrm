@@ -416,7 +416,7 @@ export default function OrderDetailPage() {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (status === 'DONE' && !masterId && !isPersonal) {
+    if (status === 'DONE' && !masterId && !isPersonal && !isServiceCenter) {
       setError('Для статуса «Готов» назначьте мастера');
       return;
     }
@@ -799,7 +799,7 @@ export default function OrderDetailPage() {
             <MobileFold title="Детали и заметки" className="order-section order-edit-details">
               <div className="order-section-title">Детали</div>
                 <div className="order-options">
-                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
+                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>{setIsPersonal(e.target.checked);if(e.target.checked)setIsServiceCenter(false)}}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>{setIsServiceCenter(e.target.checked);if(e.target.checked)setIsPersonal(false)}}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
                 {!isServiceCenter && <div className="field">
                   <label>Адрес</label>
                   <input
@@ -918,7 +918,7 @@ export default function OrderDetailPage() {
                     disabled={isPersonal}
                     value={isPersonal ? '' : masterId}
                     onChange={(e) => setMasterId(e.target.value)}
-                    required={status === 'DONE' && !isPersonal}
+                    required={status === 'DONE' && !isPersonal && !isServiceCenter}
                   >
                     <option value="">Не назначен</option>
                     {masters.map((m) => (
@@ -987,7 +987,7 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{<button type="button" className="btn secondary" disabled={sendingGroup || masterId !== order.masterId || isPersonal !== order.isPersonal || isServiceCenter !== order.isServiceCenter} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Заявка отправлена в чат.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':isServiceCenter?'Отправить в СЦ':isPersonal || !masterId?'Отправить в мой чат':'Отправить мастеру'}</button>}
+          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{<button type="button" className="btn secondary" disabled={sendingGroup || masterId !== (order.masterId || '') || isPersonal !== order.isPersonal || isServiceCenter !== order.isServiceCenter} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Заявка отправлена в чат.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':isServiceCenter?'Отправить в СЦ':isPersonal || !masterId?'Отправить в мой чат':'Отправить мастеру'}</button>}
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>

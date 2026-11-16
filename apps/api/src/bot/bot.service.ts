@@ -1016,7 +1016,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
-          ?{isPersonal:current.isPersonal || !current.masterId,status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          ?{isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
           :{status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
         if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
