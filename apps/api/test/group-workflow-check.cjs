@@ -103,9 +103,13 @@ async function close(id, text, expected) {
     assert.equal((await svc.ownerConnection(owner.id)).connected,true);
     await settings.set('bot.orders.group.center',JSON.stringify({chatId:'-333333',title:'Center'}));
     async function reachAs(id,actor,chat){
+      const before=messages.length;await svc.sendOrderToGroup(id,true);assert.equal(messages.length,before+1);assert.equal(messages.at(-1).chatId,chat);assert.deepEqual(await buttons(id),['Принять']);
+      await click(`ga:${id}`,actor,'-999');assert.deepEqual(await buttons(id),['Принять']);
+      await click(`ga:${id}`,Number(telegramId)+555,chat);assert.deepEqual(await buttons(id),['Принять']);
+      await click(`gs:${id}:DONE`,actor,chat);assert.equal((await read(id)).status,'WAITING');
       await click(`ga:${id}`,actor,chat);assert.deepEqual(await buttons(id),['Вышел']);
-      await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');
-      await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');
+      await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');assert.deepEqual(await buttons(id),['На адресе']);
+      await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');assert.deepEqual(await buttons(id),['СД','Закрыть']);
     }
     async function closeAs(id,actor,chat,expected){
       await click(`gs:${id}:DONE`,actor,chat);await reply('11000 1000',messages.at(-1),actor,chat);
@@ -113,8 +117,12 @@ async function close(id, text, expected) {
       const own=!(await read(id)).masterId;
       assert.equal(messages.at(-1).text.includes('На Авито:'),own);
       await click(token,Number(telegramId)+555,chat);assert.notEqual((await read(id)).status,'DONE');
-      await click(token,actor,chat);const done=await read(id);assert.equal(done.status,'DONE');
+      await Promise.all([click(token,actor,chat),click(token,actor,chat)]);const done=await read(id);assert.equal(done.status,'DONE');
       for(const [key,value] of Object.entries(expected))assert.equal(Number(done.payment[key]),value,key);
+      assert.deepEqual(await buttons(id),[]);assert(done.completedAt);
+      assert.equal(Number(done.payment.paid),11000);assert.equal(Number(done.payment.partsCost),1000);
+      assert.equal(Number(done.payment.masterSalary)+Number(done.payment.reinvestAmount)+Number(done.payment.ownerNet),10000);
+      const cash=await p.cashTx.findMany({where:{orderId:id}});assert.equal(cash.length,1);assert.equal(Number(cash[0].amount),Number(done.payment.toCompany));
       if(own)assert.equal(done.isPersonal,!done.isServiceCenter);
       await click(token,actor,chat);assert.equal(await p.cashTx.count({where:{orderId:id}}),1);
     }
@@ -129,6 +137,27 @@ async function close(id, text, expected) {
       const assigned=await createOrder({isServiceCenter:true});await reachAs(assigned,actor,'-333333');
       await closeAs(assigned,actor,'-333333',{masterSalary:5000,toCompany:5000,reinvestAmount:1500,ownerNet:3500});
     }
+    for(const scenario of [
+      {personal:true,center:false,sd:true,actor:ownerTelegramId,assigned:false},
+      {personal:false,center:true,sd:false,actor:ownerTelegramId,assigned:false},
+      {personal:false,center:true,sd:true,actor:ownerTelegramId,assigned:true},
+      {personal:false,center:true,sd:true,actor:telegramId,assigned:true},
+    ]){
+      const id=await createOrder({isPersonal:scenario.personal,isServiceCenter:scenario.center,masterId:scenario.assigned?master.id:null});
+      const dest=scenario.center?'-333333':'-222222';
+      await reachAs(id,scenario.actor,dest);
+      if(scenario.sd){
+        await click(`gs:${id}:IN_PROGRESS_SD`,scenario.actor,dest);await reply('5000 пред\nСрок 5-7 дней',messages.at(-1),scenario.actor,dest);
+        assert.equal((await read(id)).status,'IN_PROGRESS');await click(confirm(),scenario.actor,dest);
+        const pending=await read(id);assert.equal(pending.status,'IN_PROGRESS_SD');assert.equal(Number(pending.payment.prepay),5000);assert(pending.sdDueAt>pending.sdDueFrom);
+        assert.deepEqual(await buttons(id),['Закрыть']);assert.equal(await p.cashTx.count({where:{orderId:id}}),0);
+      }
+      await click(`gs:${id}:DONE`,scenario.actor,dest);await reply('11000 12000',messages.at(-1),scenario.actor,dest);assert(messages.at(-1).text.includes('превышать'));
+      await reply('11000 1000',messages.at(-1),scenario.actor,dest);const cancel=confirm().replace('gf:','gx:');await click(cancel,scenario.actor,dest);assert.notEqual((await read(id)).status,'DONE');
+      const salary=scenario.assigned?5000:0;const company=10000-salary;const avito=scenario.center?company*0.3:company*0.5;
+      await closeAs(id,scenario.actor,dest,{masterSalary:salary,toCompany:company,reinvestAmount:avito,ownerNet:company-avito,prepay:scenario.sd?5000:0});
+    }
+    console.log('PASS full owner/center matrix: direct and SD, both authorized actors, routing, exact buttons, cancellation, concurrent confirmation');
     console.log('PASS owner binding, personal owner-only actions, SD without master 30/70, center assigned master and owner actions');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
@@ -152,7 +181,7 @@ async function close(id, text, expected) {
     await close(custom,'12000 1000',{paid:12000,partsCost:1000,workSum:11000,masterSalary:4400,toCompany:6600,reinvestAmount:1980,ownerNet:4620});
     console.log('PASS custom percentages: 40% master, 30% Avito from owner share');
     const settlement=await p.masterSettlement.findFirst({where:{masterId:master.id}});
-    assert.equal(Number(settlement.amount),27100);
+    assert.equal(Number(settlement.amount),37100);
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
