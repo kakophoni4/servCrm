@@ -1040,6 +1040,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       });
       if(flow.kind==='close')await this.settlements.syncForCompletedOrder(flow.orderId).catch(()=>undefined);
       const fresh=await this.groupOrderCard(flow.orderId);
+      await this.rememberGroupCard(flow.orderId,flow.chatId,flow.messageId);
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,entities:fresh.entities,reply_markup:fresh.reply_markup});
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:flow.kind==='close'?'Заявка закрыта':'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
       await answer();
@@ -1085,6 +1086,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return {order,text,entities,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
 
+  private async rememberGroupCard(orderId:string,chatId:string,messageId:number|undefined) {
+    if(!messageId)return;
+    await this.settings.set(`bot.card.${chatId}.${messageId}`,JSON.stringify({orderId,chatId,messageId}));
+  }
+
   private async refreshGroupCard(msg:TgMessage) {
     const original=msg.reply_to_message;
     const publicId=/^Заявка (\S+)\n/.exec(original?.text || '')?.[1];
@@ -1099,6 +1105,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const card=await this.groupOrderCard(order.id);
     const result=await this.telegram<{ok:boolean;description?:string}>('editMessageText',{chat_id:destination.chatId,message_id:original.message_id,text:card.text,entities:card.entities,reply_markup:card.reply_markup});
     if(!result?.ok && !result?.description?.includes('message is not modified'))throw new BadRequestException('Telegram не разрешил обновить карточку');
+    await this.rememberGroupCard(order.id,destination.chatId,original.message_id);
   }
 
   async sendOrderToGroup(orderId: string, masterOnly = false) {
@@ -1109,6 +1116,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const group = masterOnly && !special ? await this.getMasterGroup(card.order.masterId!) : await this.getOrderDestination(orderId);
     if (!group) throw new BadRequestException(card.order.isServiceCenter?'Подключите чат СЦ в разделе Telegram':card.order.isPersonal || !card.order.masterId?'Подключите «Мой чат» в разделе Telegram':'Подключите группу в карточке назначенного мастера');
     const result = await this.sendMessage(group.chatId,card.text,{entities:card.entities,reply_markup:card.reply_markup});
+    if(result?.ok)await this.rememberGroupCard(orderId,group.chatId,result.result?.message_id);
     return {sent:!!result?.ok};
   }
 
@@ -1140,6 +1148,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         }else await this.setStatus(String(cq.from.id),card.order.id,status,true);
       }
       const fresh = await this.groupOrderCard(card.order.id);
+      await this.rememberGroupCard(card.order.id,group.chatId,cq.message?.message_id);
       const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,entities:fresh.entities,reply_markup:fresh.reply_markup});
       await answer(edited?.ok ? undefined : 'Сохранено в CRM. Сообщение не обновилось - отправьте заявку в группу заново');
     } catch(e) {

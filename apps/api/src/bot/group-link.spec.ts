@@ -63,7 +63,8 @@ describe('Assignment group', () => {
   it('does not send stale assignments or leak personal orders without an owner chat',async()=>{const {svc,send,prisma}=setup();prisma.order.findUnique.mockResolvedValue({masterId:'other'});await svc.notifyMasterOrder('m','o');expect(send).not.toHaveBeenCalled();prisma.order.findUnique.mockResolvedValue({id:'o',masterId:'m',isPersonal:true,client:{name:'Client',phoneNormalized:'7999'}});await expect(svc.notifyMasterOrder('m','o')).rejects.toThrow('Подключите «Мой чат»');expect(send).not.toHaveBeenCalled();});
   it('ignores ordinary group messages',async()=>{const {svc}=setup();const ingest=jest.spyOn(svc,'incomingMessage');await svc.processUpdate({message:{chat:{id:-123,type:'group'},from:{id:456},text:'hello'}});expect(ingest).not.toHaveBeenCalled();});
   it('group-only send never sends a private copy and includes status buttons',async()=>{
-    const {svc,send}=setup('456');await svc.sendOrderToGroup('o');expect(send).toHaveBeenCalledTimes(1);
+    const {svc,send,settings}=setup('456');await svc.sendOrderToGroup('o');expect(send).toHaveBeenCalledTimes(1);
+    expect(settings.set).toHaveBeenCalledWith('bot.card.-123.1',JSON.stringify({orderId:'o',chatId:'-123',messageId:1}));
     expect(send).toHaveBeenCalledWith('-123',expect.any(String),expect.objectContaining({entities:expect.any(Array),reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}}));
   });
   it('rejects group actions from another master or another chat',async()=>{
