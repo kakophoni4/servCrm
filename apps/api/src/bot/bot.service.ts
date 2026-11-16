@@ -1782,6 +1782,35 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
+  private async sendCashReport(msg:TgMessage) {
+    if(!msg.from?.id || !msg.chat?.id)return;
+    const telegramId=String(msg.from.id),chatId=String(msg.chat.id);
+    const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+    let masterIds:string[]=[];
+    if(owner){
+      const masters=await this.prisma.master.findMany({where:{status:UserStatus.ACTIVE},select:{id:true}});
+      if(msg.chat.type==='private')masterIds=masters.map(m=>m.id);
+      else {
+        for(const master of masters){if((await this.getMasterGroup(master.id))?.chatId===chatId)masterIds.push(master.id);}
+        if(!masterIds.length){
+          const own=await this.getOrderGroup('owner');
+          if(own?.chatId!==chatId)throw new BadRequestException('Общая касса доступна в личном чате с ботом или в чате владельца');
+          masterIds=masters.map(m=>m.id);
+        }
+      }
+    }else{
+      const master=(await this.masterByTelegram(telegramId)).masterProfile!;
+      if(master.status!==UserStatus.ACTIVE)throw new BadRequestException('Мастер не активен');
+      if(msg.chat.type!=='private'){
+        const own=await this.getMasterGroup(master.id),center=await this.getOrderGroup('center'),common=await this.getOrderGroup();
+        if(![own?.chatId,center?.chatId,...(!own?[common?.chatId]:[])].includes(chatId))throw new BadRequestException('Запросите кассу в своём чате с ботом или в группе мастера');
+      }
+      masterIds=[master.id];
+    }
+    if(!masterIds.length){await this.sendMessage(chatId,'Мастеров пока нет');return;}
+    for(const id of masterIds)await this.sendMessage(chatId,await this.settlements.cashReport(id));
+  }
+
   /** Общая обработка апдейта (webhook или getUpdates). */
   async processUpdate(update: TgUpdate) {
     if (update.callback_query) {
@@ -1798,6 +1827,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     if(['group','supergroup'].includes(msg.chat?.type || '') && /^\/refresh(?:@\w+)?$/i.test(msg.text?.trim() || '')){
       try{await this.refreshGroupCard(msg);}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось обновить карточку');}
+      return;
+    }
+    if(/^\/?(?:касса|kassa)(?:@\w+)?$/iu.test(msg.text?.trim()||'')){
+      try{await this.sendCashReport(msg);}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Подключите свой Telegram в CRM, чтобы смотреть кассу');}
       return;
     }
     const masterGroupCommand = /^\/connect_master(?:@\w+)?\s+([a-z0-9-]+)\s+([a-f0-9]{32})$/i.exec(msg.text?.trim() || '');

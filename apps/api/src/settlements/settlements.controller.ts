@@ -14,6 +14,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -64,10 +65,29 @@ class AcceptPaymentDto {
   amount!: number;
 }
 
+class ReceiveCashDto extends PaySettlementDto {
+  @IsString()
+  masterId!: string;
+  @IsUUID()
+  requestId!: string;
+}
+
 @Controller('settlements')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class SettlementsController {
   constructor(private readonly settlements: SettlementsService) {}
+
+  @Get('cash')
+  @Roles(Role.OWNER)
+  @RequirePermissions('settlements.read')
+  cash() { return this.settlements.cashBalances(); }
+
+  @Post('cash-receipt')
+  @Roles(Role.OWNER)
+  @RequirePermissions('settlements.pay')
+  receiveCash(@Body() dto:ReceiveCashDto,@CurrentUser() user:{userId:string;role:Role}) {
+    return this.settlements.receiveCash(dto,user.userId,user.role);
+  }
 
   @Get()
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)

@@ -9,6 +9,7 @@ import {
   CashIncomeBasis,
   OrderStatus,
   Role,
+  Prisma,
 } from '@prisma/client';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -35,6 +36,70 @@ export class SettlementsService {
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,
   ) {}
+
+  async cashBalance(masterId:string, db:any=this.prisma) {
+    const [orders,fines,receipts]=await Promise.all([
+      db.orderPayment.aggregate({where:{order:{masterId,isPersonal:false,status:OrderStatus.DONE}},_sum:{toCompany:true}}),
+      db.cashTx.aggregate({where:{masterId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.FINE},_sum:{amount:true}}),
+      db.masterSettlement.aggregate({where:{masterId},_sum:{paidAmount:true}}),
+    ]);
+    const due=Math.round((Number(orders._sum.toCompany||0)+Number(fines._sum.amount||0))*100)/100;
+    const paid=Math.round(Number(receipts._sum.paidAmount||0)*100)/100;
+    return {masterId,due,paid,remaining:Math.max(0,Math.round((due-paid)*100)/100),credit:Math.max(0,Math.round((paid-due)*100)/100)};
+  }
+
+  async cashReport(masterId:string,now=new Date()) {
+    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
+    if(!master)throw new NotFoundException('Мастер не найден');
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+    const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
+    const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-3*3600000),end=new Date(start.getTime()+86400000);
+    const range={gte:start,lt:end};
+    const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,OR:[{scheduledAt:range},{createdAt:range},{completedAt:range},{status:{in:[OrderStatus.REFUSAL,OrderStatus.CANCELLED_CC]},updatedAt:range}]},include:{payment:true}});
+    const completed=orders.filter(o=>o.status===OrderStatus.DONE && o.completedAt && o.completedAt>=start && o.completedAt<end);
+    const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2});
+    const count=(status:OrderStatus)=>orders.filter(o=>o.status===status).length;
+    const balance=await this.cashBalance(masterId);
+    return [
+      'Касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),
+      'Мастер: '+master.user.fullName,'',
+      'Заявок: '+orders.length,'Выполнено: '+completed.length,
+      'Средний чек: '+money(completed.length?completed.reduce((sum,o)=>sum+Number(o.payment?.paid||0),0)/completed.length:0)+' ₽',
+      'Без ремонта: '+count(OrderStatus.REFUSAL),'Отменено: '+count(OrderStatus.CANCELLED_CC),
+      'Гарантийных: '+orders.filter(o=>o.type==='WARRANTY').length,'',
+      'К сдаче за всё время: '+money(balance.remaining)+' ₽',
+      'Уже сдано: '+money(balance.paid)+' ₽',
+      balance.credit?'Переплата: '+money(balance.credit)+' ₽':'',
+    ].filter(line=>line!=='').join('\n');
+  }
+
+  async cashBalances() {
+    const masters=await this.prisma.master.findMany({include:{user:true},orderBy:{createdAt:'asc'}});
+    return Promise.all(masters.map(async m=>({...await this.cashBalance(m.id),name:m.user.fullName})));
+  }
+
+  async receiveCash(input:{masterId:string;amount:number;requestId:string},userId:string,role:Role) {
+    if(role!==Role.OWNER)throw new ForbiddenException('Получение денег подтверждает только владелец');
+    const amount=Math.round(input.amount*100)/100;
+    if(!Number.isFinite(amount)||amount<=0)throw new BadRequestException('Укажите сумму больше нуля');
+    const key='cash.receipt.'+userId+'.'+input.requestId;
+    for(let attempt=0;attempt<3;attempt++){
+      try{return await this.prisma.$transaction(async tx=>{
+        const previous=await tx.appSetting.findUnique({where:{key}});
+        if(previous){const saved=JSON.parse(previous.value);if(saved.masterId!==input.masterId||saved.amount!==amount)throw new BadRequestException('Этот платёж уже обработан');return saved;}
+        const master=await tx.master.findUnique({where:{id:input.masterId}});
+        if(!master)throw new NotFoundException('Мастер не найден');
+        const balance=await this.cashBalance(master.id,tx);
+        if(amount>balance.remaining)throw new BadRequestException(`К сдаче осталось ${balance.remaining} ₽`);
+        const now=new Date();
+        const receipt=await tx.masterSettlement.create({data:{masterId:master.id,cityId:master.cityId,amount,paidAmount:amount,periodFrom:now,periodTo:now,confirmedOnce:true,confirmedTwice:true,confirmedById:userId,confirmedAt:now}});
+        const result={masterId:master.id,amount,receiptId:receipt.id};
+        await tx.appSetting.create({data:{key,value:JSON.stringify(result)}});
+        return result;
+      },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});}
+      catch(e){if(e instanceof Prisma.PrismaClientKnownRequestError && ['P2034','P2002'].includes(e.code) && attempt<2)continue;throw e;}
+    }
+  }
 
   async list(userId: string, role: Role, requestedCityId?: string) {
     const allowed = await this.branch.allowedCityIds(userId, role);

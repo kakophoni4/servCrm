@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import {MasterCash,CashBalance} from '@/components/masters/MasterCash';
 import { MobileFold } from '@/components/MobileFold';
 import { formatRuPhoneDisplay } from '@/lib/phone';
 import styles from '@/components/settings/OwnerPanels.module.css';
@@ -8,6 +9,7 @@ import { api, getStoredUser } from '@/lib/api';
 type Master = {id:string;address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
 type Order = {id:string;publicId:string;masterId?:string;status:string;client:{name:string}};
 export default function MastersPage(){
+ const [cash,setCash]=useState<CashBalance[]>([]);
  const [showForm,setShowForm]=useState(false);
  const [groups,setGroups]=useState<Record<string,{chatId:string;title:string}|null>>({});
  const [commands,setCommands]=useState<Record<string,string>>({});
@@ -18,7 +20,7 @@ export default function MastersPage(){
  const [address,setAddress]=useState('');const [editId,setEditId]=useState('');
  const [name,setName]=useState('');const [phone,setPhone]=useState('');
  const [error,setError]=useState('');const [busy,setBusy]=useState(false);
- async function load(){const [m,o]=await Promise.all([api<Master[]>('/masters'),api<Order[]>('/orders')]);setMasters(m);setOrders(o);const g=await Promise.all(m.map(async x=>[x.id,await api<{chatId:string;title:string}|null>(`/bot/masters/${x.id}/group`)] as const));setGroups(Object.fromEntries(g))}
+ async function load(){const [m,o,c]=await Promise.all([api<Master[]>('/masters'),api<Order[]>('/orders'),api<CashBalance[]>('/settlements/cash')]);setMasters(m);setOrders(o);setCash(c);const g=await Promise.all(m.map(async x=>[x.id,await api<{chatId:string;title:string}|null>(`/bot/masters/${x.id}/group`)] as const));setGroups(Object.fromEntries(g))}
  useEffect(()=>{load().catch(e=>setError(e.message))},[]);
  async function connect(id:string){setError('');try{const result=await api<{url:string}>('/bot/masters/'+id+'/link',{method:'POST'});setLinks(v=>({...v,[id]:result.url}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}}
  async function connectGroup(id:string){setGroupBusy(id);setError('');try{const r=await api<{command:string}>(`/bot/masters/${id}/group/link`,{method:'POST'});setCommands(v=>({...v,[id]:r.command}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}finally{setGroupBusy('')}}
@@ -40,6 +42,7 @@ export default function MastersPage(){
  {!masters.length&&!error&&<div className={`panel ${styles.empty}`}>Мастеров пока нет</div>}
  <div className={styles.cards}>{masters.map(m=>{const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC'].includes(o.status));return <section className={`panel ${styles.card} ${styles.masterCard}`} key={m.id}>
  <div className={styles.masterHead}><span className={styles.avatar} aria-hidden="true">{m.user.fullName.trim().slice(0,1).toUpperCase()}</span><div><h3>{m.user.fullName}</h3>{m.user.phone&&<a href={'tel:'+m.user.phone}>{formatRuPhoneDisplay(m.user.phone)}</a>}</div><span className={styles.count}>{active.length} в работе</span></div>
+ {cash.find(c=>c.masterId===m.id)&&<MasterCash balance={cash.find(c=>c.masterId===m.id)!} onSaved={load}/>}
  {active.length>0&&<MobileFold title={`Открыть заявки · ${active.length}`} className={styles.masterJobs}><div className={styles.jobs}>{active.map(o=><Link key={o.id} href={'/orders/'+o.id}><span>№ {o.publicId}</span><strong>{o.client.name}</strong><span aria-hidden="true">›</span></Link>)}</div></MobileFold>}
  <MobileFold title="Настройки мастера" className={styles.masterSettings}>
  {m.address&&<p className={styles.address}>{m.address}</p>}
