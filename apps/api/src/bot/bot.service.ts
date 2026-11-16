@@ -109,7 +109,7 @@ type TgDocument = {
 
 type TgMessage = {
   message_id?: number;
-  reply_to_message?: {message_id?:number};
+  reply_to_message?: {message_id?:number;text?:string;from?:TgFrom};
   text?: string;
   chat?: TgChat;
   from?: TgFrom;
@@ -1078,6 +1078,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return {order,text,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
 
+  private async refreshGroupCard(msg:TgMessage) {
+    const original=msg.reply_to_message;
+    const publicId=/^Заявка (\S+)\n/.exec(original?.text || '')?.[1];
+    if(!original?.message_id || !publicId || !msg.from?.id || !msg.chat?.id)throw new BadRequestException('Отправьте /refresh ответом на карточку заявки');
+    const me=await this.telegram<{ok:boolean;result?:{id:number}}>('getMe',{});
+    if(!me?.ok || !me.result || original.from?.id!==me.result.id)throw new BadRequestException('Выберите карточку, отправленную этим ботом');
+    const order=await this.prisma.order.findUnique({where:{publicId}});
+    if(!order)throw new NotFoundException('Заявка не найдена');
+    const destination=await this.getOrderDestination(order.id);
+    if(!destination || destination.chatId!==String(msg.chat.id))throw new BadRequestException('Заявка относится к другому чату');
+    await this.groupActor(order,String(msg.from.id));
+    const card=await this.groupOrderCard(order.id);
+    const result=await this.telegram<{ok:boolean;description?:string}>('editMessageReplyMarkup',{chat_id:destination.chatId,message_id:original.message_id,reply_markup:card.reply_markup});
+    if(!result?.ok && !result?.description?.includes('message is not modified'))throw new BadRequestException('Telegram не разрешил обновить карточку');
+  }
+
   async sendOrderToGroup(orderId: string, masterOnly = false) {
     const config = await this.settings.getBotConfig();
     if (!config.enabled || !config.hasToken) throw new BadRequestException('Бот выключен');
@@ -1705,6 +1721,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const telegramId =
       msg.from?.id != null ? String(msg.from.id) : chatId;
 
+    if(['group','supergroup'].includes(msg.chat?.type || '') && /^\/refresh(?:@\w+)?$/i.test(msg.text?.trim() || '')){
+      try{await this.refreshGroupCard(msg);}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось обновить карточку');}
+      return;
+    }
     const masterGroupCommand = /^\/connect_master(?:@\w+)?\s+([a-z0-9-]+)\s+([a-f0-9]{32})$/i.exec(msg.text?.trim() || '');
     if(masterGroupCommand){
       try{const name=await this.bindMasterGroup(masterGroupCommand[1],masterGroupCommand[2],msg.chat!,telegramId);await this.sendMessage(chatId,'Группа подключена к мастеру: '+name+'. Его заявки будут приходить сюда.');}

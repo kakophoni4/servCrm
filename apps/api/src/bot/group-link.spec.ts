@@ -14,6 +14,18 @@ describe('Assignment group', () => {
     jest.spyOn(svc,'clearMasterOrderCard' as any).mockResolvedValue(undefined);
     return {svc,send,prisma,appSetting,settings};
   }
+  it('refreshes an existing bot card in place without sending another order or changing its status',async()=>{
+    const {svc,send,prisma}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({id:'u',masterProfile:{id:'m'}} as any);
+    jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{id:123}});
+    await svc.processUpdate({message:{text:'/refresh',from:{id:456},chat:{id:-123,type:'supergroup'},reply_to_message:{message_id:77,from:{id:123},text:'Заявка 123\nСтатус: Ожидание'}}});
+    expect(svc.telegram).toHaveBeenCalledWith('editMessageReplyMarkup',{chat_id:'-123',message_id:77,reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}});
+    expect(send).not.toHaveBeenCalled();expect(prisma.order.update).not.toHaveBeenCalled();
+  });
+  it('refuses to refresh forged cards and cards in another chat',async()=>{
+    const {svc}=setup();jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{id:123}});
+    for(const [sender,chat] of [[999,-123],[123,-999]])await svc.processUpdate({message:{text:'/refresh',from:{id:456},chat:{id:chat,type:'supergroup'},reply_to_message:{message_id:77,from:{id:sender},text:'Заявка 123\nСтатус: Ожидание'}}});
+    expect(svc.telegram).not.toHaveBeenCalledWith('editMessageReplyMarkup',expect.anything());
+  });
   it('binds a group once and consumes the code',async()=>{const {svc,appSetting}=setup();await svc.bindOrderGroup(code,{id:-123,type:'supergroup',title:'Orders'},'456');expect(appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({update:{value:JSON.stringify({chatId:'-123',title:'Orders'})}}));await expect(svc.bindOrderGroup(code,{id:-123,type:'supergroup'},'456')).rejects.toThrow();});
   it('rejects private chats, bad codes and non-admins without consuming code',async()=>{const {svc,appSetting}=setup();await expect(svc.bindOrderGroup(code,{id:456,type:'private'},'456')).rejects.toThrow();await expect(svc.bindOrderGroup('b'.repeat(32),{id:-123,type:'group'},'456')).rejects.toThrow();jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{status:'member'}});await expect(svc.bindOrderGroup(code,{id:-123,type:'group'},'456')).rejects.toThrow();expect(appSetting.deleteMany).not.toHaveBeenCalled();});
   it('rejects expired codes',async()=>{const {svc,appSetting}=setup();appSetting.findUnique.mockResolvedValue({value:JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:0})});await expect(svc.bindOrderGroup(code,{id:-123,type:'group'},'456')).rejects.toThrow();expect(appSetting.deleteMany).not.toHaveBeenCalled();});
