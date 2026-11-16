@@ -500,7 +500,7 @@ export function CrmUsersPanel() {
                 <td>{ROLE_LABELS[u.role] ?? u.role}</td>
                 <td>
                   {!isOfficeRole(u.role) ? (
-                    <span className="muted">—</span>
+                    <span className="muted">-</span>
                   ) : permEditId === u.id ? (
                     <div style={{ minWidth: 280 }}>
                       <div
@@ -585,7 +585,7 @@ export function CrmUsersPanel() {
                 <td>
                   {u.role !== 'DIRECTOR' ? (
                     <span>
-                      {u.city ? branchLabel(u.city) : '—'}
+                      {u.city ? branchLabel(u.city) : '-'}
                     </span>
                   ) : branchEditId === u.id ? (
                     <div
@@ -639,7 +639,7 @@ export function CrmUsersPanel() {
                     >
                       {(u.managedCityIds ?? []).length
                         ? (u.managedCityIds ?? []).map(cityLabel).join(', ')
-                        : '—'}
+                        : '-'}
                       {isOwner ? (
                         <button
                           type="button"
@@ -655,7 +655,7 @@ export function CrmUsersPanel() {
                     </span>
                   )}
                 </td>
-                <td>{u.phone ?? '—'}</td>
+                <td>{u.phone ?? '-'}</td>
                 <td>
                   {tgEditId === u.id ? (
                     <div
@@ -695,7 +695,7 @@ export function CrmUsersPanel() {
                       style={{ display: 'flex', gap: 6, alignItems: 'center' }}
                     >
                       {u.telegramId || (
-                        <span className="muted">—</span>
+                        <span className="muted">-</span>
                       )}
                       {canEditTelegram && tab === 'ACTIVE' ? (
                         <button

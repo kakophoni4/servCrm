@@ -69,8 +69,8 @@ export function BotSettingsPanel() {
       }).catch(() => null);
       setMsg(
         enabled
-          ? 'Сохранено. Бот слушает Telegram через getUpdates (домен не нужен).'
-          : 'Сохранено. Бот выключен.',
+          ? 'Бот включён.'
+          : 'Бот выключен.',
       );
       await load();
     } catch (err) {
@@ -120,7 +120,7 @@ export function BotSettingsPanel() {
                   @{config.username}
                 </a>
               ) : (
-                '—'
+                '-'
               )}
               {' · '}
               {statusLabel}
@@ -143,7 +143,7 @@ export function BotSettingsPanel() {
             spellCheck={false}
             placeholder={
               config?.hasToken
-                ? 'Оставьте пустым, чтобы не менять'
+                ? 'Новый токен'
                 : 'Токен от @BotFather'
             }
             value={token}
@@ -180,7 +180,7 @@ export function BotSettingsPanel() {
         {test ? (
           <p className={test.ok ? 'bot-settings-msg' : 'error'}>
             {test.ok
-              ? `Успех: @${test.username ?? '—'} (${test.name ?? ''})`
+              ? `Подключён: @${test.username ?? '-'} (${test.name ?? ''})`
               : `Ошибка: ${test.error}`}
           </p>
         ) : null}

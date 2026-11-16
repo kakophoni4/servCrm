@@ -86,14 +86,14 @@ export function ClientsPanel() {
                     {c.ageCategory?.label ? (
                       <span className="desk-cell-main">{c.ageCategory.label}</span>
                     ) : (
-                      <span className="desk-cell-sub">—</span>
+                      <span className="desk-cell-sub">-</span>
                     )}
                   </td>
                   <td className="desk-col-center">
                     {c.city?.name ? (
                       <span className="desk-cell-main">{c.city.name}</span>
                     ) : (
-                      <span className="desk-cell-sub">—</span>
+                      <span className="desk-cell-sub">-</span>
                     )}
                   </td>
                   <td className="desk-col-center">

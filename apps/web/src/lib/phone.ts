@@ -8,7 +8,7 @@ export function digitsPhone(input: string): string {
     digits = `7${digits.slice(1)}`;
   } else if (!digits.startsWith('7')) {
     // Локальный номер без кода: 916… → 7916…
-    // Не трогаем уже «7…» (в т.ч. 10 цифр после Backspace) — иначе появляется лишняя 7.
+    // Не трогаем уже «7…» (в т.ч. 10 цифр после Backspace) - иначе появляется лишняя 7.
     digits = `7${digits}`;
   }
 

@@ -55,12 +55,9 @@ export default function ClientCardPage() {
         <p>
           Телефон: <strong>{client.phoneNormalized}</strong>
         </p>
-        <p className="muted">
-          {client.ageCategory?.label ?? 'возраст не указан'}
-          {client.city ? ` · ${client.city.name}` : ''}
-        </p>
+
         {client.branchComment ? (
-          <p>Комментарий филиала: {client.branchComment}</p>
+          <p>Комментарий: {client.branchComment}</p>
         ) : null}
       </div>
       <div className="panel">
@@ -100,8 +97,8 @@ export default function ClientCardPage() {
                   <td>{TYPE_LABELS[o.type]}</td>
                   <td>{STATUS_LABELS[o.status]}</td>
                   <td>{o.address}</td>
-                  <td>{o.payment ? `${String(o.payment.paid)} ₽` : '—'}</td>
-                  <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '—'}</td>
+                  <td>{o.payment ? `${String(o.payment.paid)} ₽` : '-'}</td>
+                  <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '-'}</td>
                   <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
                 </tr>
               ))}

@@ -359,7 +359,7 @@ export function ClaimsPanel() {
                             Закрыть
                           </button>
                         ) : (
-                          <span className="desk-cell-sub">—</span>
+                          <span className="desk-cell-sub">-</span>
                         )}
                       </td>
                     </tr>

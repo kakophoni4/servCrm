@@ -69,7 +69,7 @@ export function ChatMessageNotifier() {
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
 
-    /** Два коротких «двойных» тона — не путать с тремя высокими бипами заявки. */
+    /** Два коротких «двойных» тона - не путать с тремя высокими бипами заявки. */
     const beep = () => {
       const ctx = audioCtxRef.current;
       if (!ctx) return;
@@ -113,7 +113,7 @@ export function ChatMessageNotifier() {
           const prev = lastSeenRef.current.get(t.id);
           if (prev && last.createdAt <= prev) continue;
           lastSeenRef.current.set(t.id, last.createdAt);
-          // Первый раз увидели тред без prev — не спамим
+          // Первый раз увидели тред без prev - не спамим
           if (!prev) continue;
           fresh.push({
             id: `${t.id}:${last.createdAt}`,

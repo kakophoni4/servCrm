@@ -15,7 +15,7 @@ function fitHeight(el: HTMLTextAreaElement | null) {
   el.style.height = `${Math.max(el.scrollHeight, 40)}px`;
 }
 
-/** Textarea без ручного resize — высота подстраивается под текст. */
+/** Textarea без ручного resize - высота подстраивается под текст. */
 export function AutoTextarea({ value, onChange, className, ...rest }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 

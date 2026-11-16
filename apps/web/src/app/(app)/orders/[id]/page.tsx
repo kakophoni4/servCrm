@@ -262,7 +262,7 @@ export default function OrderDetailPage() {
     }));
   }
 
-  /** Сохраняет только суммы — чтобы не слетали при загрузке документов. */
+  /** Сохраняет только суммы - чтобы не слетали при загрузке документов. */
   async function saveMoneyDraft(): Promise<boolean> {
     if (!admin) return true;
     try {
@@ -393,7 +393,7 @@ export default function OrderDetailPage() {
     }
   }, [status, docKind]);
 
-  // Если текущий тип уже есть / недоступен — переключить на следующий обязательный.
+  // Если текущий тип уже есть / недоступен - переключить на следующий обязательный.
   useEffect(() => {
     if (!order) return;
     setDocKind((current) => {
@@ -448,7 +448,7 @@ export default function OrderDetailPage() {
         }
       }
       const saved = await api<{telegramDelivery?:string}>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      if(saved.telegramDelivery) setDelivery(saved.telegramDelivery==='sent'?'Заявка отправлена мастеру в Telegram.':'Заявка сохранена, но Telegram не доставлен. Проверьте подключение бота и мастера, затем повторите отправку.');
+      if(saved.telegramDelivery) setDelivery(saved.telegramDelivery==='sent'?'Отправлено мастеру.':'Сохранено. Не удалось отправить в Telegram.');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -479,12 +479,12 @@ export default function OrderDetailPage() {
     e.preventDefault();
     setError('');
     if (!docFiles || docFiles.length === 0) {
-      setError('Выберите файл(ы) для загрузки');
+      setError('Выберите файлы');
       return;
     }
     setUploading(true);
     try {
-      // Сначала сохраняем суммы — иначе load() после загрузки их затрёт.
+      // Сначала сохраняем суммы - иначе load() после загрузки их затрёт.
       const moneyOk = await saveMoneyDraft();
       if (!moneyOk) return;
 
@@ -731,7 +731,7 @@ export default function OrderDetailPage() {
         hour: '2-digit',
         minute: '2-digit',
       })
-    : '—';
+    : '-';
 
   return (
     <div className="order-page">
@@ -805,7 +805,7 @@ export default function OrderDetailPage() {
                   <AutoTextarea
                     readOnly
                     disabled
-                    value={order.comment?.trim() ? order.comment : '—'}
+                    value={order.comment?.trim() ? order.comment : '-'}
                   />
                 </div>
                 <div className="field order-field-full">
@@ -825,7 +825,7 @@ export default function OrderDetailPage() {
               </div>
               <div className="order-meta-item">
                 <span>Техника</span>
-                <strong>{order.typeTech?.trim() || '—'}</strong>
+                <strong>{order.typeTech?.trim() || '-'}</strong>
               </div>
               <div className="order-meta-item">
                 <span>Время</span>
@@ -833,7 +833,7 @@ export default function OrderDetailPage() {
               </div>
               <div className="order-meta-item">
                 <span>Диспетчер</span>
-                <strong>{order.createdBy?.fullName ?? '—'}</strong>
+                <strong>{order.createdBy?.fullName ?? '-'}</strong>
               </div>
               <div className="order-meta-item">
                 <span>Мастер</span>
@@ -859,7 +859,7 @@ export default function OrderDetailPage() {
               <div className="order-section-title">Исполнение</div>
               <div className="order-fields-grid">
                 <div className="field">
-                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка — выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ — реинвест 30%</label><p className="muted">СЦ: 30% твоей доли на Авито, 70% тебе. Применится после сохранения.</p><label>Статус</label>
+                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
@@ -885,7 +885,7 @@ export default function OrderDetailPage() {
                         )
                       }
                     >
-                      <option value="">—</option>
+                      <option value="">-</option>
                       <option value="master">Мастер</option>
                       <option value="admin">Администратор</option>
                     </select>
@@ -934,7 +934,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
 
-              {order.payment && <div className="panel"><p>Реинвест ({Number(order.payment.reinvestPct)*100}% доли владельца после запчастей и мастера): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Остаток владельца: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
+              {order.payment && <div className="panel"><p>На Авито ({Number(order.payment.reinvestPct)*100}%): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Мне: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
               {order.payment ? (
                 <div className="order-pay-summary">
                   <div className="order-pay-item">
@@ -948,11 +948,11 @@ export default function OrderDetailPage() {
                     </strong>
                   </div>
                   <div className="order-pay-item">
-                    <span>ЗП мастера</span>
+                    <span>Мастеру</span>
                     <strong>{String(order.payment.masterSalary)} ₽</strong>
                   </div>
                   <div className="order-pay-item accent">
-                    <span>Доля до реинвеста</span>
+                    <span>Моя доля</span>
                     <strong>{String(order.payment.toCompany)} ₽</strong>
                   </div>
                 </div>
@@ -962,7 +962,7 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{masterId===order.masterId&&masterId&&!isPersonal&&<button type="button" className="btn secondary" onClick={async()=>{try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send`,{method:'POST'});setDelivery(r.sent?'Отправлено в Telegram.':'Не доставлено. Проверьте подключение бота и мастера.')}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки')}}}>Повторить в Telegram</button>}<button className="btn secondary" type="button" onClick={async()=>{const text = ['Заявка: '+order.publicId,'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,isServiceCenter?'Привезут в СЦ':'Адрес: '+address,'Техника: '+typeTech,'Время: '+(scheduledAt?new Date(scheduledAt).toLocaleString('ru-RU'):'не указано'),'Комментарий: '+(order.comment||''),adminComment].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({text})}else if(navigator.clipboard){await navigator.clipboard.writeText(text);alert('Заявка скопирована — вставьте её в чат мастера')}else{window.prompt('Скопируйте заявку в чат мастера',text)}}catch(e){if(e instanceof Error && e.name!=='AbortError')setError('Не удалось отправить. Попробуйте скопировать текст.')}}}>Передать в чат</button>
+          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{masterId===order.masterId&&masterId&&!isPersonal&&<button type="button" className="btn secondary" onClick={async()=>{try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send`,{method:'POST'});setDelivery(r.sent?'Отправлено в Telegram.':'Не удалось отправить в Telegram.')}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки')}}}>Повторить в Telegram</button>}<button className="btn secondary" type="button" onClick={async()=>{const text = ['Заявка: '+order.publicId,'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,isServiceCenter?'Привезут в СЦ':'Адрес: '+address,'Техника: '+typeTech,'Время: '+(scheduledAt?new Date(scheduledAt).toLocaleString('ru-RU'):'не указано'),'Комментарий: '+(order.comment||''),adminComment].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({text})}else if(navigator.clipboard){await navigator.clipboard.writeText(text);alert('Скопировано')}else{window.prompt('Скопируйте заявку в чат мастера',text)}}catch(e){if(e instanceof Error && e.name!=='AbortError')setError('Не удалось отправить. Попробуйте скопировать текст.')}}}>Передать в чат</button>
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
@@ -1056,7 +1056,7 @@ export default function OrderDetailPage() {
 
           {admin ? (
           <div className="panel order-docs-panel">
-            <h2 className="order-side-title">Фото и документы</h2><p className="muted">Необязательно. Прикрепите фото техники, чек или акт — заявку можно закрыть без вложений.</p>
+            <h2 className="order-side-title">Фото и документы</h2>
             {pendingDocs.length ? (
               <div className="docs-inbox">
                 <h3 className="docs-inbox-title">Входящие от мастера</h3>
@@ -1155,7 +1155,7 @@ export default function OrderDetailPage() {
                       <span className="muted docs-list-date">
                         {g.latestAt
                           ? new Date(g.latestAt).toLocaleDateString('ru-RU')
-                          : '—'}
+                          : '-'}
                       </span>
                     </div>
                     <div className="docs-actions">

@@ -182,7 +182,7 @@ describe('session helpers', () => {
     vi.unstubAllGlobals();
   });
 
-  it('setSession / getToken / getStoredUser — round-trip через localStorage', () => {
+  it('setSession / getToken / getStoredUser - round-trip через localStorage', () => {
     setSession('jwt-abc', mockUser);
 
     expect(getToken()).toBe('jwt-abc');

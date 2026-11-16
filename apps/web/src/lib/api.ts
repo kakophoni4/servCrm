@@ -84,7 +84,7 @@ async function parseError(res: Response): Promise<string> {
   return message;
 }
 
-/** Загрузка файлов через multipart/form-data (без Content-Type — его ставит браузер). */
+/** Загрузка файлов через multipart/form-data (без Content-Type - его ставит браузер). */
 export async function uploadFiles<T>(
   path: string,
   formData: FormData,

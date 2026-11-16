@@ -128,7 +128,7 @@ async function blobToBytes(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(await new Response(blob).arrayBuffer());
 }
 
-/** Скачать один или несколько файлов; при >1 — ZIP. */
+/** Скачать один или несколько файлов; при >1 - ZIP. */
 export async function downloadFilesAsZipOrSingle(
   files: Array<{ name: string; blob: Blob }>,
   zipName: string,

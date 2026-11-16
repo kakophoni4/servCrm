@@ -111,7 +111,7 @@ export default function NewOrderPage() {
       return;
     }
     if (!form.scheduledAt) {
-      setError('Укажите время по заказу');
+      setError('Укажите дату и время');
       setLoading(false);
       return;
     }
@@ -153,7 +153,7 @@ export default function NewOrderPage() {
 
   return (
     <div className="order-new-page">
-      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ — реинвест 30%</label>
+      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ - на Авито 30%</label>
       <form className="panel order-new-form" onSubmit={onSubmit}>
         <section className="order-new-section">
           <h2 className="order-new-section-title">Клиент</h2>
@@ -231,7 +231,7 @@ export default function NewOrderPage() {
                   value={form.partnerId}
                   onChange={(e) => set('partnerId', e.target.value)}
                 >
-                  <option value="">— выберите партнёра —</option>
+                  <option value="">- выберите партнёра -</option>
                   {partners.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -241,7 +241,7 @@ export default function NewOrderPage() {
               </div>
             )}
             <div className="field">
-              <label>Время по заказу</label>
+              <label>Дата и время</label>
               <DateTimeField
                 required
                 showQuickPicks

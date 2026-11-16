@@ -42,7 +42,7 @@ const MONTH_LABELS = [
   'Декабрь',
 ];
 
-/** Пн…вс — для календарной сетки. */
+/** Пн…вс - для календарной сетки. */
 const WEEKDAY_MON = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 
 function mondayIndex(jsWeekday: number) {
@@ -219,7 +219,7 @@ export function DispatcherPayPanel() {
 
   function shortName(fullName: string) {
     const parts = fullName.trim().split(/\s+/).filter(Boolean);
-    if (!parts.length) return '—';
+    if (!parts.length) return '-';
     if (parts.length === 1) {
       return parts[0].length > 10 ? `${parts[0].slice(0, 9)}…` : parts[0];
     }
@@ -386,7 +386,7 @@ export function DispatcherPayPanel() {
                       title={d.fullName ?? 'Свободно'}
                       onChange={(e) => assignDay(d.date, e.target.value)}
                     >
-                      <option value="">—</option>
+                      <option value="">-</option>
                       {branchDispatchers.map((u) => (
                         <option key={u.id} value={u.id}>
                           {shortName(u.fullName)}

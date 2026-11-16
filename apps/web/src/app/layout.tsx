@@ -4,7 +4,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'СРМ Сервис',
-  description: 'CRM для сервисного бизнеса — замена Битрикса',
+  description: 'CRM для сервисного бизнеса - замена Битрикса',
 };
 
 export const viewport: Viewport = {

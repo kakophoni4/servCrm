@@ -141,7 +141,7 @@ export function OrdersPanel() {
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
           <p className="error">
-            Филиал не назначен — список заявок пуст. Укажите филиал сотруднику в
+            Филиал не назначен - список заявок пуст. Укажите филиал сотруднику в
             Управление CRM → Сотрудники.
           </p>
         ) : null}
@@ -229,7 +229,7 @@ export function OrdersPanel() {
                             {o.master.user.fullName}
                           </span>
                         ) : (
-                          <span className="desk-cell-sub">—</span>
+                          <span className="desk-cell-sub">-</span>
                         )}
                       </td>
                     </tr>

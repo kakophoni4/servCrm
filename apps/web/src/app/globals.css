@@ -1326,7 +1326,7 @@ label.file-picker:focus-within,
 }
 
 
-/* Модалка (например, оплата в расчёте) — блокирует фон */
+/* Модалка (например, оплата в расчёте) - блокирует фон */
 .notify-overlay {
   position: fixed;
   inset: 0;
@@ -1367,7 +1367,7 @@ label.file-picker:focus-within,
   overflow: hidden;
 }
 
-/* Уведомления — CRM остаётся кликабельной */
+/* Уведомления - CRM остаётся кликабельной */
 .notify-dock {
   position: relative;
   right: auto;
@@ -3650,7 +3650,7 @@ label.file-picker:focus-within,
   white-space: nowrap;
 }
 
-/* Хаб «Заявки и клиенты» — полный экран + ссылки сверху */
+/* Хаб «Заявки и клиенты» - полный экран + ссылки сверху */
 .desk {
   display: flex;
   flex-direction: column;
@@ -4049,7 +4049,7 @@ label.file-picker:focus-within,
   gap: 14px;
 }
 
-/* Месяц/Год — компактно справа в шапке панели с данными */
+/* Месяц/Год - компактно справа в шапке панели с данными */
 .panel-period-head {
   display: flex;
   flex-wrap: wrap;

@@ -44,8 +44,8 @@ function formatSchedule(iso?: string | null) {
 
 /**
  * Уведомления для админов (панель справа снизу, не блокирует CRM):
- * — новые заявки;
- * — без мастера и до визита ≤30 мин.
+ * - новые заявки;
+ * - без мастера и до визита ≤30 мин.
  */
 export function NewOrderNotifier() {
   const [queue, setQueue] = useState<NotifyItem[]>([]);
@@ -71,7 +71,7 @@ export function NewOrderNotifier() {
               .webkitAudioContext;
           audioCtxRef.current = new Ctx();
         } catch {
-          /* нет Web Audio — попап всё равно работает */
+          /* нет Web Audio - попап всё равно работает */
         }
       }
       void audioCtxRef.current?.resume().catch(() => undefined);
