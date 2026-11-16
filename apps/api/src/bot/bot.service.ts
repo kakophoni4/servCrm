@@ -1055,7 +1055,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = [
       'Заявка '+order.publicId,
       'ФИО: '+order.client.name,
-      'Телефон: '+order.client.phoneNormalized.replace(/^\+7/, '7'),
+      'Телефон: '+order.client.phoneNormalized.replace(/^\+?7/, '+7'),
       'Адрес: '+order.address,
       'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
       'Техника: '+(order.typeTech || 'не указана'),

@@ -24,11 +24,11 @@ describe('Assignment group', () => {
     expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽$/);
     expect(card.text).not.toMatch(/На Авито|Владельцу/);
   });
-  it('formats labels with safe Telegram entities, Moscow minutes and a phone starting with 7',async()=>{
+  it('formats labels with safe Telegram entities, Moscow minutes and a phone starting with +7',async()=>{
     const {svc,prisma}=setup();const order=await prisma.order.findUnique();
-    prisma.order.findUnique.mockResolvedValue({...order,client:{name:'😀 <Иван>',phoneNormalized:'+79991234567'},scheduledAt:new Date('2026-11-16T06:00:00Z')});
+    prisma.order.findUnique.mockResolvedValue({...order,client:{name:'😀 <Иван>',phoneNormalized:'79991234567'},scheduledAt:new Date('2026-11-16T06:00:00Z')});
     const card=await (svc as any).groupOrderCard('o');
-    expect(card.text).toContain('Телефон: 79991234567');
+    expect(card.text).toContain('Телефон: +79991234567');
     expect(card.text).toContain('Время: 16.11, 09:00');
     expect(card.text).not.toContain('09:00:00');
     expect(card.text).toContain('😀 <Иван>');
