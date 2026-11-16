@@ -24,6 +24,7 @@ const ownerTelegramId=String(Number(telegramId)+100);
 let messageId = 100;
 const messages = [], calls = [];
 const settings = {
+  isBotEnabled: async()=>true,
   get: async key => key === 'bot.orders.group' ? JSON.stringify({chatId:'-111111', title:'Legacy group'}) : (await p.appSetting.findUnique({where:{key}}))?.value,
   set: async (key,value) => { settingsKeys.add(key); await p.appSetting.upsert({where:{key},create:{key,value},update:{value}}); },
   getBotConfig: async () => ({enabled:true,hasToken:true}),
@@ -243,10 +244,24 @@ async function close(id, text, expected) {
     assert(calls.at(-1).text.includes('Загрузите акт'));
     let downloadCount=0;
     svc.downloadTgFile=async msg=>{downloadCount++;const buffer=Buffer.from(msg.document.file_id);return {buffer,size:buffer.length,mimetype:'image/jpeg',originalname:'scan.jpg'}};
-    const upload=async(id,from=ownerTelegramId,chat='-222222')=>svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chat),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},document:{file_id:id,file_name:'scan.jpg'}}});
+    const upload=async(id,from=ownerTelegramId,chat='-222222')=>{await svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chat),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},document:{file_id:id,file_name:'scan.jpg'}}});await svc.retryPendingFiles();};
     await upload('foreign',telegramId);assert.equal(downloadCount,0);
     await upload('wrongchat',ownerTelegramId,'-333333');assert.equal(downloadCount,0);
-    await upload('act-image');await upload('act-image');
+    const download=svc.downloadTgFile;
+    const {TelegramFileRetryError}=require('../dist/bot/bot.service');
+    svc.downloadTgFile=async()=>{throw new TelegramFileRetryError('Temporary test timeout')};
+    await upload('act-image');
+    const pending=await p.appSetting.findFirst({where:{key:{startsWith:'bot.file.pending.'+step.slice(3)+'.'}}});assert(pending);settingsKeys.add(pending.key);
+    assert.equal(await p.orderDocument.count({where:{orderId:docOrder}}),0);
+    await click(step,ownerTelegramId,'-222222');assert(calls.at(-1).text.includes('Фото ещё загружаются'));
+    await p.appSetting.update({where:{key:pending.key},data:{value:JSON.stringify({...JSON.parse(pending.value),nextAttempt:0})}});
+    const resumed=new BotService(p,{},settings,documents,new SettlementsService(p,{}),new SalaryService(p));
+    resumed.telegram=svc.telegram;resumed.sendMessage=svc.sendMessage;resumed.downloadTgFile=download;
+    await resumed.retryPendingFiles();
+    assert.equal(await p.appSetting.count({where:{key:pending.key}}),0);
+    svc.downloadTgFile=download;
+    await upload('act-image');
+    console.log('PASS file timeout recovery after bot restart without resending the photo');
     assert.equal(await p.orderDocument.count({where:{orderId:docOrder,kind:'CONTRACT'}}),1);
     let stored=await p.orderDocument.findFirst({where:{orderId:docOrder,kind:'CONTRACT'}});
     assert.equal(fs.readFileSync(path.join(uploadRoot,stored.filePath),'utf8'),'act-image');

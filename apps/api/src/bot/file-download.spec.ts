@@ -24,7 +24,7 @@ describe('Telegram file download',()=>{
  });
  it('bounds retries and leaves a clear retry instruction',async()=>{
   const {bot,telegram,fetchMock}=setup();telegram.mockResolvedValue(null);
-  await expect((bot as any).downloadTgFile({photo:[{file_id:'photo'}]})).rejects.toThrow('Пришлите его ещё раз');
+  await expect((bot as any).downloadTgFile({photo:[{file_id:'photo'}]})).rejects.toThrow('Telegram временно не отдаёт файл');
   expect(telegram).toHaveBeenCalledTimes(3);expect(fetchMock).not.toHaveBeenCalled();
  });
 });

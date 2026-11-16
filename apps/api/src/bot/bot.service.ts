@@ -178,6 +178,9 @@ const CLAIM_TYPE_LABELS: Record<ClaimType, string> = {
 /**
  * Слой для Telegram-бота. Токен берётся из настроек (админка) с fallback на env.
  */
+export class TelegramFileRetryError extends BadRequestException {}
+type PendingFile = {token:string;kind:DocKind;msg:TgMessage;nextAttempt:number;attempts:number};
+
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
@@ -185,6 +188,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly paySessions = new Map<string, PaySession>();
   /** Эфемерные UI-сообщения бота (список заявок, ЗП) — удаляем перед новым экраном. */
   private readonly ephemeralMsgs = new Map<string, number[]>();
+  private fileRetryTimer: ReturnType<typeof setInterval> | null = null;
+  private fileRetryRun: Promise<void> | null = null;
   private escalateTimer: ReturnType<typeof setInterval> | null = null;
   /** Long-polling getUpdates вместо webhook (удобно без домена/HTTPS). */
   private pollStop = false;
@@ -207,6 +212,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`escalation poll: ${String(e)}`),
       );
     }, ESCALATE_POLL_MS);
+    this.fileRetryTimer=setInterval(()=>{void this.retryPendingFiles().catch(()=>this.logger.warn('Pending Telegram file retry failed'));},5000);
     this.pollStop = false;
     void this.pollLoop();
   }
@@ -214,6 +220,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.pollStop = true;
     if (this.escalateTimer) clearInterval(this.escalateTimer);
+    if (this.fileRetryTimer) clearInterval(this.fileRetryTimer);
   }
 
   private sleep(ms: number) {
@@ -952,6 +959,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async showGroupClosingStep(token:string,flow:GroupFlow) {
+    if(await this.prisma.appSetting.count({where:{key:{startsWith:'bot.file.pending.'+token+'.'}}}))throw new BadRequestException('Фото ещё загружаются. Бот продолжит загрузку автоматически');
     const missing=await this.missingClosingDocs(flow);
     const previousPromptId=flow.docPromptId;
     delete flow.docPromptId;
@@ -973,25 +981,70 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private retryPendingFiles():Promise<void> {
+    if(this.fileRetryRun)return this.fileRetryRun;
+    this.fileRetryRun=this.runPendingFiles().finally(()=>{this.fileRetryRun=null});
+    return this.fileRetryRun;
+  }
+
+  private async validateFileSession(job:PendingFile) {
+    const raw=await this.settings.get('bot.flow.confirm.'+job.token);
+    if(!raw)throw new BadRequestException('Загрузка отменена');
+    const flow:GroupFlow=JSON.parse(raw),msg=job.msg;
+    const group=await this.getOrderDestination(flow.orderId);
+    const card=await this.groupOrderCard(flow.orderId);
+    if(flow.telegramId!==String(msg.from?.id)||group?.chatId!==String(msg.chat?.id)||flow.chatId!==String(msg.chat?.id)||flow.expires<Date.now()||flow.version!==card.order.updatedAt.toISOString())throw new BadRequestException('Заявка изменилась или время загрузки истекло. Нажмите «Закрыть» заново');
+    const actor=await this.groupActor(card.order,flow.telegramId);
+    return {flow,actor};
+  }
+
+  private async runPendingFiles() {
+    if(this.pollStop || !await this.settings.isBotEnabled())return;
+    const rows=await this.prisma.appSetting.findMany({where:{key:{startsWith:'bot.file.pending.'}}});
+    for(const row of rows){
+      if(this.pollStop)break;
+      let job:PendingFile;
+      try{job=JSON.parse(row.value)}catch{continue;}
+      if(job.nextAttempt>Date.now())continue;
+      const lease=JSON.stringify({...job,nextAttempt:Date.now()+300000});
+      const claimed=await this.prisma.appSetting.updateMany({where:{key:row.key,value:row.value},data:{value:lease}});
+      if(!claimed.count)continue;
+      try{
+        await this.validateFileSession(job);
+        const file=await this.downloadTgFile(job.msg);
+        const {flow,actor}=await this.validateFileSession(job);
+        await this.documents.uploadMany(flow.orderId,job.kind,[file],actor.id,OrderStatus.DONE,{preserveOrder:true});
+        await this.prisma.appSetting.deleteMany({where:{key:row.key,value:lease}});
+        const count=await this.prisma.orderDocument.count({where:{orderId:flow.orderId,kind:job.kind,pendingReview:false}});
+        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.docPromptId,text:`${job.kind===DocKind.CONTRACT?'Акт':'Чеки'}: сохранено файлов ${count}. Можно прислать ещё в ответ на это сообщение или нажать «Далее».`,reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+job.token},{text:'Отмена',callback_data:'gx:'+job.token}]]}});
+      }catch(e){
+        const retry=e instanceof TelegramFileRetryError || !(e instanceof BadRequestException || e instanceof NotFoundException);
+        if(retry){
+          await this.prisma.appSetting.updateMany({where:{key:row.key,value:lease},data:{value:JSON.stringify({...job,attempts:job.attempts+1,nextAttempt:Date.now()+30000})}});
+          if(job.attempts===0)await this.telegram('editMessageText',{chat_id:String(job.msg.chat?.id),message_id:job.msg.reply_to_message?.message_id,text:'Файл загружается дольше обычного. Повторю автоматически, отправлять его заново не нужно.',reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+job.token},{text:'Отмена',callback_data:'gx:'+job.token}]]}});
+        }else{
+          const removed=await this.prisma.appSetting.deleteMany({where:{key:row.key,value:lease}});
+          if(removed.count)await this.sendMessage(String(job.msg.chat?.id),e instanceof BadRequestException?e.message:'Не удалось сохранить документ');
+        }
+      }
+    }
+  }
+
   private async handleGroupDocReply(msg:TgMessage):Promise<boolean> {
-    if(!msg.reply_to_message?.message_id || !msg.chat?.id || !msg.from?.id || (!msg.photo?.length&&!msg.document))return false;
+    if(!msg.message_id || !msg.reply_to_message?.message_id || !msg.chat?.id || !msg.from?.id || (!msg.photo?.length&&!msg.document))return false;
     const ref=await this.settings.get(`bot.docs.reply.${msg.chat.id}.${msg.reply_to_message.message_id}`);
     if(!ref)return false;
     try{
       const {token,kind}=JSON.parse(ref);
       const raw=await this.settings.get('bot.flow.confirm.'+token);
       if(!raw)return true;
-      const flow:GroupFlow=JSON.parse(raw);
-      if(flow.telegramId!==String(msg.from.id))return true;
-      const group=await this.getOrderDestination(flow.orderId);
-      const card=await this.groupOrderCard(flow.orderId);
-      if(group?.chatId!==String(msg.chat.id)||flow.chatId!==String(msg.chat.id)||flow.expires<Date.now()||flow.version!==card.order.updatedAt.toISOString())throw new BadRequestException('Заявка изменилась или время загрузки истекло. Нажмите «Закрыть» заново');
-      const actor=await this.groupActor(card.order,flow.telegramId);
-      const file=await this.downloadTgFile(msg);
-      await this.documents.uploadMany(flow.orderId,kind,[file],actor.id,OrderStatus.DONE,{preserveOrder:true});
-      const count=await this.prisma.orderDocument.count({where:{orderId:flow.orderId,kind,pendingReview:false}});
-      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.docPromptId,text:`${kind===DocKind.CONTRACT?'Акт':'Чеки'}: сохранено файлов ${count}. Можно прислать ещё в ответ на это сообщение или нажать «Далее».`,reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
-    }catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось сохранить документ. Отправьте его ещё раз');}
+      if(JSON.parse(raw).telegramId!==String(msg.from.id))return true;
+      const job:PendingFile={token,kind,msg:{message_id:msg.message_id,chat:msg.chat,from:msg.from,reply_to_message:{message_id:msg.reply_to_message.message_id},photo:msg.photo,document:msg.document},attempts:0,nextAttempt:0};
+      await this.validateFileSession(job);
+      const key=`bot.file.pending.${token}.${msg.chat.id}.${msg.message_id}`;
+      await this.prisma.appSetting.upsert({where:{key},create:{key,value:JSON.stringify(job)},update:{}});
+      void this.retryPendingFiles().catch(()=>this.logger.warn('Pending Telegram file retry failed'));
+    }catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось принять документ. Отправьте его ещё раз');}
     return true;
   }
 
@@ -1063,6 +1116,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const group=await this.getOrderDestination(flow.orderId);
       if(!group || group.chatId!==flow.chatId || String(cq.message?.chat?.id)!==flow.chatId || String(cq.from?.id)!==flow.telegramId)throw new BadRequestException('Подтвердить может только тот, кто ввёл суммы');
       if(cq.data?.startsWith('gx:')) {
+        await this.prisma.appSetting.deleteMany({where:{key:{startsWith:'bot.file.pending.'+(cq.data || '').slice(3)+'.'}}});
         if(flow.docPromptId)await this.prisma.appSetting.deleteMany({where:{key:`bot.docs.reply.${flow.chatId}.${flow.docPromptId}`}});
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
         await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Отменено',reply_markup:{inline_keyboard:[]}});
@@ -1082,6 +1136,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
         if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         if(flow.kind==='close' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
+        if(flow.kind==='close' && await tx.appSetting.count({where:{key:{startsWith:'bot.file.pending.'+(cq.data || '').slice(3)+'.'}}}))throw new BadRequestException('Фото ещё загружаются. Дождитесь сохранения');
         if(flow.kind==='close' && (await this.missingClosingDocs(flow,tx)).length)throw new BadRequestException('Загрузите акт и чеки на расходы перед закрытием');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
@@ -2467,6 +2522,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const filePath=meta?.result?.file_path;
     if(!filePath){
       if(meta?.description?.includes('file is too big'))throw new BadRequestException('Файл больше 20 МБ. Отправьте фото со сжатием или уменьшите PDF');
+      if(!meta || !meta.error_code || meta.error_code>=500 || meta.error_code===429)throw new TelegramFileRetryError('Telegram временно не отдаёт файл');
       throw new BadRequestException('Telegram не отдал файл. Пришлите его ещё раз в ответ на запрос акта или чеков');
     }
 
@@ -2490,7 +2546,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         break;
       }catch(e){
         if(e instanceof BadRequestException)throw e;
-        if(attempt===2)throw new BadRequestException('Не удалось скачать файл из Telegram. Пришлите его ещё раз в ответ на запрос');
+        if(attempt===2)throw new TelegramFileRetryError('Не удалось скачать файл из Telegram');
         await this.sleep(1000*(attempt+1));
       }
     }
