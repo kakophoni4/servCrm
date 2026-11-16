@@ -1050,19 +1050,25 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true}});
     if (!order) throw new NotFoundException('Заявка не найдена');
     const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
+    const paid = Number(order.payment?.paid || 0);
+    const partsCost = Number(order.payment?.partsCost || 0);
     const text = [
       'Заявка '+order.publicId,
-      'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята' : ''),
-      order.isPersonal || !order.masterId?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
-      'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,
-      order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
+      'ФИО: '+order.client.name,
+      'Телефон: '+order.client.phoneNormalized,
+      'Адрес: '+order.address,
+      'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
       'Техника: '+(order.typeTech || 'не указана'),
-      'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}) : 'не указано'),
+      order.isPersonal || !order.masterId?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
+      order.isServiceCenter?'Привезут в СЦ':'',
+      'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята' : ''),
+      order.comment ? 'Примечание: '+order.comment : '',
+      order.adminComment ? 'Комментарий: '+order.adminComment : '',
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) : '',
-      order.status===OrderStatus.DONE && order.payment ? 'Получено всего: '+Number(order.payment.paid)+' ₽ · расходы: '+Number(order.payment.partsCost)+' ₽' : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
-      order.comment ? 'Описание: '+order.comment : '',order.adminComment ? 'Комментарий: '+order.adminComment : '',
+      'Всего: '+paid+' ₽',
+      'Чистыми: '+(paid-partsCost)+' ₽',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
     if(order.isServiceCenter){
@@ -1271,14 +1277,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     if (order.masterId !== masterId) return null;
     if(order.isPersonal || order.isServiceCenter){const sent=await this.sendOrderToGroup(orderId);return {ok:sent.sent,groupSent:sent.sent};}
-    const text = [
-      'Заявка '+order.publicId, 'Мастер: '+master.user.fullName, 'Клиент: '+order.client.name,
-      'Телефон: '+order.client.phoneNormalized, order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
-      'Техника: '+(order.typeTech||'не указана'),
-      'Время: '+(order.scheduledAt?order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'не указано'),
-      order.comment ? 'Описание: '+order.comment : '',
-      order.adminComment ? 'Комментарий: '+order.adminComment : '',
-    ].filter(Boolean).join('\n');
+    const {text} = await this.groupOrderCard(orderId);
 
     if (await this.getMasterGroup(masterId)) {
       const result=await this.sendOrderToGroup(orderId,true);

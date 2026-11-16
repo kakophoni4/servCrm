@@ -14,6 +14,16 @@ describe('Assignment group', () => {
     jest.spyOn(svc,'clearMasterOrderCard' as any).mockResolvedValue(undefined);
     return {svc,send,prisma,appSetting,settings};
   }
+  it('shows total and total minus expenses, without adding prepayment or revealing owner shares to masters',async()=>{
+    const {svc,prisma}=setup();
+    const order=await prisma.order.findUnique();
+    prisma.order.findUnique.mockResolvedValue({...order,status:'DONE',comment:'Ремонт',payment:{paid:11700,partsCost:2300,prepay:5000,reinvestAmount:2820,ownerNet:6580}});
+    const card=await (svc as any).groupOrderCard('o');
+    expect(card.text).toContain('ФИО: Client');
+    expect(card.text).toContain('Примечание: Ремонт');
+    expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽$/);
+    expect(card.text).not.toMatch(/На Авито|Владельцу/);
+  });
   it('refreshes an existing bot card in place without sending another order or changing its status',async()=>{
     const {svc,send,prisma}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({id:'u',masterProfile:{id:'m'}} as any);
     jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{id:123}});
