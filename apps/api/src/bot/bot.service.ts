@@ -990,6 +990,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         Object.assign(flow,terms,{sdStart:new Date().toISOString(),sdFrom:sdDeadline(terms.minDays).toISOString(),sdDue:sdDeadline(terms.maxDays).toISOString()});
         summary=`Сохранить срок заявки ${card.order.publicId}?\nПредоплата всего: ${terms.prepay} ₽\nСрок: ${terms.minDays}-${terms.maxDays} дней\nДо ${sdDeadline(terms.maxDays).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'})}`;
       }
+      flow.inputMessageId=msg.message_id;
       const token=randomBytes(8).toString('hex');
       const confirmKey='bot.flow.confirm.'+token;
       await this.settings.set(confirmKey,JSON.stringify(flow));
@@ -1038,6 +1039,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           else await tx.cashTx.create({data:{...data,orderId:flow.orderId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.ORDER,createdById:user.id}});
         }
       });
+      if(flow.kind==='close' && flow.inputMessageId)await this.deleteMessage(flow.chatId,flow.inputMessageId).catch(()=>undefined);
       if(flow.kind==='close')await this.settlements.syncForCompletedOrder(flow.orderId).catch(()=>undefined);
       const fresh=await this.groupOrderCard(flow.orderId);
       await this.rememberGroupCard(flow.orderId,flow.chatId,flow.messageId);

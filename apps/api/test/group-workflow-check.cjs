@@ -51,9 +51,13 @@ async function close(id, text, expected) {
   await reply(text,prompt);assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===prompt.id&&c.chat_id===chatId));
   assert(!messages.at(-1).text.includes('На Авито:')); assert(!messages.at(-1).text.includes('Владельцу:'));
   const token=confirm(); assert.notEqual((await read(id)).status,'DONE');
+  const inputId=JSON.parse(await settings.get('bot.flow.confirm.'+token.slice(3))).inputMessageId;
+  assert(Number.isInteger(inputId));
+  assert(!calls.some(c=>c.method==='deleteMessage'&&c.message_id===inputId));
   await click(token,Number(telegramId)+1); assert.notEqual((await read(id)).status,'DONE');
   await click(token);
   const order=await read(id); assert.equal(order.status,'DONE'); assert(order.completedAt);
+  assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===inputId&&c.chat_id===chatId));
   for(const [field,value] of Object.entries(expected)) assert.equal(Number(order.payment[field]),value,field);
   assert.deepEqual(await buttons(id),[]);
   const cash=await p.cashTx.findMany({where:{orderId:id}}); assert.equal(cash.length,1); assert.equal(Number(cash[0].amount),expected.toCompany);
