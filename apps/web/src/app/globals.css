@@ -2,41 +2,45 @@
 
 :root,
 [data-theme='light'] {
-  --bg: #f3f4f6;
+  --bg: #f5f3f2;
   --panel: #ffffff;
-  --ink: #111827;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --accent: #4f46e5;
+  --ink: #292526;
+  --muted: #71696b;
+  --line: #e6dfe0;
+  --accent: #a4444c;
   --accent-ink: #ffffff;
-  --danger: #b91c1c;
-  --warn: #b45309;
+  --danger: #b42332;
+  --warn: #966326;
+  --success: #347359;
+  --work: #596879;
   --topbar-bg: #ffffff;
   --input-bg: #ffffff;
-  --btn-secondary-bg: #e5e7eb;
-  --sidebar-bg: #0f172a;
-  --sidebar-ink: #e2e8f0;
-  --sidebar-muted: #94a3b8;
-  --sidebar-link: #cbd5e1;
+  --btn-secondary-bg: #eee9e9;
+  --sidebar-bg: #282325;
+  --sidebar-ink: #f2eded;
+  --sidebar-muted: #b9afb2;
+  --sidebar-link: #ded6d8;
 }
 
 [data-theme='dark'] {
-  --bg: #0b1220;
-  --panel: #111827;
-  --ink: #e5e7eb;
-  --muted: #9ca3af;
-  --line: #1f2937;
-  --accent: #818cf8;
-  --accent-ink: #111827;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --topbar-bg: #0f172a;
-  --input-bg: #0b1220;
-  --btn-secondary-bg: #1f2937;
-  --sidebar-bg: #020617;
-  --sidebar-ink: #e2e8f0;
-  --sidebar-muted: #94a3b8;
-  --sidebar-link: #cbd5e1;
+  --bg: #191819;
+  --panel: #232123;
+  --ink: #eee8e9;
+  --muted: #b3a9ad;
+  --line: #3b3539;
+  --accent: #ce8d92;
+  --accent-ink: #26191c;
+  --danger: #f0919c;
+  --warn: #d1af79;
+  --success: #91bca7;
+  --work: #a8b4c5;
+  --topbar-bg: #211e20;
+  --input-bg: #1c1a1c;
+  --btn-secondary-bg: #343033;
+  --sidebar-bg: #1d191b;
+  --sidebar-ink: #eee8e9;
+  --sidebar-muted: #b3a9ad;
+  --sidebar-link: #d6ccd0;
 }
 
 * {
@@ -529,7 +533,7 @@ textarea {
 }
 
 .table tbody tr.row-link:hover {
-  background: #f0fdfa;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 
 /* specificity выше, чем у `.field label { display:block }`, иначе title+hint слипаются в строку */
@@ -991,7 +995,7 @@ label.file-picker:focus-within,
 
 .order-suggest-list li button:hover,
 .order-suggest-list li button:focus {
-  background: #ecfeff;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 
 .order-suggest-selected {
@@ -1002,7 +1006,7 @@ label.file-picker:focus-within,
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   padding: 0.55rem 0.7rem;
-  background: #f0fdfa;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 
 .badge {
@@ -1024,15 +1028,15 @@ label.file-picker:focus-within,
 }
 
 .badge-ok {
-  background: color-mix(in srgb, #059669 14%, var(--panel));
-  color: #047857;
-  border-color: color-mix(in srgb, #059669 32%, var(--line));
+  background: color-mix(in srgb, var(--success) 14%, var(--panel));
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
 }
 
 .badge-work {
-  background: color-mix(in srgb, #2563eb 12%, var(--panel));
-  color: #1d4ed8;
-  border-color: color-mix(in srgb, #2563eb 30%, var(--line));
+  background: color-mix(in srgb, var(--work) 12%, var(--panel));
+  color: var(--work);
+  border-color: color-mix(in srgb, var(--work) 30%, var(--line));
 }
 
 .badge-muted {
@@ -1055,8 +1059,7 @@ label.file-picker:focus-within,
   display: grid;
   place-items: center;
   background:
-    radial-gradient(circle at 10% 20%, #ccfbf1 0, transparent 40%),
-    radial-gradient(circle at 90% 10%, #e0e7ff 0, transparent 35%),
+    radial-gradient(ellipse at 20% 10%, color-mix(in srgb, var(--accent) 7%, transparent) 0, transparent 60%),
     var(--bg);
 }
 
@@ -2978,7 +2981,7 @@ label.file-picker:focus-within,
 }
 
 .partners-ok {
-  color: #0f766e;
+  color: var(--success);
   margin: 0 0 0.75rem;
 }
 
@@ -3072,7 +3075,7 @@ label.file-picker:focus-within,
 .bot-settings-msg {
   margin: 0;
   text-align: center;
-  color: #0f766e;
+  color: var(--success);
 }
 
 .account-page {
@@ -4896,3 +4899,5 @@ label.file-picker:focus-within,
 
 .service-center-check {display:flex;align-items:center;gap:8px;margin:12px 0;}
 .service-center-check input[type=checkbox] {width:20px;height:20px;flex-shrink:0;}
+
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
