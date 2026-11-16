@@ -24,7 +24,7 @@ const settings = {
 };
 const svc = new BotService(p, {}, settings, {}, new SettlementsService(p, {}), new SalaryService(p));
 svc.sendMessage = async (chat,text,options={}) => { assert([chatId,'-222222','-333333'].includes(String(chat))); const message={id:++messageId,chatId:String(chat),text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
-svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery'].includes(method)); calls.push({method,...body}); return {ok:true}; };
+svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery','deleteMessage'].includes(method)); calls.push({method,...body}); return {ok:true}; };
 const click = (data, from=telegramId, chat=chatId) => svc.processUpdate({callback_query:{id:'q'+messageId,data,from:{id:Number(from)},message:{chat:{id:Number(chat),type:'supergroup'},message_id:50}}});
 const reply = (text, prompt=messages.at(-1), from=telegramId, chat=chatId) => svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chat),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},text}});
 const read = id => p.order.findUnique({where:{id},include:{payment:true}});
@@ -47,8 +47,8 @@ async function reachAddress(id) {
 async function close(id, text, expected) {
   await click(`gs:${id}:DONE`);
   const prompt=messages.at(-1); assert.equal(prompt.reply_markup.force_reply,true);
-  await reply(text,prompt,Number(telegramId)+1); assert.equal(messages.at(-1),prompt);
-  await reply(text,prompt);
+  await reply(text,prompt,Number(telegramId)+1); assert.equal(messages.at(-1),prompt);assert(!calls.some(c=>c.method==='deleteMessage'&&c.message_id===prompt.id));
+  await reply(text,prompt);assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===prompt.id&&c.chat_id===chatId));
   assert(!messages.at(-1).text.includes('На Авито:')); assert(!messages.at(-1).text.includes('Владельцу:'));
   const token=confirm(); assert.notEqual((await read(id)).status,'DONE');
   await click(token,Number(telegramId)+1); assert.notEqual((await read(id)).status,'DONE');
@@ -107,7 +107,13 @@ async function close(id, text, expected) {
       await click(`ga:${id}`,actor,'-999');assert.deepEqual(await buttons(id),['Принять']);
       await click(`ga:${id}`,Number(telegramId)+555,chat);assert.deepEqual(await buttons(id),['Принять']);
       await click(`gs:${id}:DONE`,actor,chat);assert.equal((await read(id)).status,'WAITING');
-      await click(`ga:${id}`,actor,chat);assert.deepEqual(await buttons(id),['Вышел']);assert.equal(calls.at(-1).show_alert,undefined);
+      await click(`ga:${id}`,actor,chat);
+      if((await read(id)).isServiceCenter){
+        assert.equal((await read(id)).status,'IN_PROGRESS');assert.deepEqual(await buttons(id),['Указать срок','Закрыть']);
+        await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');
+        return;
+      }
+      assert.deepEqual(await buttons(id),['Вышел']);assert.equal(calls.at(-1).show_alert,undefined);
       await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');assert.deepEqual(await buttons(id),['На адресе']);
       await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');assert.deepEqual(await buttons(id),['СД','Закрыть']);
     }
