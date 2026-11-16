@@ -855,7 +855,7 @@ export default function OrderDetailPage() {
               <div className="order-section-title">Исполнение</div>
               <div className="order-fields-grid">
                 <div className="field">
-                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка (реинвест 30%)</label><label>Статус</label>
+                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка (реинвест 50%)</label><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
@@ -930,7 +930,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
 
-              {order.payment && <div className="panel"><p>Реинвест ({Number(order.payment.reinvestPct)*100}% полного чека): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Остаток владельца: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
+              {order.payment && <div className="panel"><p>Реинвест ({Number(order.payment.reinvestPct)*100}% доли владельца после запчастей и мастера): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Остаток владельца: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
               {order.payment ? (
                 <div className="order-pay-summary">
                   <div className="order-pay-item">

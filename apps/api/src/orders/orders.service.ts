@@ -546,9 +546,9 @@ export class OrdersService {
         const locked = existing.status === OrderStatus.DONE && !masterChanged && (dto.typeTech === undefined || dto.typeTech === existing.typeTech) && (dto.isPersonal === undefined || dto.isPersonal === existing.isPersonal);
         const terms = locked && existingPayment ? {masterPct: Number(existingPayment.masterPct), reinvestPct: Number(existingPayment.reinvestPct)} : await this.salary.termsFor(paid - partsCost, dto.typeTech ?? existing.typeTech, nextMasterId);
         const masterPct = nextPersonal ? 0 : terms.masterPct;
-        const reinvestPct = nextPersonal ? 0.3 : terms.reinvestPct;
+        const reinvestPct = nextPersonal ? 0.5 : terms.reinvestPct;
         const base = calcPayment(paid, partsCost, masterPct);
-        const reinvestAmount = Math.round(paid * reinvestPct * 100) / 100;
+        const reinvestAmount = Math.round(base.toCompany * reinvestPct * 100) / 100;
         const calc = {...base, reinvestPct, reinvestAmount, ownerNet: Math.round((base.toCompany - reinvestAmount)*100)/100};
         toCompanyCash = calc.toCompany;
 

@@ -71,7 +71,7 @@ export class SalaryService {
   async termsFor(workSum: number, typeTech?: string | null, masterId?: string | null) {
     const rows = (await this.list()).filter(r => (!r.typeTech || r.typeTech === typeTech) && (!r.masterId || r.masterId === masterId) && workSum >= Number(r.minSum) && (r.maxSum == null || workSum <= Number(r.maxSum)));
     rows.sort((a,b)=> ((b.masterId?2:0)+(b.typeTech?1:0))-((a.masterId?2:0)+(a.typeTech?1:0)) || b.updatedAt.getTime()-a.updatedAt.getTime());
-    return {masterPct: rows[0] ? Number(rows[0].percent) : 0.5, reinvestPct: rows[0] ? Number(rows[0].reinvestPct) : 0.25};
+    return {masterPct: rows[0] ? Number(rows[0].percent) : 0.5, reinvestPct: rows[0] ? Number(rows[0].reinvestPct) : 0.5};
   }
 
   private async ensure(id: string) {

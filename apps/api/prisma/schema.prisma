@@ -171,7 +171,7 @@ model AgeCategory {
 model SalaryCategory {
   typeTech String? @map("type_tech")
   masterId String? @map("master_id")
-  reinvestPct Decimal @default(0.25) @map("reinvest_pct") @db.Decimal(5,4)
+  reinvestPct Decimal @default(0.5) @map("reinvest_pct") @db.Decimal(5,4)
   id        String   @id @default(cuid())
   minSum    Decimal  @map("min_sum") @db.Decimal(12, 2)
   maxSum    Decimal? @map("max_sum") @db.Decimal(12, 2)

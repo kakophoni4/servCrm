@@ -178,7 +178,7 @@ describe('OrdersService', () => {
       },
     };
 
-    salary = { termsFor: jest.fn().mockResolvedValue({masterPct:0.5,reinvestPct:0.25}), percentFor: jest.fn().mockResolvedValue(0.5) };
+    salary = { termsFor: jest.fn().mockResolvedValue({masterPct:0.5,reinvestPct:0.5}), percentFor: jest.fn().mockResolvedValue(0.5) };
     documents = {
       hasRequiredReceipts: jest.fn().mockResolvedValue(true),
       hasRequiredOrderDocs: jest.fn().mockResolvedValue(true),
@@ -445,15 +445,15 @@ describe('OrdersService', () => {
       expect(result).toEqual(expect.objectContaining({masterId:'m-1',telegramDelivery:'failed'}));
       expect(txMock.order.update).toHaveBeenCalled();
     });
-    it('reserves advertising from the full check', async () => {
+    it('splits owner share equally between advertising and owner', async () => {
       mockExistingOrder({masterId:'m-1'}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:'m-1'}});
-      await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1400},userId,Role.OWNER);
-      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:5300,reinvestAmount:3000,ownerNet:2300})}));
+      await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1000},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:5500,reinvestAmount:2750,ownerNet:2750})}));
     });
-    it('closes a personal order without a master, reserving 30 percent', async () => {
+    it('closes a personal order without a master, reserving half the owner share', async () => {
       mockExistingOrder({masterId:null}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:null}});
       await service.update(orderId,{status:OrderStatus.DONE,isPersonal:true,paid:12000,partsCost:1400},userId,Role.OWNER);
-      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:3600,ownerNet:7000})}));
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:5300,ownerNet:5300})}));
     });
     it('closes a paid order without attachments', async () => {
       mockExistingOrder({ masterId: 'm-1' });

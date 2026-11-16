@@ -151,7 +151,7 @@ export default function NewOrderPage() {
 
   return (
     <div className="order-new-page">
-      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам, реинвест 30%</label>
+      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам, реинвест 50%</label>
       <form className="panel order-new-form" onSubmit={onSubmit}>
         <section className="order-new-section">
           <h2 className="order-new-section-title">Клиент</h2>
