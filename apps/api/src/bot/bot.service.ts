@@ -730,7 +730,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.order.update({
-        where: { id: orderId },
+        where: { id: orderId, masterId: user.masterProfile!.id, status: order.status },
         data: {
           status,
           ...(status === OrderStatus.DONE
@@ -850,6 +850,71 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async groupOrderCard(orderId: string) {
+    const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true}});
+    if (!order) throw new NotFoundException('Заявка не найдена');
+    const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === order.masterId;
+    const text = [
+      'Заявка '+order.publicId,
+      'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята мастером' : ''),
+      'Мастер: '+(order.master?.user.fullName || 'не назначен'),
+      'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,
+      order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
+      'Техника: '+(order.typeTech || 'не указана'),
+      'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}) : 'не указано'),
+      order.comment ? 'Описание: '+order.comment : '',order.adminComment ? 'Комментарий: '+order.adminComment : '',
+    ].filter(Boolean).join('\n');
+    const buttons: {text:string;callback_data:string}[] = [];
+    if (order.masterId && !order.isPersonal) {
+      if (!accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push({text:'Принял',callback_data:'ga:'+order.id});
+      for (const next of this.buttonsForStatus(order.status)) {
+        if (next.status === OrderStatus.IN_PROGRESS_SD) continue;
+        buttons.push({text:next.status===OrderStatus.DONE?'Готово':next.label,callback_data:`gs:${order.id}:${next.status}`});
+      }
+    }
+    return {order,text,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
+  }
+
+  async sendOrderToGroup(orderId: string) {
+    const config = await this.settings.getBotConfig();
+    if (!config.enabled || !config.hasToken) throw new BadRequestException('Бот выключен');
+    const group = await this.getOrderGroup();
+    if (!group) throw new BadRequestException('Подключите группу в настройках Telegram');
+    const card = await this.groupOrderCard(orderId);
+    if (!card.order.masterId || card.order.isPersonal) throw new BadRequestException('Сначала назначьте мастера');
+    const result = await this.sendMessage(group.chatId,card.text,{reply_markup:card.reply_markup});
+    return {sent:!!result?.ok};
+  }
+
+  private async handleGroupAction(cq: TgCallbackQuery) {
+    const answer = (text:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
+    try {
+      const group = await this.getOrderGroup();
+      if (!group || String(cq.message?.chat?.id)!==group.chatId) throw new BadRequestException('Эта группа больше не подключена');
+      const match = /^(ga|gs):([a-z0-9-]+)(?::([A-Z_]+))?$/.exec(cq.data || '');
+      if (!match || !cq.from?.id) throw new BadRequestException('Некорректное действие');
+      const user = await this.masterByTelegram(String(cq.from.id));
+      const card = await this.groupOrderCard(match[2]);
+      if (card.order.masterId !== user.masterProfile!.id || card.order.isPersonal) throw new BadRequestException('Эта заявка назначена другому мастеру');
+      if (match[1]==='ga') {
+        if (![OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(card.order.status as any)) throw new BadRequestException('Статус уже изменился');
+        const changed = await this.prisma.order.updateMany({where:{id:card.order.id,masterId:user.masterProfile!.id,status:card.order.status,notifyAckedAt:null},data:{notifyAckedAt:new Date()}});
+        if (!changed.count && !card.order.notifyAckedAt) throw new BadRequestException('Заявка изменилась. Обновите карточку');
+        await this.settings.set('bot.orders.accepted.'+card.order.id,user.masterProfile!.id);
+      } else {
+        const status = match[3] as OrderStatus;
+        if (![OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.DONE].includes(status as any)) throw new BadRequestException('Недопустимый статус');
+        if (status===OrderStatus.DONE && Number(card.order.payment?.paid || 0)<=0) throw new BadRequestException('Сначала укажите оплату в CRM или через «Суммы» в личном чате с ботом');
+        await this.setStatus(String(cq.from.id),card.order.id,status,true);
+      }
+      const fresh = await this.groupOrderCard(card.order.id);
+      const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,reply_markup:fresh.reply_markup});
+      await answer(edited?.ok ? (match[1]==='ga'?'Заявка принята':'Статус сохранён') : 'Сохранено в CRM. Сообщение не обновилось - отправьте заявку в группу заново');
+    } catch(e) {
+      await answer(e instanceof BadRequestException || e instanceof NotFoundException ? e.message : 'Не удалось изменить статус. Подключите Telegram в карточке назначенного мастера и попробуйте снова');
+    }
+  }
+
   async createMasterLink(id: string) {
     const master = await this.prisma.master.findUnique({where:{id}});
     if (!master || master.status !== 'ACTIVE') throw new BadRequestException('Мастер не активен');
@@ -891,7 +956,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Отправка назначенной заявки в личный чат мастера. */
-  async notifyMasterOrder(masterId: string, orderId: string) {
+  async notifyMasterOrder(masterId: string, orderId: string, resetAcceptance = false) {
+    if (resetAcceptance) await this.prisma.appSetting.deleteMany({where:{key:'bot.orders.accepted.'+orderId}});
     const config = await this.settings.getBotConfig();
     if (!config.hasToken || !config.enabled) return null;
     const master = await this.prisma.master.findUnique({
@@ -923,7 +989,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const group = await this.getOrderGroup();
     // Each destination is independent: a missing private chat must not suppress the group copy.
     let groupSent: boolean | undefined;
-    if (group) groupSent = !!(await this.sendMessage(group.chatId,text))?.ok;
+    if (group) { try { groupSent = (await this.sendOrderToGroup(orderId)).sent; } catch { groupSent = false; } }
     let sent: Awaited<ReturnType<BotService['sendMessage']>> = null;
     if (telegramId) {
       await this.clearMasterOrderCard(orderId);
@@ -1987,6 +2053,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
+    if (/^(ga|gs):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =
       cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
     const telegramId = cq.from?.id != null ? String(cq.from.id) : null;

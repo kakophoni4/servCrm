@@ -247,7 +247,7 @@ describe('BotService', () => {
 
       expect(prisma.$transaction).toHaveBeenCalled();
       expect(txMock.order.update).toHaveBeenCalledWith({
-        where: { id: orderId },
+        where: { id: orderId, masterId: 'master-1', status: OrderStatus.IN_PROGRESS },
         data: expect.objectContaining({
           status: OrderStatus.DONE,
           docsViaAdmin: false,

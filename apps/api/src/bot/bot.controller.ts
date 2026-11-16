@@ -75,6 +75,11 @@ export class BotController {
   @Roles(Role.OWNER)
   masterLink(@Param('id') id: string) { return this.bot.createMasterLink(id); }
 
+  @Post('orders/:id/send-group')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  sendGroup(@Param('id') id: string) { return this.bot.sendOrderToGroup(id); }
+
   @Post('orders/:id/send')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)

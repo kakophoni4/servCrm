@@ -646,7 +646,7 @@ export class OrdersService {
       dto.masterId &&
       dto.masterId !== existing.masterId
     ) {
-      try { const sent = await this.bot.notifyMasterOrder(dto.masterId, id); telegramDelivery = sent?.ok ? 'sent' : 'failed'; if(sent?.groupSent !== undefined) telegramGroupDelivery = sent.groupSent ? 'sent' : 'failed'; }
+      try { const sent = await this.bot.notifyMasterOrder(dto.masterId, id, true); telegramDelivery = sent?.ok ? 'sent' : 'failed'; if(sent?.groupSent !== undefined) telegramGroupDelivery = sent.groupSent ? 'sent' : 'failed'; }
       catch { telegramDelivery = 'failed'; }
     }
 
