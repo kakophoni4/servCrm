@@ -101,7 +101,7 @@ export function BotSettingsPanel() {
   const statusLabel = !config?.hasToken
     ? 'не настроен'
     : config.enabled
-      ? 'включён · getUpdates'
+      ? 'включён'
       : 'выключен';
 
   return (
