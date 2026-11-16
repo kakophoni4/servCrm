@@ -233,8 +233,8 @@ export default function NewOrderPage() {
           </div>
         </section>
 
-        <MobileFold title="Дополнительно" className="order-new-section order-new-extra">
-          <h2 className="order-new-section-title">Дополнительно</h2>
+        <MobileFold title="Условия заявки" className="order-new-section order-new-extra">
+          <h2 className="order-new-section-title">Условия заявки</h2>
           <label className="service-center-check"><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Выполняю сам</label>
           <div className="order-new-grid">
             <div className="field">

@@ -21,7 +21,7 @@ export default function MastersPage(){
  <h1 className="page-title">Мастера</h1>
  <form className={`panel ${styles.form}`} onSubmit={add}>
  <h2>{editId?'Редактировать мастера':'Добавить мастера'}</h2>
- <div className={styles.fields}>
+ <div className={`${styles.fields} ${styles.masterFields}`}>
  <div className="field"><label htmlFor="master-name">Имя</label><input id="master-name" required autoComplete="name" value={name} onChange={e=>setName(e.target.value)}/></div>
  <div className="field"><label htmlFor="master-phone">Телефон</label><input id="master-phone" type="tel" autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value)}/></div>
  <div className="field"><label htmlFor="master-address">Адрес</label><input id="master-address" autoComplete="street-address" value={address} onChange={e=>setAddress(e.target.value)}/></div>

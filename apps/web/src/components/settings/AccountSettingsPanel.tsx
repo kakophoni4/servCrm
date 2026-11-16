@@ -97,12 +97,13 @@ export function AccountSettingsPanel() {
         </div>
 
         <div className="field">
-          <label>Текущий пароль</label>
+          <label htmlFor="account-currentPassword">Текущий пароль</label>
           <input
             type="password"
             required
             autoComplete="current-password"
             placeholder="••••••••"
+            id="account-currentPassword"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
           />
@@ -110,26 +111,28 @@ export function AccountSettingsPanel() {
 
         <div className="account-pwd-row">
           <div className="field">
-            <label>Новый пароль</label>
+            <label htmlFor="account-newPassword">Новый пароль</label>
             <input
               type="password"
               required
               minLength={6}
               autoComplete="new-password"
               placeholder="Минимум 6 символов"
-              value={newPassword}
+              id="account-newPassword"
+            value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
           </div>
           <div className="field">
-            <label>Повтор нового пароля</label>
+            <label htmlFor="account-newPassword2">Повтор нового пароля</label>
             <input
               type="password"
               required
               minLength={6}
               autoComplete="new-password"
               placeholder="Ещё раз"
-              value={newPassword2}
+              id="account-newPassword2"
+            value={newPassword2}
               onChange={(e) => setNewPassword2(e.target.value)}
             />
           </div>

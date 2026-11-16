@@ -14,7 +14,7 @@ export default function ReportsPage(){
  const masterRows=[...masters.map(m=>({id:m.id,name:m.user.fullName})),...(rows.some(o=>!o.masterId)?[{id:'',name:'Личные / без мастера'}]:[])];
  const metrics=[['Оплачено клиентами',money(total.paid)],['Мне после Авито',money(total.owner)],['На Авито',money(total.reinvest)],['Мастерам',money(total.salary)],['Запчасти',money(total.parts)],['Средний чек',money(total.count?total.paid/total.count:0)]];
  return <div className={styles.page}>
-  <div className={styles.heading}><h1 className="page-title">Деньги и статистика</h1>{!loading&&!error&&<span className={styles.count}>Закрыто заявок: {total.count}</span>}</div>
+  <div className={styles.heading}><h1 className="page-title">Финансы</h1>{!loading&&!error&&<span className={styles.count}>Закрыто заявок: {total.count}</span>}</div>
   <section className={`panel ${styles.filters}`} aria-label="Период отчёта">
    <div className="field"><label htmlFor="report-from">С даты</label><input id="report-from" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></div>
    <div className="field"><label htmlFor="report-to">По дату</label><input id="report-to" type="date" min={from} value={to} onChange={e=>setTo(e.target.value)}/></div>

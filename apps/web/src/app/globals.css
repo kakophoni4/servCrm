@@ -5078,3 +5078,25 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
  .order-new-compact .order-new-error { margin: 0; font-size: 13px; text-align: left; max-height: 70px; overflow: auto; }
  .order-new-compact .order-new-submit { min-height: 44px; margin: 0; }
 }
+
+/* Aligned field groups and section navigation. */
+.order-card .order-execution-grid { grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; }
+.order-card .order-execution-grid .field label { min-height: 1.4em; }
+.order-edit-details .order-fields-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.order-edit-details .order-fields-grid > .field { grid-column: 1 / -1; }
+.order-new-extra .order-new-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.order-new-extra .order-new-grid > .field:last-child { grid-column: 1 / -1; }
+.order-new-grid-details > .field { grid-column: 1 / -1; }
+.desk-top { flex-direction: column; align-items: stretch; margin-bottom: 8px; }
+.desk-title { margin: 0; }
+.desk-nav { align-self: flex-start; }
+.desk-nav-link { border-bottom: 0; }
+.account-pwd-row { align-items: start; }
+@media(min-width:601px) { .account-pwd-row .field label { min-height: 2.8em; display: flex; align-items: end; } }
+@media(max-width:600px) {
+ .desk-top { gap: 14px; }
+ .desk-nav { align-self: stretch; }
+ .order-new-extra .order-new-grid { grid-template-columns: minmax(0,1fr); }
+ .order-history-panel.mobile-fold > summary, .order-docs-panel.mobile-fold > summary { width: 100%; text-align: left; }
+ .order-execution-grid .field select { width: 100%; }
+}

@@ -790,7 +790,7 @@ export default function OrderDetailPage() {
           </div>
 
           {admin ? (
-            <MobileFold title="Изменить детали и заметки" className="order-section order-edit-details">
+            <MobileFold title="Детали и заметки" className="order-section order-edit-details">
               <div className="order-section-title">Детали</div>
                 <div className="order-options">
                   <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
@@ -869,7 +869,7 @@ export default function OrderDetailPage() {
 
           {admin ? (
             <div className="order-section">
-              <div className="order-section-title">Исполнение</div>
+              <div className="order-section-title">Мастер и оплата</div>
               <div className="order-fields-grid order-execution-grid">
 <div className="field"><label>Статус</label>
                   <select
@@ -923,7 +923,7 @@ export default function OrderDetailPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Оплачено клиентом</label>
+                  <label>Оплачено, ₽</label>
                   <input
                     value={paid}
                     inputMode="decimal"
@@ -934,7 +934,7 @@ export default function OrderDetailPage() {
                   />
                 </div>
                 <div className="field">
-                  <label>Комплектующие, ₽</label>
+                  <label>Запчасти, ₽</label>
                   <input
                     value={partsCost}
                     inputMode="decimal"

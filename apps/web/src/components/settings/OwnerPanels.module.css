@@ -32,3 +32,9 @@
 .shares strong { font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .empty { padding: 32px; text-align: center; color: var(--muted); }
 @media(max-width: 480px) { .page { gap: 18px; } .masterHead { flex-wrap: wrap; } .masterHead > .count { margin-left: 54px; } .shares > div { padding: 12px; } }
+
+.page > :global(.page-title) { margin-bottom: 0; }
+.pairedFields, .masterFields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.masterFields > :last-child { grid-column: 1 / -1; }
+.pairedFields :global(.field label) { min-height: 2.8em; display: flex; align-items: end; }
+@media(max-width:480px) { .masterFields, .pairedFields { grid-template-columns: minmax(0,1fr); } .pairedFields :global(.field label) { min-height: 0; } }

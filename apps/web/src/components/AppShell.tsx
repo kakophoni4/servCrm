@@ -22,11 +22,11 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
- {href:'/orders',label:'Заявки и клиенты'},
+ {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
  {href:'/settings/bot',label:'Telegram'},
  {href:'/reports',label:'Финансы'},
- {href:'/settings/salary',label:'Расчёт долей'},
+ {href:'/settings/salary',label:'Проценты и доли'},
  {href:'/settings/account',label:'Аккаунт'},
 ];
 

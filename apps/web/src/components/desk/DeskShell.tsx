@@ -59,7 +59,7 @@ export function DeskShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="desk">
       <div className="desk-top">
-        <h1 className="page-title desk-title">Заявки и клиенты</h1>
+        <h1 className="page-title desk-title">{visibleTabs.find(tab => tab.match(pathname))?.label ?? 'Заявки'}</h1>
         {visibleTabs.length > 1 ? (
           <nav className="desk-nav" aria-label="Разделы">
             {visibleTabs.map((tab) => {
@@ -68,6 +68,7 @@ export function DeskShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={tab.href}
                   href={tab.href}
+                  aria-current={active ? 'page' : undefined}
                   className={active ? 'desk-nav-link active' : 'desk-nav-link'}
                 >
                   {tab.label}
