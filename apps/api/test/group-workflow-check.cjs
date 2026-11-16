@@ -7,6 +7,13 @@ const { SalaryService } = require('../dist/salary/salary.service');
 const { SettlementsService } = require('../dist/settlements/settlements.service');
 assert(['localhost', '127.0.0.1', '[::1]'].includes(new URL(process.env.DATABASE_URL).hostname), 'Local database required');
 const p = new PrismaClient();
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const uploadRoot=fs.mkdtempSync(path.join(os.tmpdir(),'crm-doc-flow-'));
+process.env.UPLOAD_DIR=uploadRoot;
+const {StorageService}=require('../dist/common/storage/storage.service');
+const {DocumentsService}=require('../dist/documents/documents.service');
+const storage=new StorageService();
+const documents=new DocumentsService(p,storage);
 const tag = 'flowcheck' + Date.now();
 const telegramId = String(Date.now());
 const chatId = '-987654321';
@@ -22,7 +29,7 @@ const settings = {
   getBotConfig: async () => ({enabled:true,hasToken:true}),
   testBot: async () => ({ok:true,username:'TestBot'}),
 };
-const svc = new BotService(p, {}, settings, {}, new SettlementsService(p, {}), new SalaryService(p));
+const svc = new BotService(p, {}, settings, documents, new SettlementsService(p, {}), new SalaryService(p));
 svc.sendMessage = async (chat,text,options={}) => { assert([chatId,'-222222','-333333'].includes(String(chat))); const message={id:++messageId,chatId:String(chat),text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
 svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery','deleteMessage'].includes(method)); calls.push({method,...body}); return {ok:true}; };
 const click = (data, from=telegramId, chat=chatId) => svc.processUpdate({callback_query:{id:'q'+messageId,data,from:{id:Number(from)},message:{chat:{id:Number(chat),type:'supergroup'},message_id:50}}});
@@ -32,7 +39,9 @@ const buttons = async id => (await svc.groupOrderCard(id)).reply_markup.inline_k
 const confirm = () => messages.at(-1).reply_markup.inline_keyboard[0][0].callback_data;
 async function createOrder(extra={}) {
   const order=await p.order.create({data:{publicId:tag+ids.length,seqPrefix:tag,seq:ids.length+1,clientId:client.id,masterId:master.id,address:'Test',sourceKind:'OUR',typeTech:tag,...extra}});
-  ids.push(order.id); return order.id;
+  ids.push(order.id);
+  await p.orderDocument.createMany({data:['CONTRACT','RECEIPT_PARTS'].map(kind=>({orderId:order.id,kind,fileName:'fixture',filePath:'test-fixture'}))});
+  return order.id;
 }
 async function reachAddress(id) {
   assert.deepEqual(await buttons(id),['Принять']);
@@ -222,6 +231,46 @@ async function close(id, text, expected) {
     console.log('PASS custom percentages: 40% master, 30% Avito from owner share');
     const settlement=await p.masterSettlement.findFirst({where:{masterId:master.id}});
     assert.equal(Number(settlement.amount),42100);
+    await p.user.update({where:{id:owner.id},data:{telegramId:ownerTelegramId}});
+    const docOrder=await createOrder({isPersonal:true,masterId:null,status:'IN_PROGRESS'});
+    await p.orderDocument.deleteMany({where:{orderId:docOrder}});
+    await click(`gs:${docOrder}:DONE`,ownerTelegramId,'-222222');
+    await reply('10000 3500',messages.at(-1),ownerTelegramId,'-222222');
+    assert(messages.at(-1).text.includes('акт выполненных работ'));
+    let prompt=messages.at(-1),step=confirm();
+    await click('gf:'+step.slice(3),ownerTelegramId,'-222222');
+    assert.equal((await read(docOrder)).status,'IN_PROGRESS');
+    assert(calls.at(-1).text.includes('Загрузите акт'));
+    let downloadCount=0;
+    svc.downloadTgFile=async msg=>{downloadCount++;const buffer=Buffer.from(msg.document.file_id);return {buffer,size:buffer.length,mimetype:'image/jpeg',originalname:'scan.jpg'}};
+    const upload=async(id,from=ownerTelegramId,chat='-222222')=>svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chat),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},document:{file_id:id,file_name:'scan.jpg'}}});
+    await upload('foreign',telegramId);assert.equal(downloadCount,0);
+    await upload('wrongchat',ownerTelegramId,'-333333');assert.equal(downloadCount,0);
+    await upload('act-image');await upload('act-image');
+    assert.equal(await p.orderDocument.count({where:{orderId:docOrder,kind:'CONTRACT'}}),1);
+    let stored=await p.orderDocument.findFirst({where:{orderId:docOrder,kind:'CONTRACT'}});
+    assert.equal(fs.readFileSync(path.join(uploadRoot,stored.filePath),'utf8'),'act-image');
+    assert.equal(stored.uploadedBy,owner.id);
+    assert.equal((await read(docOrder)).status,'IN_PROGRESS');
+    assert.equal((await read(docOrder)).scheduledAt,null);
+    await click(step,ownerTelegramId,'-222222');
+    assert(messages.at(-1).text.includes('чеки на расходы'));
+    prompt=messages.at(-1);step=confirm();
+    await upload('receipt-one');await upload('receipt-two');
+    assert.equal(await p.orderDocument.count({where:{orderId:docOrder,kind:'RECEIPT_PARTS'}}),2);
+    await click(step,ownerTelegramId,'-222222');
+    assert(confirm().startsWith('gf:'));
+    const finalToken=confirm();
+    await p.orderDocument.updateMany({where:{orderId:docOrder,kind:'RECEIPT_PARTS'},data:{pendingReview:true}});
+    await click(finalToken,ownerTelegramId,'-222222');assert.equal((await read(docOrder)).status,'IN_PROGRESS');
+    await p.orderDocument.updateMany({where:{orderId:docOrder,kind:'RECEIPT_PARTS'},data:{pendingReview:false}});
+    await click(finalToken,ownerTelegramId,'-222222');
+    assert.equal((await read(docOrder)).status,'DONE');
+    const zeroCost=await createOrder({isPersonal:true,masterId:null,status:'IN_PROGRESS'});
+    await p.orderDocument.deleteMany({where:{orderId:zeroCost,kind:'RECEIPT_PARTS'}});
+    await click(`gs:${zeroCost}:DONE`,ownerTelegramId,'-222222');await reply('1000 0',messages.at(-1),ownerTelegramId,'-222222');
+    assert(confirm().startsWith('gf:'));await click(confirm(),ownerTelegramId,'-222222');assert.equal((await read(zeroCost)).status,'DONE');
+    console.log('PASS mandatory act and expense receipts, actual file storage, duplicate files, foreign senders/chats, no expenses, closure gate');
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
@@ -233,5 +282,7 @@ async function close(id, text, expected) {
     if(user)await p.user.delete({where:{id:user.id}});
     if(client)await p.client.delete({where:{id:client.id}});
     await p.$disconnect();
+    if(path.dirname(uploadRoot)!==path.resolve(os.tmpdir()) || !path.basename(uploadRoot).startsWith('crm-doc-flow-'))throw new Error('Unexpected test cleanup path');
+    fs.rmSync(uploadRoot,{recursive:true});
   }
 })().catch(e=>{console.error(e);process.exitCode=1;});

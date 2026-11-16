@@ -50,7 +50,7 @@ const UPLOAD_ALLOWED_KINDS = new Set<DocKind>([
 ]);
 
 export const DOC_KIND_RU: Record<DocKind, string> = {
-  [DocKind.CONTRACT]: 'договор',
+  [DocKind.CONTRACT]: 'акт / договор',
   [DocKind.RECEIPT_SERVICE]: 'чек за услугу',
   [DocKind.RECEIPT_PARTS]: 'чек за комплектующие / расходы',
   [DocKind.PARTS_PHOTO]: 'фото запчастей и комплектующих',
@@ -112,7 +112,7 @@ export class DocumentsService {
     files: UploadedMemoryFile[],
     uploadedBy?: string,
     forStatus?: OrderStatus | null,
-    options?: { pendingReview?: boolean },
+    options?: { pendingReview?: boolean; preserveOrder?: boolean },
   ): Promise<UploadManyResult> {
     const order = await this.ensureOrder(orderId);
     if (!UPLOAD_ALLOWED_KINDS.has(kind)) {
@@ -186,7 +186,7 @@ export class DocumentsService {
       }
     }
 
-    if (created.length && !pendingReview) {
+    if (created.length && !pendingReview && !options?.preserveOrder) {
       await this.autoFillScheduledAtIfComplete(orderId);
     }
     return { created, skipped };

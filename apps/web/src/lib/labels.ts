@@ -63,7 +63,7 @@ export function requiredOrderDocKinds(
 }
 
 export const DOC_KIND_LABELS: Record<string, string> = {
-  CONTRACT: 'Договор',
+  CONTRACT: 'Акт / договор',
   RECEIPT_SERVICE: 'Чек за услугу',
   RECEIPT_PARTS: 'Чек за комплектующие / расходы',
   PARTS_PHOTO: 'Фото запчастей и комплектующих',

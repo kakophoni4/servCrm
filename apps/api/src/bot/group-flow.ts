@@ -2,6 +2,8 @@ export type GroupFlow = {
   orderId: string; masterId: string | null; telegramId: string; chatId: string;
   messageId: number; kind: 'close' | 'sd'; expires: number; version: string;
   inputMessageId?: number;
+  summary?: string;
+  docPromptId?: number;
   sdStart?: string; sdFrom?: string; sdDue?: string;
   paid?: number; partsCost?: number; prepay?: number; minDays?: number; maxDays?: number;
   calc?: {workSum:number;masterPct:number;masterSalary:number;toCompany:number;reinvestPct:number;reinvestAmount:number;ownerNet:number};
