@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
@@ -735,8 +736,12 @@ export default function OrderDetailPage() {
 
   return (
     <div className="order-page">
+      <div className="order-mobile-bar">
+        <a className="btn secondary" href={`tel:${order.client.phoneNormalized}`}>Позвонить</a>
+        <button type="submit" form="order-edit-form" className="btn" disabled={doneBlocked}>Сохранить</button>
+      </div>
       <div className="order-page-grid">
-        <form className="panel order-card" onSubmit={save}>
+        <form id="order-edit-form" className="panel order-card" onSubmit={save}>
           {order.docsViaAdmin ? (
             <div className="banner-warn">
               Мастер попросил закрыть заявку через администратора.
@@ -777,10 +782,18 @@ export default function OrderDetailPage() {
 
           </div>
 
+          <div className="order-mobile-overview">
+            <div className="order-overview-line"><strong>{isServiceCenter ? 'Привезут в СЦ' : address || 'Адрес не указан'}</strong></div>
+            <div className="order-overview-line"><span>{scheduledAt ? new Date(scheduledAt).toLocaleString('ru-RU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Время не назначено'}</span><span>{typeTech || 'Техника не указана'}</span></div>
+            {order.comment?.trim() && <p>{order.comment}</p>}
+            {adminComment.trim() && <p className="muted">{adminComment}</p>}
+          </div>
+
           {admin ? (
-            <div className="order-section">
+            <MobileFold title="Изменить детали и заметки" className="order-section order-edit-details">
               <div className="order-section-title">Детали</div>
-              <div className="order-fields-grid">
+                <div className="order-options">
+                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
                 {!isServiceCenter && <div className="field">
                   <label>Адрес</label>
                   <input
@@ -816,7 +829,7 @@ export default function OrderDetailPage() {
                   />
                 </div>
               </div>
-            </div>
+            </MobileFold>
           ) : (
             <div className="order-meta">
               <div className="order-meta-item">
@@ -857,9 +870,8 @@ export default function OrderDetailPage() {
           {admin ? (
             <div className="order-section">
               <div className="order-section-title">Исполнение</div>
-              <div className="order-fields-grid">
-                <div className="order-options">
-                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div><div className="field"><label>Статус</label>
+              <div className="order-fields-grid order-execution-grid">
+<div className="field"><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
@@ -935,7 +947,7 @@ export default function OrderDetailPage() {
               </div>
 
               {order.payment ? (
-                <div className="order-pay-summary">
+                <MobileFold title="Расчёт долей" className="order-payment-fold"><div className="order-pay-summary">
                   <div className="order-pay-item">
                     <span>Сумма работ</span>
                     <strong>{Number(order.payment.workSum).toLocaleString('ru-RU')} ₽</strong>
@@ -962,7 +974,7 @@ export default function OrderDetailPage() {
                     <span>Мне</span>
                     <strong>{Number(order.payment.ownerNet).toLocaleString('ru-RU')} ₽</strong>
                   </div>
-                </div>
+                </div></MobileFold>
               ) : null}
             </div>
           ) : null}
@@ -1062,7 +1074,7 @@ export default function OrderDetailPage() {
           ) : null}
 
           {admin ? (
-          <div className="panel order-docs-panel">
+          <MobileFold title={`Фото и документы${pendingDocs.length ? ` · новых: ${pendingDocs.length}` : ''}`} className="panel order-docs-panel">
             <h2 className="order-side-title">Фото и документы</h2>
             {pendingDocs.length ? (
               <div className="docs-inbox">
@@ -1310,10 +1322,10 @@ export default function OrderDetailPage() {
                 {uploading ? 'Загрузка…' : 'Загрузить файлы'}
               </button>
             </form>
-          </div>
+          </MobileFold>
           ) : null}
 
-          <div className="panel order-history-panel">
+          <MobileFold title={`История клиента · ${order.client.orders.length}`} className="panel order-history-panel">
             <h2 className="order-side-title">История клиента</h2>
             {order.client.branchComment ? (
               <p className="muted order-history-note">
@@ -1359,7 +1371,7 @@ export default function OrderDetailPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </MobileFold>
         </div>
       </div>
     </div>
