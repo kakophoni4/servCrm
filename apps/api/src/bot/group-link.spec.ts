@@ -24,28 +24,39 @@ describe('Assignment group', () => {
     expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽$/);
     expect(card.text).not.toMatch(/На Авито|Владельцу/);
   });
+  it('formats labels with safe Telegram entities, Moscow minutes and a phone starting with 7',async()=>{
+    const {svc,prisma}=setup();const order=await prisma.order.findUnique();
+    prisma.order.findUnique.mockResolvedValue({...order,client:{name:'😀 <Иван>',phoneNormalized:'+79991234567'},scheduledAt:new Date('2026-11-16T06:00:00Z')});
+    const card=await (svc as any).groupOrderCard('o');
+    expect(card.text).toContain('Телефон: 79991234567');
+    expect(card.text).toContain('Время: 16.11, 09:00');
+    expect(card.text).not.toContain('09:00:00');
+    expect(card.text).toContain('😀 <Иван>');
+    const labels=card.entities.map((e:{offset:number;length:number})=>card.text.slice(e.offset,e.offset+e.length));
+    expect(labels).toEqual(expect.arrayContaining(['Заявка','Статус:','Телефон:','Всего:','Чистыми:']));
+  });
   it('refreshes an existing bot card in place without sending another order or changing its status',async()=>{
     const {svc,send,prisma}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({id:'u',masterProfile:{id:'m'}} as any);
     jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{id:123}});
     await svc.processUpdate({message:{text:'/refresh',from:{id:456},chat:{id:-123,type:'supergroup'},reply_to_message:{message_id:77,from:{id:123},text:'Заявка 123\nСтатус: Ожидание'}}});
-    expect(svc.telegram).toHaveBeenCalledWith('editMessageReplyMarkup',{chat_id:'-123',message_id:77,reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}});
+    expect(svc.telegram).toHaveBeenCalledWith('editMessageText',expect.objectContaining({chat_id:'-123',message_id:77,entities:expect.any(Array),reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}}));
     expect(send).not.toHaveBeenCalled();expect(prisma.order.update).not.toHaveBeenCalled();
   });
   it('refuses to refresh forged cards and cards in another chat',async()=>{
     const {svc}=setup();jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{id:123}});
     for(const [sender,chat] of [[999,-123],[123,-999]])await svc.processUpdate({message:{text:'/refresh',from:{id:456},chat:{id:chat,type:'supergroup'},reply_to_message:{message_id:77,from:{id:sender},text:'Заявка 123\nСтатус: Ожидание'}}});
-    expect(svc.telegram).not.toHaveBeenCalledWith('editMessageReplyMarkup',expect.anything());
+    expect(svc.telegram).not.toHaveBeenCalledWith('editMessageText',expect.anything());
   });
   it('binds a group once and consumes the code',async()=>{const {svc,appSetting}=setup();await svc.bindOrderGroup(code,{id:-123,type:'supergroup',title:'Orders'},'456');expect(appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({update:{value:JSON.stringify({chatId:'-123',title:'Orders'})}}));await expect(svc.bindOrderGroup(code,{id:-123,type:'supergroup'},'456')).rejects.toThrow();});
   it('rejects private chats, bad codes and non-admins without consuming code',async()=>{const {svc,appSetting}=setup();await expect(svc.bindOrderGroup(code,{id:456,type:'private'},'456')).rejects.toThrow();await expect(svc.bindOrderGroup('b'.repeat(32),{id:-123,type:'group'},'456')).rejects.toThrow();jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{status:'member'}});await expect(svc.bindOrderGroup(code,{id:-123,type:'group'},'456')).rejects.toThrow();expect(appSetting.deleteMany).not.toHaveBeenCalled();});
   it('rejects expired codes',async()=>{const {svc,appSetting}=setup();appSetting.findUnique.mockResolvedValue({value:JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:0})});await expect(svc.bindOrderGroup(code,{id:-123,type:'group'},'456')).rejects.toThrow();expect(appSetting.deleteMany).not.toHaveBeenCalled();});
   it('sends to group even without a linked master',async()=>{const {svc,send}=setup();const r=await svc.notifyMasterOrder('m','o');expect(send).toHaveBeenCalledTimes(1);expect(send).toHaveBeenCalledWith('-123',expect.stringContaining('Мастер: Master'),expect.any(Object));expect(r).toMatchObject({ok:false,groupSent:true});});
-  it('keeps private delivery independent of failed group delivery',async()=>{const {svc,send}=setup('456');send.mockResolvedValueOnce({ok:false}).mockResolvedValueOnce({ok:true,result:{message_id:2}});const r=await svc.notifyMasterOrder('m','o');expect(r).toMatchObject({ok:true,groupSent:false});expect(send).toHaveBeenLastCalledWith('456',expect.any(String));});
+  it('keeps private delivery independent of failed group delivery',async()=>{const {svc,send}=setup('456');send.mockResolvedValueOnce({ok:false}).mockResolvedValueOnce({ok:true,result:{message_id:2}});const r=await svc.notifyMasterOrder('m','o');expect(r).toMatchObject({ok:true,groupSent:false});expect(send).toHaveBeenLastCalledWith('456',expect.any(String),expect.objectContaining({entities:expect.any(Array)}));});
   it('does not send stale assignments or leak personal orders without an owner chat',async()=>{const {svc,send,prisma}=setup();prisma.order.findUnique.mockResolvedValue({masterId:'other'});await svc.notifyMasterOrder('m','o');expect(send).not.toHaveBeenCalled();prisma.order.findUnique.mockResolvedValue({id:'o',masterId:'m',isPersonal:true,client:{name:'Client',phoneNormalized:'7999'}});await expect(svc.notifyMasterOrder('m','o')).rejects.toThrow('Подключите «Мой чат»');expect(send).not.toHaveBeenCalled();});
   it('ignores ordinary group messages',async()=>{const {svc}=setup();const ingest=jest.spyOn(svc,'incomingMessage');await svc.processUpdate({message:{chat:{id:-123,type:'group'},from:{id:456},text:'hello'}});expect(ingest).not.toHaveBeenCalled();});
   it('group-only send never sends a private copy and includes status buttons',async()=>{
     const {svc,send}=setup('456');await svc.sendOrderToGroup('o');expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith('-123',expect.any(String),{reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}});
+    expect(send).toHaveBeenCalledWith('-123',expect.any(String),expect.objectContaining({entities:expect.any(Array),reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}}));
   });
   it('rejects group actions from another master or another chat',async()=>{
     const {svc}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'other'}} as any);const set=jest.spyOn(svc,'setStatus');

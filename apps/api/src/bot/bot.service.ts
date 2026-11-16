@@ -1040,7 +1040,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       });
       if(flow.kind==='close')await this.settlements.syncForCompletedOrder(flow.orderId).catch(()=>undefined);
       const fresh=await this.groupOrderCard(flow.orderId);
-      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,reply_markup:fresh.reply_markup});
+      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,entities:fresh.entities,reply_markup:fresh.reply_markup});
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:flow.kind==='close'?'Заявка закрыта':'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
       await answer();
     }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
@@ -1055,7 +1055,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = [
       'Заявка '+order.publicId,
       'ФИО: '+order.client.name,
-      'Телефон: '+order.client.phoneNormalized,
+      'Телефон: '+order.client.phoneNormalized.replace(/^\+7/, '7'),
       'Адрес: '+order.address,
       'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
       'Техника: '+(order.typeTech || 'не указана'),
@@ -1081,7 +1081,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }
-    return {order,text,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
+    const entities = [...text.matchAll(/^(Заявка|ФИО:|Телефон:|Адрес:|Время:|Техника:|Исполнитель:|Мастер:|Статус:|Примечание:|Комментарий:|На Авито:|Владельцу:|Всего:|Чистыми:|Срок:)/gm)].map(match => ({type:'bold',offset:match.index!,length:match[0].length}));
+    return {order,text,entities,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
 
   private async refreshGroupCard(msg:TgMessage) {
@@ -1096,7 +1097,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(!destination || destination.chatId!==String(msg.chat.id))throw new BadRequestException('Заявка относится к другому чату');
     await this.groupActor(order,String(msg.from.id));
     const card=await this.groupOrderCard(order.id);
-    const result=await this.telegram<{ok:boolean;description?:string}>('editMessageReplyMarkup',{chat_id:destination.chatId,message_id:original.message_id,reply_markup:card.reply_markup});
+    const result=await this.telegram<{ok:boolean;description?:string}>('editMessageText',{chat_id:destination.chatId,message_id:original.message_id,text:card.text,entities:card.entities,reply_markup:card.reply_markup});
     if(!result?.ok && !result?.description?.includes('message is not modified'))throw new BadRequestException('Telegram не разрешил обновить карточку');
   }
 
@@ -1107,7 +1108,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const special=card.order.isPersonal || card.order.isServiceCenter || !card.order.masterId;
     const group = masterOnly && !special ? await this.getMasterGroup(card.order.masterId!) : await this.getOrderDestination(orderId);
     if (!group) throw new BadRequestException(card.order.isServiceCenter?'Подключите чат СЦ в разделе Telegram':card.order.isPersonal || !card.order.masterId?'Подключите «Мой чат» в разделе Telegram':'Подключите группу в карточке назначенного мастера');
-    const result = await this.sendMessage(group.chatId,card.text,{reply_markup:card.reply_markup});
+    const result = await this.sendMessage(group.chatId,card.text,{entities:card.entities,reply_markup:card.reply_markup});
     return {sent:!!result?.ok};
   }
 
@@ -1139,7 +1140,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         }else await this.setStatus(String(cq.from.id),card.order.id,status,true);
       }
       const fresh = await this.groupOrderCard(card.order.id);
-      const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,reply_markup:fresh.reply_markup});
+      const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,entities:fresh.entities,reply_markup:fresh.reply_markup});
       await answer(edited?.ok ? undefined : 'Сохранено в CRM. Сообщение не обновилось - отправьте заявку в группу заново');
     } catch(e) {
       await answer(e instanceof BadRequestException || e instanceof NotFoundException ? e.message : 'Не удалось изменить статус. Подключите Telegram в карточке назначенного мастера и попробуйте снова');
@@ -1277,7 +1278,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     if (order.masterId !== masterId) return null;
     if(order.isPersonal || order.isServiceCenter){const sent=await this.sendOrderToGroup(orderId);return {ok:sent.sent,groupSent:sent.sent};}
-    const {text} = await this.groupOrderCard(orderId);
+    const {text,entities} = await this.groupOrderCard(orderId);
 
     if (await this.getMasterGroup(masterId)) {
       const result=await this.sendOrderToGroup(orderId,true);
@@ -1290,7 +1291,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     let sent: Awaited<ReturnType<BotService['sendMessage']>> = null;
     if (telegramId) {
       await this.clearMasterOrderCard(orderId);
-      sent = await this.sendMessage(telegramId,text);
+      sent = await this.sendMessage(telegramId,text,{entities});
     }
     if (sent?.ok && sent.result?.message_id) await this.prisma.order.update({where:{id:orderId},data:{masterTgChatId:telegramId,masterTgMessageId:sent.result.message_id}});
     return {...sent,ok:!!sent?.ok,groupSent};
