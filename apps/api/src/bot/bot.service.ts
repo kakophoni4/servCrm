@@ -1044,8 +1044,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const fresh=await this.groupOrderCard(flow.orderId);
       await this.rememberGroupCard(flow.orderId,flow.chatId,flow.messageId);
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,entities:fresh.entities,reply_markup:fresh.reply_markup});
-      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:flow.kind==='close'?'Заявка закрыта':'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
-      await answer();
+      if(flow.kind==='close') {
+        if(cq.message?.message_id)await this.deleteMessage(flow.chatId,cq.message.message_id).catch(()=>undefined);
+        await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:'Заявка закрыта',show_alert:false});
+      } else {
+        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
+        await answer();
+      }
     }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
 

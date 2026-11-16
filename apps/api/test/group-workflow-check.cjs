@@ -58,6 +58,9 @@ async function close(id, text, expected) {
   await click(token);
   const order=await read(id); assert.equal(order.status,'DONE'); assert(order.completedAt);
   assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===inputId&&c.chat_id===chatId));
+  assert(calls.some(c=>c.method==='answerCallbackQuery'&&c.text==='Заявка закрыта'&&c.show_alert===false));
+  assert(!calls.some(c=>c.method==='editMessageText'&&c.text==='Заявка закрыта'));
+  assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===50&&c.chat_id===chatId));
   for(const [field,value] of Object.entries(expected)) assert.equal(Number(order.payment[field]),value,field);
   assert.deepEqual(await buttons(id),[]);
   const cash=await p.cashTx.findMany({where:{orderId:id}}); assert.equal(cash.length,1); assert.equal(Number(cash[0].amount),expected.toCompany);
@@ -173,8 +176,8 @@ async function close(id, text, expected) {
     const oldToken=confirm();const oldKey='bot.flow.confirm.'+oldToken.slice(3);const draft=JSON.parse(await settings.get(oldKey));draft.calc.reinvestPct=0.5;await settings.set(oldKey,JSON.stringify(draft));
     await click(oldToken,ownerTelegramId,'-222222');assert.equal((await read(example)).status,'IN_PROGRESS');assert.equal(calls.at(-1).show_alert,true);
     await click(`gs:${example}:DONE`,ownerTelegramId,'-222222');await reply('11700 2300',messages.at(-1),ownerTelegramId,'-222222');await click(confirm(),ownerTelegramId,'-222222');
-    const exampleDone=await read(example);assert.equal(exampleDone.status,'DONE');assert.equal(Number(exampleDone.payment.reinvestAmount),2820);assert.equal(Number(exampleDone.payment.ownerNet),6580);assert.equal(calls.at(-1).show_alert,undefined);
-    console.log('PASS screenshot amounts 11700/2300 -> 2820/6580, silent success and rejected stale 50/50 confirmation');
+    const exampleDone=await read(example);assert.equal(exampleDone.status,'DONE');assert.equal(Number(exampleDone.payment.reinvestAmount),2820);assert.equal(Number(exampleDone.payment.ownerNet),6580);assert.equal(calls.at(-1).show_alert,false);assert.equal(calls.at(-1).text,'Заявка закрыта');
+    console.log('PASS screenshot amounts 11700/2300 -> 2820/6580, closure toast and rejected stale 50/50 confirmation');
     console.log('PASS full owner/center matrix: direct and SD, both authorized actors, routing, exact buttons, cancellation, concurrent confirmation');
     const partnerId=String(Number(telegramId)+777);
     const partnerLink=await svc.createPartnerLink(owner.id);const partnerPayload=new URL(partnerLink.url).searchParams.get('start');
