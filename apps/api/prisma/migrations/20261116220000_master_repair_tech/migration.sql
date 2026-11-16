@@ -1,0 +1,1 @@
+ALTER TABLE "masters" ADD COLUMN "repair_tech" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

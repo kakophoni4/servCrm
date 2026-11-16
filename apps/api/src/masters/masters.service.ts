@@ -35,6 +35,7 @@ export class MastersService {
 
   async create(input: {
     fullName: string;
+    repairTech?: string[];
     address?: string;
     login?: string;
     password?: string;
@@ -70,6 +71,7 @@ export class MastersService {
         data: {
           userId: user.id,
           address: input.address,
+          repairTech: input.repairTech,
           cityId: input.cityId?.trim() || null,
           status: UserStatus.ACTIVE,
         },
@@ -81,8 +83,8 @@ export class MastersService {
   /**
    * «Удаление» мастера: статус FIRED, открытые заявки без исполнителя.
    */
-  async update(id: string, input: {fullName:string;phone?:string;address?:string;telegramId?:string}) {
-    return this.prisma.master.update({where:{id},data:{address:input.address,user:{update:{fullName:input.fullName.trim(),phone:input.phone,telegramId:input.telegramId}}},include:{user:true}});
+  async update(id: string, input: {fullName:string;repairTech?:string[];phone?:string;address?:string;telegramId?:string}) {
+    return this.prisma.master.update({where:{id},data:{address:input.address,repairTech:input.repairTech,user:{update:{fullName:input.fullName.trim(),phone:input.phone,telegramId:input.telegramId}}},include:{user:true}});
   }
   async deactivate(id: string) {
     const master = await this.prisma.master.findUnique({ where: { id } });

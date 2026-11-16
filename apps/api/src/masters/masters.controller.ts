@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MinLength, IsArray, ArrayUnique, IsIn } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -19,6 +19,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { MastersService } from './masters.service';
 
 class CreateMasterDto {
+  @IsOptional() @IsArray() @ArrayUnique() @IsIn(['ХД','СМ','ПММ','ТВ','ПК','Другое'],{each:true})
+  repairTech?: string[];
   @IsOptional() @IsString() address?: string;
   @IsString()
   @IsNotEmpty()

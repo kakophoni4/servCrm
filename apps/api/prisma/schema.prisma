@@ -235,6 +235,7 @@ model BranchDirector {
 }
 
 model Master {
+  repairTech String[] @default([]) @map("repair_tech")
   address String?
   id        String     @id @default(cuid())
   userId    String     @unique @map("user_id")
