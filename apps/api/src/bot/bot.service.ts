@@ -952,33 +952,27 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     await this.groupFlowPrompt({orderId:id,masterId:card.order.masterId,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
   }
 
-  private async missingClosingDocs(flow:GroupFlow, db:any=this.prisma):Promise<DocKind[]> {
-    const required:DocKind[]=[DocKind.CONTRACT,...(Number(flow.partsCost)>0?[DocKind.RECEIPT_PARTS]:[])];
-    const docs=await db.orderDocument.findMany({where:{orderId:flow.orderId,kind:{in:required},pendingReview:false},select:{kind:true}});
-    return required.filter(kind=>!docs.some((d:{kind:DocKind})=>d.kind===kind));
+  private async showGroupClosingStep(token:string,flow:GroupFlow) {
+    const sent=await this.sendMessage(flow.chatId,flow.summary!,{reply_markup:{inline_keyboard:[[{text:'Подтвердить закрытие',callback_data:'gf:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
+    if(!sent?.ok)throw new BadRequestException('Не удалось показать подтверждение. Повторите попытку');
   }
 
-  private async showGroupClosingStep(token:string,flow:GroupFlow) {
-    if(await this.prisma.appSetting.count({where:{key:{startsWith:'bot.file.pending.'+token+'.'}}}))throw new BadRequestException('Фото ещё загружаются. Бот продолжит загрузку автоматически');
-    const missing=await this.missingClosingDocs(flow);
-    const previousPromptId=flow.docPromptId;
-    delete flow.docPromptId;
-    if(!missing.length){
-      const sent=await this.sendMessage(flow.chatId,flow.summary!,{reply_markup:{inline_keyboard:[[{text:'Подтвердить закрытие',callback_data:'gf:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
-      if(!sent?.ok)throw new BadRequestException('Не удалось показать подтверждение. Повторите попытку');
-    }else{
-      const kind=missing[0];
-      const label=kind===DocKind.CONTRACT?'акт выполненных работ':'чеки на расходы';
-      const sent=await this.sendMessage(flow.chatId,`Пришлите ${label} фото или файлом в ответ на это сообщение. Можно несколько. Затем нажмите «Далее».`,{reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
-      if(!sent?.ok || !sent.result?.message_id)throw new BadRequestException('Не удалось запросить документы');
-      flow.docPromptId=sent.result.message_id;
-      await this.settings.set(`bot.docs.reply.${flow.chatId}.${flow.docPromptId}`,JSON.stringify({token,kind}));
-    }
-    await this.settings.set('bot.flow.confirm.'+token,JSON.stringify(flow));
-    if(previousPromptId){
-      await this.prisma.appSetting.deleteMany({where:{key:`bot.docs.reply.${flow.chatId}.${previousPromptId}`}});
-      await this.deleteMessage(flow.chatId,previousPromptId).catch(()=>undefined);
-    }
+  private async startGroupDocuments(cq:TgCallbackQuery) {
+    const id=(cq.data||'').slice(3),chatId=String(cq.message?.chat?.id),telegramId=String(cq.from?.id);
+    try{
+      const destination=await this.getOrderDestination(id),card=await this.groupOrderCard(id);
+      if(!destination || destination.chatId!==chatId)throw new BadRequestException('Заявка относится к другому чату');
+      await this.groupActor(card.order,telegramId);
+      if(card.order.status!==OrderStatus.DONE)throw new BadRequestException('Сначала закройте заявку');
+      const token=randomBytes(8).toString('hex');
+      const publicId=card.order.publicId.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const sent=await this.sendMessage(chatId,`<a href="tg://user?id=${telegramId}">Прикрепить документы</a>\nЗаявка ${publicId}. Пришлите акт и чеки фото или файлами в ответ на это сообщение. Они сохранятся автоматически.`,{parse_mode:'HTML',reply_markup:{force_reply:true,selective:true}});
+      if(!sent?.ok || !sent.result?.message_id)throw new BadRequestException('Не удалось открыть загрузку');
+      const flow:GroupFlow={orderId:id,masterId:card.order.masterId,telegramId,chatId,messageId:cq.message!.message_id!,kind:'close',documentsOnly:true,expires:Date.now()+86400000,version:card.order.updatedAt.toISOString(),docPromptId:sent.result.message_id};
+      await this.settings.set('bot.docs.session.'+token,JSON.stringify(flow));
+      await this.settings.set(`bot.docs.reply.${chatId}.${flow.docPromptId}`,JSON.stringify({token,kind:DocKind.OTHER}));
+      await this.telegram('answerCallbackQuery',{callback_query_id:cq.id});
+    }catch(e){await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:e instanceof BadRequestException?e.message:'Не удалось открыть документы',show_alert:true});}
   }
 
   private retryPendingFiles():Promise<void> {
@@ -988,12 +982,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async validateFileSession(job:PendingFile) {
-    const raw=await this.settings.get('bot.flow.confirm.'+job.token);
+    const raw=await this.settings.get('bot.docs.session.'+job.token) || await this.settings.get('bot.flow.confirm.'+job.token);
     if(!raw)throw new BadRequestException('Загрузка отменена');
     const flow:GroupFlow=JSON.parse(raw),msg=job.msg;
     const group=await this.getOrderDestination(flow.orderId);
     const card=await this.groupOrderCard(flow.orderId);
-    if(flow.telegramId!==String(msg.from?.id)||group?.chatId!==String(msg.chat?.id)||flow.chatId!==String(msg.chat?.id)||flow.expires<Date.now()||flow.version!==card.order.updatedAt.toISOString())throw new BadRequestException('Заявка изменилась или время загрузки истекло. Нажмите «Закрыть» заново');
+    if(flow.telegramId!==String(msg.from?.id)||group?.chatId!==String(msg.chat?.id)||flow.chatId!==String(msg.chat?.id)||flow.expires<Date.now()||(flow.documentsOnly?card.order.status!==OrderStatus.DONE:flow.version!==card.order.updatedAt.toISOString()))throw new BadRequestException('Заявка изменилась или время загрузки истекло. Нажмите «Закрыть» заново');
     const actor=await this.groupActor(card.order,flow.telegramId);
     return {flow,actor};
   }
@@ -1016,12 +1010,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         await this.documents.uploadMany(flow.orderId,job.kind,[file],actor.id,OrderStatus.DONE,{preserveOrder:true});
         await this.prisma.appSetting.deleteMany({where:{key:row.key,value:lease}});
         const count=await this.prisma.orderDocument.count({where:{orderId:flow.orderId,kind:job.kind,pendingReview:false}});
-        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.docPromptId,text:`${job.kind===DocKind.CONTRACT?'Акт':'Чеки'}: сохранено файлов ${count}. Можно прислать ещё в ответ на это сообщение или нажать «Далее».`,reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+job.token},{text:'Отмена',callback_data:'gx:'+job.token}]]}});
+        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.docPromptId,text:`Сохранено файлов: ${count}. Можно прислать ещё фото или файлы в ответ на это сообщение.`,reply_markup:{inline_keyboard:[]}});
       }catch(e){
         const retry=e instanceof TelegramFileRetryError || !(e instanceof BadRequestException || e instanceof NotFoundException);
         if(retry){
           await this.prisma.appSetting.updateMany({where:{key:row.key,value:lease},data:{value:JSON.stringify({...job,attempts:job.attempts+1,nextAttempt:Date.now()+30000})}});
-          if(job.attempts===0)await this.telegram('editMessageText',{chat_id:String(job.msg.chat?.id),message_id:job.msg.reply_to_message?.message_id,text:'Файл загружается дольше обычного. Повторю автоматически, отправлять его заново не нужно.',reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+job.token},{text:'Отмена',callback_data:'gx:'+job.token}]]}});
+          if(job.attempts===0)await this.telegram('editMessageText',{chat_id:String(job.msg.chat?.id),message_id:job.msg.reply_to_message?.message_id,text:'Файл загружается дольше обычного. Повторю автоматически, отправлять его заново не нужно.',reply_markup:{inline_keyboard:[]}});
         }else{
           const removed=await this.prisma.appSetting.deleteMany({where:{key:row.key,value:lease}});
           if(removed.count)await this.sendMessage(String(job.msg.chat?.id),e instanceof BadRequestException?e.message:'Не удалось сохранить документ');
@@ -1036,14 +1030,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(!ref)return false;
     try{
       const {token,kind}=JSON.parse(ref);
-      const raw=await this.settings.get('bot.flow.confirm.'+token);
+      const raw=await this.settings.get('bot.docs.session.'+token) || await this.settings.get('bot.flow.confirm.'+token);
       if(!raw)return true;
       if(JSON.parse(raw).telegramId!==String(msg.from.id))return true;
       const job:PendingFile={token,kind,msg:{message_id:msg.message_id,chat:msg.chat,from:msg.from,reply_to_message:{message_id:msg.reply_to_message.message_id},photo:msg.photo,document:msg.document},attempts:0,nextAttempt:0};
       await this.validateFileSession(job);
       const key=`bot.file.pending.${token}.${msg.chat.id}.${msg.message_id}`;
       await this.prisma.appSetting.upsert({where:{key},create:{key,value:JSON.stringify(job)},update:{}});
-      await this.telegram('editMessageText',{chat_id:String(msg.chat.id),message_id:msg.reply_to_message.message_id,text:'Фото принято. Загружаю и сохраняю в заявку. Можно прислать ещё фото ответом на это сообщение.',reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
+      await this.telegram('editMessageText',{chat_id:String(msg.chat.id),message_id:msg.reply_to_message.message_id,text:'Фото принято. Загружаю и сохраняю в заявку. Можно прислать ещё фото ответом на это сообщение.',reply_markup:{inline_keyboard:[]}});
       void this.retryPendingFiles().catch(()=>this.logger.warn('Pending Telegram file retry failed'));
     }catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось принять документ. Отправьте его ещё раз');}
     return true;
@@ -1137,8 +1131,6 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
         if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         if(flow.kind==='close' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
-        if(flow.kind==='close' && await tx.appSetting.count({where:{key:{startsWith:'bot.file.pending.'+(cq.data || '').slice(3)+'.'}}}))throw new BadRequestException('Фото ещё загружаются. Дождитесь сохранения');
-        if(flow.kind==='close' && (await this.missingClosingDocs(flow,tx)).length)throw new BadRequestException('Загрузите акт и чеки на расходы перед закрытием');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
@@ -1148,6 +1140,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
         await tx.orderPayment.upsert({where:{orderId:flow.orderId},create:{orderId:flow.orderId,...payment},update:payment});
         if(flow.kind==='close') {
+          if(flow.docPromptId){
+            const docsKey='bot.docs.session.'+(cq.data || '').slice(3);
+            const value=JSON.stringify({...flow,documentsOnly:true,expires:Date.now()+86400000});
+            await tx.appSetting.upsert({where:{key:docsKey},create:{key:docsKey,value},update:{value}});
+          }
           const cash=await tx.cashTx.findFirst({where:{orderId:flow.orderId,incomeBasis:CashIncomeBasis.ORDER},select:{id:true}});
           const data={amount:flow.calc!.toCompany,cityId:current.cityId || undefined,description:'Приход по заявке (чистыми)'};
           if(cash)await tx.cashTx.update({where:{id:cash.id},data});
@@ -1204,6 +1201,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }
+    if(order.status===OrderStatus.DONE)buttons.push({text:'Прикрепить документы',callback_data:'gu:'+order.id});
     const entities = [...text.matchAll(/^(Заявка|ФИО:|Телефон:|Адрес:|Время:|Техника:|Исполнитель:|Мастер:|Статус:|Примечание:|Комментарий:|На Авито:|Владельцу:|Всего:|Чистыми:|Срок:)/gm)].map(match => ({type:'bold',offset:match.index!,length:match[0].length}));
     return {order,text,entities,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
@@ -1243,6 +1241,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleGroupAction(cq: TgCallbackQuery) {
+    if((cq.data||'').startsWith('gu:')){await this.startGroupDocuments(cq);return;}
     if (/^(gf|gx|gd):/.test(cq.data || '')) { await this.confirmGroupFlow(cq); return; }
     const answer = (text?:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,...(text?{text,show_alert:true}:{})});
     try {
@@ -2561,7 +2560,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
-    if (/^(ga|gs|gf|gx|gd):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
+    if (/^(ga|gs|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =
       cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
     const telegramId = cq.from?.id != null ? String(cq.from.id) : null;
