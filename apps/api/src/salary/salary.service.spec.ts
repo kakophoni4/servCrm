@@ -58,3 +58,17 @@ describe('SalaryService', () => {
     });
   });
 });
+
+ describe('pricing rule priority',()=>{
+  it('prefers the master and equipment rule, then master, then equipment',async()=>{
+   const now=new Date();const rows=[
+    {minSum:0,maxSum:null,percent:0.5,reinvestPct:0.25,updatedAt:now},
+    {minSum:0,maxSum:null,percent:0.6,reinvestPct:0.2,typeTech:'ХД',updatedAt:now},
+    {minSum:0,maxSum:null,percent:0.65,reinvestPct:0.15,masterId:'m',updatedAt:now},
+    {minSum:0,maxSum:null,percent:0.7,reinvestPct:0.1,masterId:'m',typeTech:'ХД',updatedAt:now},
+   ];const service=new SalaryService({salaryCategory:{findMany:async()=>rows}} as any);
+   expect(await service.termsFor(5000,'ХД','m')).toEqual({masterPct:0.7,reinvestPct:0.1});
+   expect(await service.termsFor(5000,'ПК','m')).toEqual({masterPct:0.65,reinvestPct:0.15});
+   expect(await service.termsFor(5000,'ХД','other')).toEqual({masterPct:0.6,reinvestPct:0.2});
+  });
+ });

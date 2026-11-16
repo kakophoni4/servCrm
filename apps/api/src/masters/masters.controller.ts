@@ -1,5 +1,6 @@
 import {
   Body,
+  Patch,
   Controller,
   Get,
   Param,
@@ -18,6 +19,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { MastersService } from './masters.service';
 
 class CreateMasterDto {
+  @IsOptional() @IsString() address?: string;
   @IsString()
   @IsNotEmpty()
   fullName!: string;
@@ -66,6 +68,11 @@ export class MastersController {
   create(@Body() dto: CreateMasterDto) {
     return this.masters.create(dto);
   }
+
+  @Patch(':id')
+  @Roles(Role.OWNER)
+  @RequirePermissions('masters.write')
+  update(@Param('id') id: string, @Body() dto: CreateMasterDto) { return this.masters.update(id, dto); }
 
   @Post(':id/deactivate')
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER)

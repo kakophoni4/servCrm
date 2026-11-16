@@ -7,7 +7,7 @@
   --ink: #111827;
   --muted: #6b7280;
   --line: #e5e7eb;
-  --accent: #0f766e;
+  --accent: #4f46e5;
   --accent-ink: #ffffff;
   --danger: #b91c1c;
   --warn: #b45309;
@@ -26,8 +26,8 @@
   --ink: #e5e7eb;
   --muted: #9ca3af;
   --line: #1f2937;
-  --accent: #14b8a6;
-  --accent-ink: #042f2e;
+  --accent: #818cf8;
+  --accent-ink: #111827;
   --danger: #f87171;
   --warn: #fbbf24;
   --topbar-bg: #0f172a;
@@ -4890,3 +4890,6 @@ label.file-picker:focus-within,
     width: 100%;
   }
 }
+
+.tech-picker { display:flex; flex-wrap:wrap; gap:8px; }
+.tech-picker .btn {min-width:54px; min-height:44px;}

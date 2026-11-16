@@ -45,7 +45,7 @@ describe('OrdersService', () => {
       update: jest.Mock;
     };
   };
-  let salary: { percentFor: jest.Mock };
+  let salary: { percentFor: jest.Mock; termsFor: jest.Mock };
   let documents: {
     hasRequiredReceipts: jest.Mock;
     missingRequiredKinds: jest.Mock;
@@ -178,7 +178,7 @@ describe('OrdersService', () => {
       },
     };
 
-    salary = { percentFor: jest.fn().mockResolvedValue(0.5) };
+    salary = { termsFor: jest.fn().mockResolvedValue({masterPct:0.5,reinvestPct:0.25}), percentFor: jest.fn().mockResolvedValue(0.5) };
     documents = {
       hasRequiredReceipts: jest.fn().mockResolvedValue(true),
       hasRequiredOrderDocs: jest.fn().mockResolvedValue(true),
@@ -438,6 +438,16 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Для статуса «Готов» назначьте мастера');
     });
 
+    it('reserves advertising from the full check', async () => {
+      mockExistingOrder({masterId:'m-1'}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:'m-1'}});
+      await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1400},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:5300,reinvestAmount:3000,ownerNet:2300})}));
+    });
+    it('closes a personal order without a master, reserving 30 percent', async () => {
+      mockExistingOrder({masterId:null}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:null}});
+      await service.update(orderId,{status:OrderStatus.DONE,isPersonal:true,paid:12000,partsCost:1400},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:3600,ownerNet:7000})}));
+    });
     it('closes a paid order without attachments', async () => {
       mockExistingOrder({ masterId: 'm-1' });
       documents.missingRequiredKinds.mockResolvedValue(['CONTRACT' as any]);

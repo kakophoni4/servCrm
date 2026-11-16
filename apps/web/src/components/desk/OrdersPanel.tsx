@@ -14,6 +14,7 @@ import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type OrderRow = {
+  isPersonal?: boolean;
   id: string;
   publicId: string;
   status: string;
@@ -74,8 +75,8 @@ export function OrdersPanel() {
   const [view,setView]=useState('active');
   const [query,setQuery]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [cities, setCities] = useState<City[]>([]);
-  const [cityFilter, setCityFilter] = useState('');
+  const [, setCities] = useState<City[]>([]);
+  const [cityFilter] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
@@ -119,7 +120,7 @@ export function OrdersPanel() {
     return () => clearInterval(timer);
   }, []);
 
-  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
+  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='personal'&&o.isPersonal)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
@@ -135,7 +136,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body"><div className="field"><input aria-label="Поиск заявок" placeholder="Имя, телефон, адрес, мастер или номер заявки" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="all">Все заявки</option></select></div>
+      <div className="desk-panel-body"><div className="field"><input aria-label="Поиск заявок" placeholder="Имя, телефон, адрес, мастер или номер заявки" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="all">Все заявки</option></select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (

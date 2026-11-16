@@ -17,8 +17,8 @@ export function pickSalaryPercent(workSum: number, bands: SalaryBand[]): number 
 
 export function calcPayment(paid: number, partsCost: number, masterPct: number) {
   const workSum = paid - partsCost;
-  const masterSalary = workSum * masterPct;
-  const toCompany = workSum - masterSalary;
+  const masterSalary = Math.round(workSum * masterPct * 100) / 100;
+  const toCompany = Math.round((workSum - masterSalary) * 100) / 100;
   return { workSum, masterPct, masterSalary, toCompany };
 }
 

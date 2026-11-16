@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
 import { DateTimeField } from '@/components/DateTimeField';
@@ -64,6 +65,7 @@ type DocPreview = {
 };
 
 type Order = {
+  isPersonal: boolean;
   id: string;
   publicId: string;
   status: string;
@@ -103,6 +105,9 @@ type Order = {
     workSum: string | number;
     masterPct: string | number;
     masterSalary: string | number;
+    reinvestAmount: string;
+    reinvestPct: string;
+    ownerNet: string;
     toCompany: string | number;
   } | null;
   documents?: OrderDocument[];
@@ -186,6 +191,7 @@ export default function OrderDetailPage() {
 
   const [status, setStatus] = useState('');
   const [masterId, setMasterId] = useState('');
+  const [isPersonal,setIsPersonal]=useState(false);
   const [address, setAddress] = useState('');
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
@@ -222,6 +228,7 @@ export default function OrderDetailPage() {
     const keepParts = opts?.preserveMoney ? partsCost : null;
     const data = await api<Order>(`/orders/${id}`);
     setOrder(data);
+    setIsPersonal(data.isPersonal);
     setStatus(data.status);
     setMasterId(data.masterId ?? '');
     setAddress(data.address ?? '');
@@ -290,9 +297,7 @@ export default function OrderDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const paidNum = Number(paid);
   const partsCostNum = Number(partsCost);
-  const needsDocs = paidNum > 500;
   const presentKinds = useMemo(
     () =>
       new Set(
@@ -371,11 +376,7 @@ export default function OrderDetailPage() {
     }
     return [...ORDER_UPLOAD_DOC_KINDS];
   }, [status]);
-  const uploadKinds = checklistKinds;
   const missingKinds = requiredKinds.filter((k) => !presentKinds.has(k));
-  const sdMissing =
-    status === 'IN_PROGRESS_SD' && !presentKinds.has(SD_UPLOAD_DOC_KIND);
-  const hasAllDocs = missingKinds.length === 0;
   const doneBlocked = false;
   const sdBlocked = false;
 
@@ -405,7 +406,7 @@ export default function OrderDetailPage() {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (status === 'DONE' && !masterId) {
+    if (status === 'DONE' && !masterId && !isPersonal) {
       setError('Для статуса «Готов» назначьте мастера');
       return;
     }
@@ -426,6 +427,7 @@ export default function OrderDetailPage() {
       const body: Record<string, unknown> = {};
       if (admin) {
         body.status = status;
+        body.isPersonal = isPersonal;
         body.masterId = masterId || null;
         body.address = address;
         body.typeTech = typeTech || null;
@@ -783,10 +785,7 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="field">
                   <label>Тип техники</label>
-                  <input
-                    value={typeTech}
-                    onChange={(e) => setTypeTech(e.target.value)}
-                  />
+                  <TechPicker value={typeTech} onChange={setTypeTech}/>
                 </div>
                 <div className="field">
                   <label>Дата/время выполнения</label>
@@ -854,7 +853,7 @@ export default function OrderDetailPage() {
               <div className="order-section-title">Исполнение</div>
               <div className="order-fields-grid">
                 <div className="field">
-                  <label>Статус</label>
+                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка (реинвест 30%)</label><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
@@ -892,9 +891,10 @@ export default function OrderDetailPage() {
                     {status === 'DONE' ? ' *' : ''}
                   </label>
                   <select
-                    value={masterId}
+                    disabled={isPersonal}
+                    value={isPersonal ? '' : masterId}
                     onChange={(e) => setMasterId(e.target.value)}
-                    required={status === 'DONE'}
+                    required={status === 'DONE' && !isPersonal}
                   >
                     <option value="">Не назначен</option>
                     {masters.map((m) => (
@@ -928,6 +928,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
 
+              {order.payment && <div className="panel"><p>Реинвест ({Number(order.payment.reinvestPct)*100}% полного чека): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Остаток владельца: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
               {order.payment ? (
                 <div className="order-pay-summary">
                   <div className="order-pay-item">
@@ -945,7 +946,7 @@ export default function OrderDetailPage() {
                     <strong>{String(order.payment.masterSalary)} ₽</strong>
                   </div>
                   <div className="order-pay-item accent">
-                    <span>Доля владельца</span>
+                    <span>Доля до реинвеста</span>
                     <strong>{String(order.payment.toCompany)} ₽</strong>
                   </div>
                 </div>
@@ -955,7 +956,7 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          <div className="order-actions">
+          <div className="order-actions"><button className="btn secondary" type="button" onClick={async()=>{const text = ['Заявка: '+order.publicId,'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,'Адрес: '+address,'Техника: '+typeTech,'Время: '+(scheduledAt?new Date(scheduledAt).toLocaleString('ru-RU'):'не указано'),'Комментарий: '+(order.comment||''),adminComment].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({text})}else if(navigator.clipboard){await navigator.clipboard.writeText(text);alert('Заявка скопирована — вставьте её в чат мастера')}else{window.prompt('Скопируйте заявку в чат мастера',text)}}catch(e){if(e instanceof Error && e.name!=='AbortError')setError('Не удалось отправить. Попробуйте скопировать текст.')}}}>Передать в чат</button>
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>

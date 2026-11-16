@@ -35,6 +35,7 @@ export class MastersService {
 
   async create(input: {
     fullName: string;
+    address?: string;
     login?: string;
     password?: string;
     phone?: string;
@@ -68,6 +69,7 @@ export class MastersService {
       return tx.master.create({
         data: {
           userId: user.id,
+          address: input.address,
           cityId: input.cityId?.trim() || null,
           status: UserStatus.ACTIVE,
         },
@@ -79,6 +81,9 @@ export class MastersService {
   /**
    * «Удаление» мастера: статус FIRED, открытые заявки без исполнителя.
    */
+  async update(id: string, input: {fullName:string;phone?:string;address?:string;telegramId?:string}) {
+    return this.prisma.master.update({where:{id},data:{address:input.address,user:{update:{fullName:input.fullName.trim(),phone:input.phone,telegramId:input.telegramId}}},include:{user:true}});
+  }
   async deactivate(id: string) {
     const master = await this.prisma.master.findUnique({ where: { id } });
     if (!master) throw new NotFoundException('Мастер не найден');

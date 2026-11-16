@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
-import { BranchSelect, type BranchCity } from '@/components/BranchSelect';
+import { type BranchCity } from '@/components/BranchSelect';
 import { DateTimeField } from '@/components/DateTimeField';
 import { api, getStoredUser } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
@@ -19,8 +20,8 @@ type ClientHit = {
 export default function NewOrderPage() {
   const router = useRouter();
   const [partners, setPartners] = useState<Dict[]>([]);
-  const [ages, setAges] = useState<Dict[]>([]);
-  const [cities, setCities] = useState<BranchCity[]>([]);
+  const [, setAges] = useState<Dict[]>([]);
+  const [, setCities] = useState<BranchCity[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [clientHint, setClientHint] = useState('');
@@ -30,6 +31,7 @@ export default function NewOrderPage() {
     clientName: '',
     clientPhone: '+7 ',
     type: 'NEW',
+    isPersonal: false,
     sourceKind: 'OUR',
     sourceOur: 'AVITO',
     partnerId: '',
@@ -123,6 +125,7 @@ export default function NewOrderPage() {
         clientName: form.clientName,
         clientPhone: phoneDigits,
         type: form.type,
+        isPersonal: form.isPersonal,
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
         partnerId: form.sourceKind === 'PARTNER' ? form.partnerId : undefined,
@@ -148,7 +151,7 @@ export default function NewOrderPage() {
 
   return (
     <div className="order-new-page">
-      <h1 className="page-title">Новая заявка</h1>
+      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам, реинвест 30%</label>
       <form className="panel order-new-form" onSubmit={onSubmit}>
         <section className="order-new-section">
           <h2 className="order-new-section-title">Клиент</h2>
@@ -261,11 +264,7 @@ export default function NewOrderPage() {
             </div>
             <div className="field">
               <label>Тип техники</label>
-              <input
-                value={form.typeTech}
-                onChange={(e) => set('typeTech', e.target.value)}
-                placeholder="Холодильник, стиралка…"
-              />
+              <TechPicker value={form.typeTech} onChange={v=>set('typeTech',v)}/>
             </div>
             <div className="field order-new-field-wide">
               <label>Комментарий</label>

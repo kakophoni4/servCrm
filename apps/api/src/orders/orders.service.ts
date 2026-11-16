@@ -236,6 +236,7 @@ export class OrdersService {
           seq,
           clientId: client.id,
           type,
+          isPersonal: dto.isPersonal ?? false,
           sourceKind: dto.sourceKind,
           sourceOur: dto.sourceKind === SourceKind.OUR ? dto.sourceOur : null,
           partnerId:
@@ -395,7 +396,7 @@ export class OrdersService {
       (dto.paid !== undefined ||
         dto.prepay !== undefined ||
         dto.partsCost !== undefined ||
-        dto.partsYesNo !== undefined) &&
+        dto.partsYesNo !== undefined || dto.isPersonal !== undefined) &&
       !isAdmin
     ) {
       throw new ForbiddenException('Оплаты редактирует администратор');
@@ -432,10 +433,12 @@ export class OrdersService {
         : OrderStatus.NOT_SCHEDULED;
     }
 
+    const nextPersonal = dto.isPersonal ?? existing.isPersonal;
     const nextStatus = status ?? existing.status;
+    if (nextPersonal) dto.masterId = null;
     const nextMasterId =
       dto.masterId !== undefined ? dto.masterId || null : existing.masterId;
-    if (nextStatus === OrderStatus.DONE && !nextMasterId) {
+    if (nextStatus === OrderStatus.DONE && !nextMasterId && !nextPersonal) {
       throw new BadRequestException(
         'Для статуса «Готов» назначьте мастера',
       );
@@ -443,6 +446,7 @@ export class OrdersService {
 
     const data: Prisma.OrderUpdateInput = {
       type: dto.type,
+      isPersonal: dto.isPersonal,
       sourceKind: dto.sourceKind,
       sourceOur: dto.sourceOur === undefined ? undefined : dto.sourceOur,
       partner:
@@ -533,13 +537,19 @@ export class OrdersService {
 
       let toCompanyCash = Number(existingPayment?.toCompany ?? 0);
 
-      if (paymentTouched || status === OrderStatus.DONE) {
+      if (paymentTouched || masterChanged || dto.typeTech !== undefined || dto.isPersonal !== undefined || status === OrderStatus.DONE) {
         const paid = dto.paid ?? Number(existingPayment?.paid ?? 0);
         const partsCost =
           dto.partsCost ?? Number(existingPayment?.partsCost ?? 0);
         const partsYesNo = partsCost > 0;
-        const masterPct = await this.salary.percentFor(paid - partsCost);
-        const calc = calcPayment(paid, partsCost, masterPct);
+        if (partsCost > paid) throw new BadRequestException('Запчасти не могут превышать оплату клиента');
+        const locked = existing.status === OrderStatus.DONE && !masterChanged && (dto.typeTech === undefined || dto.typeTech === existing.typeTech) && (dto.isPersonal === undefined || dto.isPersonal === existing.isPersonal);
+        const terms = locked && existingPayment ? {masterPct: Number(existingPayment.masterPct), reinvestPct: Number(existingPayment.reinvestPct)} : await this.salary.termsFor(paid - partsCost, dto.typeTech ?? existing.typeTech, nextMasterId);
+        const masterPct = nextPersonal ? 0 : terms.masterPct;
+        const reinvestPct = nextPersonal ? 0.3 : terms.reinvestPct;
+        const base = calcPayment(paid, partsCost, masterPct);
+        const reinvestAmount = Math.round(paid * reinvestPct * 100) / 100;
+        const calc = {...base, reinvestPct, reinvestAmount, ownerNet: Math.round((base.toCompany - reinvestAmount)*100)/100};
         toCompanyCash = calc.toCompany;
 
         await tx.orderPayment.upsert({

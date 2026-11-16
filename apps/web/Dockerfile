@@ -12,6 +12,7 @@ COPY apps/web apps/web
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 WORKDIR /app/apps/web
+ENV NODE_OPTIONS=--max-old-space-size=768
 RUN npm run build
 
 FROM node:20-alpine AS runner

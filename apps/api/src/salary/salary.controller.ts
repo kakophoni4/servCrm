@@ -24,6 +24,9 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { SalaryService } from './salary.service';
 
 class SalaryDto {
+ @IsOptional() @IsString() typeTech?: string;
+ @IsOptional() @IsString() masterId?: string;
+ @IsOptional() @IsNumber() @Min(0) @Max(1) reinvestPct?: number;
   @IsNumber()
   @Min(0)
   minSum!: number;
@@ -65,7 +68,7 @@ export class SalaryController {
   @Patch(':id')
   @Roles(Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('salary.write')
-  update(@Param('id') id: string, @Body() dto: Partial<SalaryDto>) {
+  update(@Param('id') id: string, @Body() dto: SalaryDto) {
     return this.salary.update(id, dto);
   }
 

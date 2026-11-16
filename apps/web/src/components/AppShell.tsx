@@ -12,8 +12,6 @@ import {
 import { ROLE_LABELS } from '@/lib/labels';
 import { hasPermission } from '@/lib/permissions';
 import { NavIcon } from './NavIcons';
-import { ChatMessageNotifier } from './ChatMessageNotifier';
-import { NewOrderNotifier } from './NewOrderNotifier';
 
 type NavItem = {
   href: string;

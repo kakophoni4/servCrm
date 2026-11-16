@@ -10,6 +10,7 @@ import {
 import { OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class CreateOrderDto {
+ @IsOptional() @IsBoolean() isPersonal?: boolean;
   @IsString()
   @IsNotEmpty()
   clientName!: string;
