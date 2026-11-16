@@ -66,6 +66,7 @@ type DocPreview = {
 
 type Order = {
   isPersonal: boolean;
+  isServiceCenter: boolean;
   id: string;
   publicId: string;
   status: string;
@@ -192,6 +193,7 @@ export default function OrderDetailPage() {
   const [status, setStatus] = useState('');
   const [masterId, setMasterId] = useState('');
   const [isPersonal,setIsPersonal]=useState(false);
+  const [isServiceCenter,setIsServiceCenter]=useState(false);
   const [delivery,setDelivery]=useState('');
   const [address, setAddress] = useState('');
   const [typeTech, setTypeTech] = useState('');
@@ -230,6 +232,7 @@ export default function OrderDetailPage() {
     const data = await api<Order>(`/orders/${id}`);
     setOrder(data);
     setIsPersonal(data.isPersonal);
+    setIsServiceCenter(data.isServiceCenter);
     setStatus(data.status);
     setMasterId(data.masterId ?? '');
     setAddress(data.address ?? '');
@@ -429,6 +432,7 @@ export default function OrderDetailPage() {
       if (admin) {
         body.status = status;
         body.isPersonal = isPersonal;
+        body.isServiceCenter = isServiceCenter;
         body.masterId = masterId || null;
         body.address = address;
         body.typeTech = typeTech || null;
@@ -855,7 +859,7 @@ export default function OrderDetailPage() {
               <div className="order-section-title">Исполнение</div>
               <div className="order-fields-grid">
                 <div className="field">
-                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка (реинвест 50%)</label><label>Статус</label>
+                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Личная заявка — выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ — реинвест 30%</label><p className="muted">СЦ: 30% твоей доли на Авито, 70% тебе. Применится после сохранения.</p><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}

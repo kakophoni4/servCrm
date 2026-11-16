@@ -272,6 +272,7 @@ model Client {
 }
 
 model Order {
+  isServiceCenter Boolean @default(false) @map("is_service_center")
   isPersonal Boolean @default(false) @map("is_personal")
   id            String      @id @default(cuid())
   publicId      String      @unique @map("public_id")

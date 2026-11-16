@@ -12,6 +12,7 @@ import { OrderStatus, OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class UpdateOrderDto {
  @IsOptional() @IsBoolean() isPersonal?: boolean;
+ @IsOptional() @IsBoolean() isServiceCenter?: boolean;
   @IsOptional()
   @IsEnum(OrderType)
   type?: OrderType;

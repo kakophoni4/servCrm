@@ -4893,3 +4893,6 @@ label.file-picker:focus-within,
 
 .tech-picker { display:flex; flex-wrap:wrap; gap:8px; }
 .tech-picker .btn {min-width:54px; min-height:44px;}
+
+.service-center-check {display:flex;align-items:center;gap:8px;margin:12px 0;}
+.service-center-check input[type=checkbox] {width:20px;height:20px;flex-shrink:0;}

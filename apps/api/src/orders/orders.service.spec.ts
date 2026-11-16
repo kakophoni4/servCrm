@@ -445,6 +445,17 @@ describe('OrdersService', () => {
       expect(result).toEqual(expect.objectContaining({masterId:'m-1',telegramDelivery:'failed'}));
       expect(txMock.order.update).toHaveBeenCalled();
     });
+    it('uses 30 percent of owner share for service center orders',async()=>{
+      mockExistingOrder({masterId:'m-1'});setupUpdateTransaction({resultOrder:{masterId:'m-1'}});
+      await service.update(orderId,{isServiceCenter:true,paid:12000,partsCost:1000},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:5500,reinvestPct:0.3,reinvestAmount:1650,ownerNet:3850})}));
+    });
+    it('restores standard reinvestment when center checkbox is cleared',async()=>{
+      mockExistingOrder({masterId:'m-1',status:OrderStatus.DONE,isServiceCenter:true});setupUpdateTransaction({resultOrder:{masterId:'m-1'}});
+      prisma.orderPayment.findUnique.mockResolvedValueOnce({paid:12000,partsCost:1000,masterPct:0.5,reinvestPct:0.3});
+      await service.update(orderId,{isServiceCenter:false},userId,Role.OWNER);
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({update:expect.objectContaining({masterSalary:5500,reinvestPct:0.5,reinvestAmount:2750,ownerNet:2750})}));
+    });
     it('splits owner share equally between advertising and owner', async () => {
       mockExistingOrder({masterId:'m-1'}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:'m-1'}});
       await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1000},userId,Role.OWNER);

@@ -11,6 +11,7 @@ import { OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class CreateOrderDto {
  @IsOptional() @IsBoolean() isPersonal?: boolean;
+ @IsOptional() @IsBoolean() isServiceCenter?: boolean;
   @IsString()
   @IsNotEmpty()
   clientName!: string;

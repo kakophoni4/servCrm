@@ -32,6 +32,7 @@ export default function NewOrderPage() {
     clientPhone: '+7 ',
     type: 'NEW',
     isPersonal: false,
+    isServiceCenter: false,
     sourceKind: 'OUR',
     sourceOur: 'AVITO',
     partnerId: '',
@@ -126,6 +127,7 @@ export default function NewOrderPage() {
         clientPhone: phoneDigits,
         type: form.type,
         isPersonal: form.isPersonal,
+        isServiceCenter: form.isServiceCenter,
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
         partnerId: form.sourceKind === 'PARTNER' ? form.partnerId : undefined,
@@ -151,7 +153,7 @@ export default function NewOrderPage() {
 
   return (
     <div className="order-new-page">
-      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам, реинвест 50%</label>
+      <h1 className="page-title">Новая заявка</h1><label><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Личная заявка — выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ — реинвест 30%</label>
       <form className="panel order-new-form" onSubmit={onSubmit}>
         <section className="order-new-section">
           <h2 className="order-new-section-title">Клиент</h2>
