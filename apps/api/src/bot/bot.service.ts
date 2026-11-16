@@ -909,11 +909,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async groupActor(order: {masterId:string|null;isPersonal:boolean;isServiceCenter:boolean}, telegramId:string) {
+    if(order.isPersonal || order.isServiceCenter || !order.masterId){
+      const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+      if(owner)return {id:owner.id,isOwner:true};
+      if(order.isPersonal || !order.masterId)throw new BadRequestException('Этой заявкой управляет только владелец. Подключите свой Telegram в CRM');
+    }
+    const user=await this.masterByTelegram(telegramId);
+    if(user.masterProfile!.id!==order.masterId)throw new BadRequestException('Эта заявка назначена другому мастеру');
+    return {id:user.id,isOwner:false};
+  }
+
   private async groupFlowPrompt(flow: GroupFlow, replyTo?: number, error?: string) {
     const prompt = flow.kind==='close'
       ? 'Закрытие заявки. Ответьте двумя суммами: получено всего (включая предоплату) и расходы. Например: 11000 1000'
       : 'Передача в СД. Ответьте предоплатой и сроком. Например:\n5000 пред\nСрок 5-7 дней';
-    const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">Мастер</a>\n${error ? error+'\n' : ''}${prompt}`,{
+    const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">Введите суммы</a>\n${error ? error+'\n' : ''}${prompt}`,{
       parse_mode:'HTML',reply_markup:{force_reply:true,selective:true},
       ...(replyTo ? {reply_parameters:{message_id:replyTo}} : {}),
     });
@@ -924,10 +935,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private async beginGroupFlow(cq:TgCallbackQuery, kind:'close'|'sd') {
     const id=(cq.data || '').split(':')[1];
     const card=await this.groupOrderCard(id);
-    const user=await this.masterByTelegram(String(cq.from!.id));
-    if(card.order.masterId!==user.masterProfile!.id || card.order.isPersonal) throw new BadRequestException('Заявка назначена другому мастеру');
+    await this.groupActor(card.order,String(cq.from!.id));
     if(kind==='sd' ? card.order.status!==OrderStatus.IN_PROGRESS : ![OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(card.order.status as any)) throw new BadRequestException('Статус заявки изменился');
-    await this.groupFlowPrompt({orderId:id,masterId:user.masterProfile!.id,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
+    await this.groupFlowPrompt({orderId:id,masterId:card.order.masterId,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
   }
 
   private async handleGroupFlowReply(msg:TgMessage):Promise<boolean> {
@@ -943,9 +953,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const group=await this.getOrderDestination(flow.orderId);
       if(!group || group.chatId!==flow.chatId)throw new BadRequestException('Группа отключена');
       if(flow.expires<Date.now())throw new BadRequestException('Время ввода истекло. Нажмите кнопку заявки заново');
-      const user=await this.masterByTelegram(flow.telegramId);
       const card=await this.groupOrderCard(flow.orderId);
-      if(card.order.masterId!==flow.masterId || user.masterProfile!.id!==flow.masterId || card.order.isPersonal || card.order.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Нажмите кнопку заявки заново');
+      await this.groupActor(card.order,flow.telegramId);
+      if(card.order.masterId!==flow.masterId || card.order.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Нажмите кнопку заявки заново');
       if(msg.text.trim().toLowerCase()==='отмена') {
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
         await this.sendMessage(flow.chatId,'Ввод отменён');return true;
@@ -959,11 +969,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;
         }
         const terms=await this.salary.termsFor(amounts.paid-amounts.partsCost,card.order.typeTech,flow.masterId);
-        const base=calcPayment(amounts.paid,amounts.partsCost,terms.masterPct);
-        const reinvestPct=card.order.isServiceCenter?0.3:terms.reinvestPct;
+        const ownWork=card.order.isPersonal || !card.order.masterId;
+        const base=calcPayment(amounts.paid,amounts.partsCost,ownWork?0:terms.masterPct);
+        const reinvestPct=card.order.isServiceCenter?0.3:ownWork?0.5:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
-        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽` + (card.order.isPersonal ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
+        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
       } else {
         let terms:ReturnType<typeof parseSdReply>;
         try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;}
@@ -988,24 +999,24 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(!raw)throw new BadRequestException('Уже обработано или отменено');
       const flow:GroupFlow=JSON.parse(raw);
       const group=await this.getOrderDestination(flow.orderId);
-      if(!group || group.chatId!==flow.chatId || String(cq.message?.chat?.id)!==flow.chatId || String(cq.from?.id)!==flow.telegramId)throw new BadRequestException('Подтвердить может только назначенный мастер');
+      if(!group || group.chatId!==flow.chatId || String(cq.message?.chat?.id)!==flow.chatId || String(cq.from?.id)!==flow.telegramId)throw new BadRequestException('Подтвердить может только тот, кто ввёл суммы');
       if(cq.data?.startsWith('gx:')) {
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
         await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Отменено',reply_markup:{inline_keyboard:[]}});
         await answer('Отменено');return;
       }
       if(flow.expires<Date.now())throw new BadRequestException('Подтверждение истекло. Нажмите кнопку заявки заново');
-      const user=await this.masterByTelegram(flow.telegramId);
-      if(user.masterProfile!.id!==flow.masterId)throw new BadRequestException('Мастер изменился');
+      const currentCard=await this.groupOrderCard(flow.orderId);
+      const user=await this.groupActor(currentCard.order,flow.telegramId);
       await this.prisma.$transaction(async tx=>{
         const consumed=await tx.appSetting.deleteMany({where:{key,value:raw}});
         if(consumed.count!==1)throw new BadRequestException('Уже обработано');
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
-        if(!current || current.masterId!==flow.masterId || current.isPersonal || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
+        if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
-          ?{status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          ?{isPersonal:current.isPersonal || !current.masterId,status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
           :{status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
         if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
@@ -1028,11 +1039,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private async groupOrderCard(orderId: string) {
     const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true}});
     if (!order) throw new NotFoundException('Заявка не найдена');
-    const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === order.masterId;
+    const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
     const text = [
       'Заявка '+order.publicId,
-      'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята мастером' : ''),
-      order.isPersonal?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
+      'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята' : ''),
+      order.isPersonal || !order.masterId?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
       'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,
       order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
       'Техника: '+(order.typeTech || 'не указана'),
@@ -1044,7 +1055,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.comment ? 'Описание: '+order.comment : '',order.adminComment ? 'Комментарий: '+order.adminComment : '',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
-    if (order.masterId && !order.isPersonal) {
+    {
       if ([OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push(accepted?{text:'Вышел',callback_data:`gs:${order.id}:ON_THE_WAY`}:{text:'Принять',callback_data:'ga:'+order.id});
       if(order.status===OrderStatus.ON_THE_WAY)buttons.push({text:'На адресе',callback_data:`gs:${order.id}:IN_PROGRESS`});
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
@@ -1072,20 +1083,23 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if (!match || !cq.from?.id) throw new BadRequestException('Некорректное действие');
       const group = await this.getOrderDestination(match[2]);
       if (!group || String(cq.message?.chat?.id)!==group.chatId) throw new BadRequestException('Эта группа больше не подключена к заявке');
-      const user = await this.masterByTelegram(String(cq.from.id));
       const card = await this.groupOrderCard(match[2]);
-      if (card.order.masterId !== user.masterProfile!.id || card.order.isPersonal) throw new BadRequestException('Эта заявка назначена другому мастеру');
+      const user = await this.groupActor(card.order,String(cq.from.id));
       if (match[1]==='ga') {
         if (![OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(card.order.status as any)) throw new BadRequestException('Статус уже изменился');
-        const changed = await this.prisma.order.updateMany({where:{id:card.order.id,masterId:user.masterProfile!.id,status:card.order.status,notifyAckedAt:null},data:{notifyAckedAt:new Date()}});
+        const changed = await this.prisma.order.updateMany({where:{id:card.order.id,masterId:card.order.masterId,status:card.order.status,notifyAckedAt:null},data:{notifyAckedAt:new Date()}});
         if (!changed.count && !card.order.notifyAckedAt) throw new BadRequestException('Заявка изменилась. Обновите карточку');
-        await this.settings.set('bot.orders.accepted.'+card.order.id,user.masterProfile!.id);
+        await this.settings.set('bot.orders.accepted.'+card.order.id,card.order.masterId || 'owner');
       } else {
         const status = match[3] as OrderStatus;
         if (![OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD,OrderStatus.DONE].includes(status as any)) throw new BadRequestException('Недопустимый статус');
-        if(status===OrderStatus.ON_THE_WAY && await this.settings.get('bot.orders.accepted.'+card.order.id)!==card.order.masterId) throw new BadRequestException('Сначала примите заявку');
+        if(status===OrderStatus.ON_THE_WAY && await this.settings.get('bot.orders.accepted.'+card.order.id)!==(card.order.masterId || 'owner')) throw new BadRequestException('Сначала примите заявку');
         if(status===OrderStatus.DONE || status===OrderStatus.IN_PROGRESS_SD){await this.beginGroupFlow(cq,status===OrderStatus.DONE?'close':'sd');await answer('Ответьте на сообщение бота');return;}
-        await this.setStatus(String(cq.from.id),card.order.id,status,true);
+        if(user.isOwner){
+          this.assertStatusTransition(card.order.status,status);
+          const changed=await this.prisma.order.updateMany({where:{id:card.order.id,masterId:card.order.masterId,status:card.order.status,updatedAt:card.order.updatedAt},data:{status,notifyAckedAt:new Date()}});
+          if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Обновите карточку');
+        }else await this.setStatus(String(cq.from.id),card.order.id,status,true);
       }
       const fresh = await this.groupOrderCard(card.order.id);
       const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,reply_markup:fresh.reply_markup});
@@ -1093,6 +1107,40 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     } catch(e) {
       await answer(e instanceof BadRequestException || e instanceof NotFoundException ? e.message : 'Не удалось изменить статус. Подключите Telegram в карточке назначенного мастера и попробуйте снова');
     }
+  }
+
+  async ownerConnection(userId:string) {
+    const user=await this.prisma.user.findUnique({where:{id:userId}});
+    return {connected:!!user?.telegramId};
+  }
+
+  async createOwnerLink(userId:string) {
+    const user=await this.prisma.user.findUnique({where:{id:userId}});
+    if(!user || user.role!==Role.OWNER || user.status!==UserStatus.ACTIVE)throw new BadRequestException('Владелец не найден');
+    const bot=await this.settings.testBot();
+    if(!bot.ok || !bot.username)throw new BadRequestException('Бот недоступен');
+    const token=randomBytes(16).toString('hex');
+    await this.settings.set('owner.bind.'+userId,JSON.stringify({hash:createHash('sha256').update(token).digest('hex'),expires:Date.now()+86400000}));
+    return {url:`https://t.me/${bot.username}?start=o_${userId}_${token}`};
+  }
+
+  async bindOwner(payload:string,telegramId:string,chatId:string) {
+    if(chatId!==telegramId)throw new BadRequestException('Откройте ссылку в личном чате с ботом');
+    const match=/^o_([a-z0-9]+)_([a-f0-9]{32})$/.exec(payload);
+    if(!match)throw new BadRequestException('Некорректная ссылка');
+    const key='owner.bind.'+match[1];
+    await this.prisma.$transaction(async tx=>{
+      const row=await tx.appSetting.findUnique({where:{key}});
+      if(!row)throw new BadRequestException('Ссылка использована или отозвана');
+      const data=JSON.parse(row.value);
+      if(data.expires<Date.now() || data.hash!==createHash('sha256').update(match[2]).digest('hex'))throw new BadRequestException('Ссылка истекла или недействительна');
+      const owner=await tx.user.findUnique({where:{id:match[1]}});
+      if(!owner || owner.role!==Role.OWNER || owner.status!==UserStatus.ACTIVE)throw new BadRequestException('Владелец не активен');
+      if(await tx.user.findFirst({where:{telegramId,id:{not:owner.id}}}))throw new BadRequestException('Этот Telegram привязан к другой анкете');
+      const consumed=await tx.appSetting.deleteMany({where:{key,value:row.value}});
+      if(consumed.count!==1)throw new BadRequestException('Ссылка уже использована');
+      await tx.user.update({where:{id:owner.id},data:{telegramId}});
+    });
   }
 
   async createMasterLink(id: string) {
@@ -1642,6 +1690,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = msg.text.trim();
     if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
       const payload = text.split(/\s+/)[1];
+      if(payload?.startsWith('o_')){
+        try{await this.bindOwner(payload,telegramId,chatId);await this.sendMessage(chatId,'Telegram владельца подключён. Вы можете управлять заявками в своём чате и чате СЦ.');}
+        catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить Telegram');}
+        return;
+      }
       if (payload?.startsWith('m_')) {
         try { await this.bindMaster(payload,telegramId,chatId); await this.sendMessage(chatId,'Telegram подключён. Новые назначенные заявки будут приходить сюда автоматически.'); }
         catch(e) { await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить Telegram. Попросите владельца выдать новую ссылку.'); }

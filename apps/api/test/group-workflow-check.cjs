@@ -12,7 +12,8 @@ const telegramId = String(Date.now());
 const chatId = '-987654321';
 const settingsKeys = new Set();
 const ids = [];
-let user, client, master, rule;
+let user, client, master, rule, owner;
+const ownerTelegramId=String(Number(telegramId)+100);
 let messageId = 100;
 const messages = [], calls = [];
 const settings = {
@@ -25,7 +26,7 @@ const svc = new BotService(p, {}, settings, {}, new SettlementsService(p, {}), n
 svc.sendMessage = async (chat,text,options={}) => { assert([chatId,'-222222','-333333'].includes(String(chat))); const message={id:++messageId,chatId:String(chat),text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
 svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery'].includes(method)); calls.push({method,...body}); return {ok:true}; };
 const click = (data, from=telegramId, chat=chatId) => svc.processUpdate({callback_query:{id:'q'+messageId,data,from:{id:Number(from)},message:{chat:{id:Number(chat),type:'supergroup'},message_id:50}}});
-const reply = (text, prompt=messages.at(-1), from=telegramId) => svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chatId),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},text}});
+const reply = (text, prompt=messages.at(-1), from=telegramId, chat=chatId) => svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chat),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},text}});
 const read = id => p.order.findUnique({where:{id},include:{payment:true}});
 const buttons = async id => (await svc.groupOrderCard(id)).reply_markup.inline_keyboard.flat().map(b=>b.text);
 const confirm = () => messages.at(-1).reply_markup.inline_keyboard[0][0].callback_data;
@@ -96,6 +97,41 @@ async function close(id, text, expected) {
     const unassigned=await createOrder({masterId:null});await svc.sendOrderToGroup(unassigned,true);assert.equal(messages.at(-1).chatId,'-222222');
     await svc.disconnectGroup('center');await assert.rejects(()=>svc.sendOrderToGroup(center,true));
     console.log('PASS owner and service-center routing without master, center priority, no fallback when disconnected');
+    owner=await p.user.create({data:{login:tag+'owner',passwordHash:'test-no-login',fullName:'Owner test',role:'OWNER'}});
+    const ownerLink=await svc.createOwnerLink(owner.id);const ownerPayload=new URL(ownerLink.url).searchParams.get('start');
+    await assert.rejects(()=>svc.bindOwner(ownerPayload,ownerTelegramId,'-222222'));
+    await svc.bindOwner(ownerPayload,ownerTelegramId,ownerTelegramId);
+    await assert.rejects(()=>svc.bindOwner(ownerPayload,ownerTelegramId,ownerTelegramId));
+    assert.equal((await svc.ownerConnection(owner.id)).connected,true);
+    await settings.set('bot.orders.group.center',JSON.stringify({chatId:'-333333',title:'Center'}));
+    async function reachAs(id,actor,chat){
+      await click(`ga:${id}`,actor,chat);assert.deepEqual(await buttons(id),['Вышел']);
+      await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');
+      await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');
+    }
+    async function closeAs(id,actor,chat,expected){
+      await click(`gs:${id}:DONE`,actor,chat);await reply('11000 1000',messages.at(-1),actor,chat);
+      const token=confirm();assert.notEqual((await read(id)).status,'DONE');
+      const own=!(await read(id)).masterId;
+      assert.equal(messages.at(-1).text.includes('На Авито:'),own);
+      await click(token,Number(telegramId)+555,chat);assert.notEqual((await read(id)).status,'DONE');
+      await click(token,actor,chat);const done=await read(id);assert.equal(done.status,'DONE');
+      for(const [key,value] of Object.entries(expected))assert.equal(Number(done.payment[key]),value,key);
+      if(own)assert.equal(done.isPersonal,true);
+      await click(token,actor,chat);assert.equal(await p.cashTx.count({where:{orderId:id}}),1);
+    }
+    await click(`ga:${personal}`,telegramId,'-222222');assert.deepEqual(await buttons(personal),['Принять']);
+    await reachAs(personal,ownerTelegramId,'-222222');
+    await closeAs(personal,ownerTelegramId,'-222222',{paid:11000,masterSalary:0,toCompany:10000,reinvestAmount:5000,ownerNet:5000});
+    await reachAs(center,ownerTelegramId,'-333333');
+    await click(`gs:${center}:IN_PROGRESS_SD`,ownerTelegramId,'-333333');await reply('5000 пред\nСрок 5-7 дней',messages.at(-1),ownerTelegramId,'-333333');await click(confirm(),ownerTelegramId,'-333333');
+    assert.equal((await read(center)).status,'IN_PROGRESS_SD');
+    await closeAs(center,ownerTelegramId,'-333333',{paid:11000,prepay:5000,masterSalary:0,toCompany:10000,reinvestAmount:3000,ownerNet:7000});
+    for(const actor of [ownerTelegramId,telegramId]){
+      const assigned=await createOrder({isServiceCenter:true});await reachAs(assigned,actor,'-333333');
+      await closeAs(assigned,actor,'-333333',{masterSalary:5000,toCompany:5000,reinvestAmount:1500,ownerNet:3500});
+    }
+    console.log('PASS owner binding, personal owner-only actions, SD without master 30/70, center assigned master and owner actions');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
     console.log('PASS direct: accept -> depart -> arrive -> close; 5500 / 2750 / 2750');
@@ -118,7 +154,7 @@ async function close(id, text, expected) {
     await close(custom,'12000 1000',{paid:12000,partsCost:1000,workSum:11000,masterSalary:4400,toCompany:6600,reinvestAmount:1980,ownerNet:4620});
     console.log('PASS custom percentages: 40% master, 30% Avito from owner share');
     const settlement=await p.masterSettlement.findFirst({where:{masterId:master.id}});
-    assert.equal(Number(settlement.amount),17100);
+    assert.equal(Number(settlement.amount),27100);
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
@@ -126,6 +162,7 @@ async function close(id, text, expected) {
     await p.appSetting.deleteMany({where:{key:{in:[...settingsKeys]}}});
     if(rule)await p.salaryCategory.delete({where:{id:rule.id}});
     if(master){await p.masterSettlement.deleteMany({where:{masterId:master.id}});await p.master.delete({where:{id:master.id}});}
+    if(owner)await p.user.delete({where:{id:owner.id}});
     if(user)await p.user.delete({where:{id:user.id}});
     if(client)await p.client.delete({where:{id:client.id}});
     await p.$disconnect();

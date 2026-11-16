@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { OwnerTelegramPanel } from './OwnerTelegramPanel';
 import { GroupSettingsPanel } from './GroupSettingsPanel';
 import { api } from '@/lib/api';
 
@@ -186,6 +187,7 @@ export function BotSettingsPanel() {
           </p>
         ) : null}
       </form>
+      <OwnerTelegramPanel />
       <GroupSettingsPanel kind="owner" />
       <GroupSettingsPanel kind="center" />
       <GroupSettingsPanel />

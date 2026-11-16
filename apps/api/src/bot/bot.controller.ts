@@ -1,3 +1,4 @@
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
   Body,
   Controller,
@@ -54,6 +55,16 @@ export class BotController {
   ) {
     return this.bot.handleWebhook(secret, update);
   }
+
+  @Get('owner')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  owner(@CurrentUser() user:{userId:string}) { return this.bot.ownerConnection(user.userId); }
+
+  @Post('owner/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  ownerLink(@CurrentUser() user:{userId:string}) { return this.bot.createOwnerLink(user.userId); }
 
   @Get('group')
   @UseGuards(JwtAuthGuard, RolesGuard)
