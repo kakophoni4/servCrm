@@ -23,7 +23,7 @@ describe('Assignment group', () => {
   it('ignores ordinary group messages',async()=>{const {svc}=setup();const ingest=jest.spyOn(svc,'incomingMessage');await svc.processUpdate({message:{chat:{id:-123,type:'group'},from:{id:456},text:'hello'}});expect(ingest).not.toHaveBeenCalled();});
   it('group-only send never sends a private copy and includes status buttons',async()=>{
     const {svc,send}=setup('456');await svc.sendOrderToGroup('o');expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith('-123',expect.any(String),{reply_markup:{inline_keyboard:[[{text:'Принял',callback_data:'ga:o'},{text:'В пути',callback_data:'gs:o:ON_THE_WAY'}]]}});
+    expect(send).toHaveBeenCalledWith('-123',expect.any(String),{reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ga:o'}]]}});
   });
   it('rejects group actions from another master or another chat',async()=>{
     const {svc}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'other'}} as any);const set=jest.spyOn(svc,'setStatus');
@@ -32,7 +32,7 @@ describe('Assignment group', () => {
     expect(set).not.toHaveBeenCalled();expect(svc.telegram).toHaveBeenCalledWith('answerCallbackQuery',expect.objectContaining({show_alert:true}));
   });
   it('applies a status for the assigned master and refreshes the group message',async()=>{
-    const {svc}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'m'}} as any);const set=jest.spyOn(svc,'setStatus').mockResolvedValue({} as any);
+    const {svc,settings}=setup();settings.get.mockImplementation(async(key:string)=>key.startsWith('bot.orders.accepted.')?'m':JSON.stringify({chatId:'-123',title:'Orders'}));jest.spyOn(svc,'masterByTelegram').mockResolvedValue({masterProfile:{id:'m'}} as any);const set=jest.spyOn(svc,'setStatus').mockResolvedValue({} as any);
     await svc.processUpdate({callback_query:{id:'q',from:{id:456},message:{chat:{id:-123},message_id:9},data:'gs:o:ON_THE_WAY'}});
     expect(set).toHaveBeenCalledWith('456','o','ON_THE_WAY',true);expect(svc.telegram).toHaveBeenCalledWith('editMessageText',expect.objectContaining({chat_id:'-123',message_id:9}));
   });

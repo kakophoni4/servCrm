@@ -3,6 +3,7 @@
 import styles from './DeskLists.module.css';
 
 import Link from 'next/link';
+import { SdDeadline } from '@/components/SdDeadline';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
@@ -16,6 +17,8 @@ import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type OrderRow = {
+  sdDueFrom?: string | null;
+  sdDueAt?: string | null;
   isPersonal?: boolean;
   isServiceCenter?: boolean;
   id: string;
@@ -158,7 +161,7 @@ export function OrdersPanel() {
                   <strong>{o.client.name}</strong>
                   <span className={statusBadgeClass(o.status)}>{STATUS_LABELS[o.status] ?? o.status}</span>
                 </div>
-                <div className={styles.orderAddress}>{o.isServiceCenter ? 'Привезут в СЦ' : o.address || 'Адрес не указан'}</div>
+                <SdDeadline status={o.status} from={o.sdDueFrom} due={o.sdDueAt}/><div className={styles.orderAddress}>{o.isServiceCenter ? 'Привезут в СЦ' : o.address || 'Адрес не указан'}</div>
                 <div className={styles.orderSchedule}>
                   <span>{o.scheduledAt ? formatSchedule(o.scheduledAt) : 'Время не назначено'}</span>
                   <span className={styles.orderMaster}>{o.isPersonal ? 'Выполняю сам' : o.master?.user.fullName ? `Мастер: ${o.master.user.fullName}` : 'Без мастера'}</span>
@@ -238,6 +241,7 @@ export function OrdersPanel() {
                         </div>
                       </td>
                       <td className="desk-col-center" data-label="Время">
+                        <SdDeadline status={o.status} from={o.sdDueFrom} due={o.sdDueAt}/>
                         {o.scheduledAt ? (
                           <span className="desk-time">
                             {formatSchedule(o.scheduledAt)}

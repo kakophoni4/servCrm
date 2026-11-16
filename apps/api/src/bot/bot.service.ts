@@ -20,6 +20,7 @@ import {
   Role,
   UserStatus,
 } from '@prisma/client';
+import { GroupFlow, parseClosingReply, parseSdReply, sdDeadline } from './group-flow';
 import { extname } from 'path';
 import { randomBytes, createHash } from 'crypto';
 import { ChatService } from '../chat/chat.service';
@@ -107,6 +108,8 @@ type TgDocument = {
 };
 
 type TgMessage = {
+  message_id?: number;
+  reply_to_message?: {message_id?:number};
   text?: string;
   chat?: TgChat;
   from?: TgFrom;
@@ -850,6 +853,122 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async groupFlowPrompt(flow: GroupFlow, replyTo?: number, error?: string) {
+    const prompt = flow.kind==='close'
+      ? 'Закрытие заявки. Ответьте двумя суммами: получено всего (включая предоплату) и расходы. Например: 11000 1000'
+      : 'Передача в СД. Ответьте предоплатой и сроком. Например:\n5000 пред\nСрок 5-7 дней';
+    const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">Мастер</a>\n${error ? error+'\n' : ''}${prompt}`,{
+      parse_mode:'HTML',reply_markup:{force_reply:true,selective:true},
+      ...(replyTo ? {reply_parameters:{message_id:replyTo}} : {}),
+    });
+    if (!result?.ok || !result.result?.message_id) throw new BadRequestException('Не удалось запросить суммы. Попробуйте ещё раз');
+    await this.settings.set(`bot.flow.reply.${flow.chatId}.${result.result.message_id}`,JSON.stringify(flow));
+  }
+
+  private async beginGroupFlow(cq:TgCallbackQuery, kind:'close'|'sd') {
+    const id=(cq.data || '').split(':')[1];
+    const card=await this.groupOrderCard(id);
+    const user=await this.masterByTelegram(String(cq.from!.id));
+    if(card.order.masterId!==user.masterProfile!.id || card.order.isPersonal) throw new BadRequestException('Заявка назначена другому мастеру');
+    if(kind==='sd' ? card.order.status!==OrderStatus.IN_PROGRESS : ![OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(card.order.status as any)) throw new BadRequestException('Статус заявки изменился');
+    await this.groupFlowPrompt({orderId:id,masterId:user.masterProfile!.id,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
+  }
+
+  private async handleGroupFlowReply(msg:TgMessage):Promise<boolean> {
+    const replyId=msg.reply_to_message?.message_id;
+    if(!replyId || !msg.chat?.id || !msg.from?.id || !msg.text)return false;
+    const key=`bot.flow.reply.${msg.chat.id}.${replyId}`;
+    const raw=await this.settings.get(key);
+    if(!raw)return false;
+    const flow:GroupFlow=JSON.parse(raw);
+    // A group member replying to someone else's prompt cannot hijack the session.
+    if(flow.telegramId!==String(msg.from.id))return true;
+    try {
+      const group=await this.getOrderGroup();
+      if(!group || group.chatId!==flow.chatId)throw new BadRequestException('Группа отключена');
+      if(flow.expires<Date.now())throw new BadRequestException('Время ввода истекло. Нажмите кнопку заявки заново');
+      const user=await this.masterByTelegram(flow.telegramId);
+      const card=await this.groupOrderCard(flow.orderId);
+      if(card.order.masterId!==flow.masterId || user.masterProfile!.id!==flow.masterId || card.order.isPersonal || card.order.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Нажмите кнопку заявки заново');
+      if(msg.text.trim().toLowerCase()==='отмена') {
+        await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
+        await this.sendMessage(flow.chatId,'Ввод отменён');return true;
+      }
+      let summary:string;
+      if(flow.kind==='close') {
+        let amounts:ReturnType<typeof parseClosingReply>;
+        try{amounts=parseClosingReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;}
+        if(amounts.partsCost>amounts.paid || amounts.paid<Number(card.order.payment?.prepay || 0)) {
+          await this.groupFlowPrompt(flow,msg.message_id,amounts.partsCost>amounts.paid?'Расходы не могут превышать оплату':'Общая оплата не может быть меньше предоплаты');
+          await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;
+        }
+        const terms=await this.salary.termsFor(amounts.paid-amounts.partsCost,card.order.typeTech,flow.masterId);
+        const base=calcPayment(amounts.paid,amounts.partsCost,terms.masterPct);
+        const reinvestPct=card.order.isServiceCenter?0.3:terms.reinvestPct;
+        const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
+        Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
+        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽`;
+      } else {
+        let terms:ReturnType<typeof parseSdReply>;
+        try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;}
+        Object.assign(flow,terms,{sdStart:new Date().toISOString(),sdFrom:sdDeadline(terms.minDays).toISOString(),sdDue:sdDeadline(terms.maxDays).toISOString()});
+        summary=`Передать заявку ${card.order.publicId} в СД?\nПредоплата всего: ${terms.prepay} ₽\nСрок: ${terms.minDays}-${terms.maxDays} дней\nДо ${sdDeadline(terms.maxDays).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'})}`;
+      }
+      const token=randomBytes(8).toString('hex');
+      const confirmKey='bot.flow.confirm.'+token;
+      await this.settings.set(confirmKey,JSON.stringify(flow));
+      const sent=await this.sendMessage(flow.chatId,summary,{reply_markup:{inline_keyboard:[[{text:flow.kind==='close'?'Подтвердить закрытие':'Подтвердить СД',callback_data:'gf:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
+      if(!sent?.ok){await this.prisma.appSetting.deleteMany({where:{key:confirmKey}});throw new BadRequestException('Не удалось показать подтверждение. Ответьте ещё раз');}
+      await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
+    }catch(e){await this.sendMessage(flow.chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось обработать ответ. Попробуйте ещё раз');}
+    return true;
+  }
+
+  private async confirmGroupFlow(cq:TgCallbackQuery) {
+    const answer=(text:string)=>this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
+    try {
+      const key='bot.flow.confirm.'+(cq.data || '').slice(3);
+      const raw=await this.settings.get(key);
+      if(!raw)throw new BadRequestException('Уже обработано или отменено');
+      const flow:GroupFlow=JSON.parse(raw);
+      const group=await this.getOrderGroup();
+      if(!group || group.chatId!==flow.chatId || String(cq.message?.chat?.id)!==flow.chatId || String(cq.from?.id)!==flow.telegramId)throw new BadRequestException('Подтвердить может только назначенный мастер');
+      if(cq.data?.startsWith('gx:')) {
+        await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
+        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Отменено',reply_markup:{inline_keyboard:[]}});
+        await answer('Отменено');return;
+      }
+      if(flow.expires<Date.now())throw new BadRequestException('Подтверждение истекло. Нажмите кнопку заявки заново');
+      const user=await this.masterByTelegram(flow.telegramId);
+      if(user.masterProfile!.id!==flow.masterId)throw new BadRequestException('Мастер изменился');
+      await this.prisma.$transaction(async tx=>{
+        const consumed=await tx.appSetting.deleteMany({where:{key,value:raw}});
+        if(consumed.count!==1)throw new BadRequestException('Уже обработано');
+        const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
+        if(!current || current.masterId!==flow.masterId || current.isPersonal || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
+        const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
+        if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
+        const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
+          ?{status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          :{status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
+        if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
+        const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
+        await tx.orderPayment.upsert({where:{orderId:flow.orderId},create:{orderId:flow.orderId,...payment},update:payment});
+        if(flow.kind==='close') {
+          const cash=await tx.cashTx.findFirst({where:{orderId:flow.orderId,incomeBasis:CashIncomeBasis.ORDER},select:{id:true}});
+          const data={amount:flow.calc!.toCompany,cityId:current.cityId || undefined,description:'Приход по заявке (чистыми)'};
+          if(cash)await tx.cashTx.update({where:{id:cash.id},data});
+          else await tx.cashTx.create({data:{...data,orderId:flow.orderId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.ORDER,createdById:user.id}});
+        }
+      });
+      if(flow.kind==='close')await this.settlements.syncForCompletedOrder(flow.orderId).catch(()=>undefined);
+      const fresh=await this.groupOrderCard(flow.orderId);
+      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,reply_markup:fresh.reply_markup});
+      await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:flow.kind==='close'?'Заявка закрыта':'Заявка передана в СД',reply_markup:{inline_keyboard:[]}});
+      await answer('Сохранено в CRM');
+    }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
+  }
+
   private async groupOrderCard(orderId: string) {
     const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true}});
     if (!order) throw new NotFoundException('Заявка не найдена');
@@ -862,15 +981,17 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
       'Техника: '+(order.typeTech || 'не указана'),
       'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}) : 'не указано'),
+      order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
+      order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) : '',
+      order.status===OrderStatus.DONE && order.payment ? 'Получено всего: '+Number(order.payment.paid)+' ₽ · расходы: '+Number(order.payment.partsCost)+' ₽' : '',
       order.comment ? 'Описание: '+order.comment : '',order.adminComment ? 'Комментарий: '+order.adminComment : '',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
     if (order.masterId && !order.isPersonal) {
-      if (!accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push({text:'Принял',callback_data:'ga:'+order.id});
-      for (const next of this.buttonsForStatus(order.status)) {
-        if (next.status === OrderStatus.IN_PROGRESS_SD) continue;
-        buttons.push({text:next.status===OrderStatus.DONE?'Готово':next.label,callback_data:`gs:${order.id}:${next.status}`});
-      }
+      if ([OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push(accepted?{text:'Вышел',callback_data:`gs:${order.id}:ON_THE_WAY`}:{text:'Принять',callback_data:'ga:'+order.id});
+      if(order.status===OrderStatus.ON_THE_WAY)buttons.push({text:'На адресе',callback_data:`gs:${order.id}:IN_PROGRESS`});
+      if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
+      if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }
     return {order,text,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
@@ -887,6 +1008,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleGroupAction(cq: TgCallbackQuery) {
+    if (/^(gf|gx):/.test(cq.data || '')) { await this.confirmGroupFlow(cq); return; }
     const answer = (text:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
     try {
       const group = await this.getOrderGroup();
@@ -903,8 +1025,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         await this.settings.set('bot.orders.accepted.'+card.order.id,user.masterProfile!.id);
       } else {
         const status = match[3] as OrderStatus;
-        if (![OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.DONE].includes(status as any)) throw new BadRequestException('Недопустимый статус');
-        if (status===OrderStatus.DONE && Number(card.order.payment?.paid || 0)<=0) throw new BadRequestException('Сначала укажите оплату в CRM или через «Суммы» в личном чате с ботом');
+        if (![OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD,OrderStatus.DONE].includes(status as any)) throw new BadRequestException('Недопустимый статус');
+        if(status===OrderStatus.ON_THE_WAY && await this.settings.get('bot.orders.accepted.'+card.order.id)!==card.order.masterId) throw new BadRequestException('Сначала примите заявку');
+        if(status===OrderStatus.DONE || status===OrderStatus.IN_PROGRESS_SD){await this.beginGroupFlow(cq,status===OrderStatus.DONE?'close':'sd');await answer('Ответьте на сообщение бота');return;}
         await this.setStatus(String(cq.from.id),card.order.id,status,true);
       }
       const fresh = await this.groupOrderCard(card.order.id);
@@ -1433,7 +1556,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       }
       return;
     }
-    if (msg.chat?.type === 'group' || msg.chat?.type === 'supergroup') return;
+    if (msg.chat?.type === 'group' || msg.chat?.type === 'supergroup') { await this.handleGroupFlowReply(msg); return; }
 
     if (msg.photo?.length || msg.document) {
       await this.handleIncomingFile(telegramId, chatId, msg);
@@ -2053,7 +2176,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
-    if (/^(ga|gs):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
+    if (/^(ga|gs|gf|gx):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =
       cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
     const telegramId = cq.from?.id != null ? String(cq.from.id) : null;

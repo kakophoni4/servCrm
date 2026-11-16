@@ -1,0 +1,32 @@
+import { BotService } from './bot.service';
+import { parseClosingReply,parseSdReply,sdDeadline } from './group-flow';
+
+describe('Group reply workflow',()=>{
+ function setup(){
+  const values=new Map<string,string>([['bot.orders.group',JSON.stringify({chatId:'-123',title:'Orders'})]]);
+  const order:any={id:'o',publicId:'123',masterId:'m',status:'IN_PROGRESS',isPersonal:false,isServiceCenter:false,typeTech:'ХД',updatedAt:new Date('2026-11-16T08:00:00Z'),client:{name:'Client',phoneNormalized:'7999'},master:{user:{fullName:'Master'}},payment:{prepay:5000},cityId:'city'};
+  const appSetting={deleteMany:jest.fn(async({where}:any)=>{if(values.has(where.key)&&(where.value===undefined||values.get(where.key)===where.value)){values.delete(where.key);return {count:1};}return {count:0};})};
+  const prisma:any={appSetting,order:{findUnique:jest.fn(async()=>order),updateMany:jest.fn(async({where,data}:any)=>{if(where.updatedAt?.getTime()!==order.updatedAt.getTime())return {count:0};Object.assign(order,data,{updatedAt:new Date()});return {count:1};})},orderPayment:{upsert:jest.fn(async({update}:any)=>{order.payment={...order.payment,...update};})},cashTx:{findFirst:jest.fn(async()=>null),create:jest.fn(),update:jest.fn()}};
+  prisma.$transaction=jest.fn(async(fn:any)=>{const snapshot=new Map(values),before={...order};try{return await fn(prisma);}catch(e){values.clear();snapshot.forEach((v,k)=>values.set(k,v));Object.assign(order,before);throw e;}});
+  const settings:any={get:jest.fn(async(k:string)=>values.get(k)||null),set:jest.fn(async(k:string,v:string)=>values.set(k,v))};
+  const terms=jest.fn(async()=>({masterPct:0.5,reinvestPct:0.5}));
+  const svc=new BotService(prisma,{} as any,settings,{} as any,{syncForCompletedOrder:jest.fn()} as any,{termsFor:terms} as any);
+  jest.spyOn(svc,'masterByTelegram').mockResolvedValue({id:'u',masterProfile:{id:'m'}} as any);
+  let message=10;const send=jest.spyOn(svc,'sendMessage').mockImplementation(async()=>({ok:true,result:{message_id:message++}}));
+  const telegram=jest.spyOn(svc,'telegram').mockResolvedValue({ok:true});
+  const click=(data:string,user=456)=>svc.processUpdate({callback_query:{id:'q',data,from:{id:user},message:{chat:{id:-123,type:'supergroup'},message_id:5}}});
+  const reply=(text:string,user=456,replyId=10)=>svc.processUpdate({message:{message_id:20,chat:{id:-123,type:'supergroup'},from:{id:user},reply_to_message:{message_id:replyId},text}});
+  const token=()=>[...values.keys()].find(k=>k.startsWith('bot.flow.confirm.'))!.replace('bot.flow.confirm.','');
+  return {svc,values,order,prisma,send,telegram,terms,click,reply,token};
+ }
+ it('parses exactly two amounts and rejects malformed money',()=>{expect(parseClosingReply('11000 1000')).toEqual({paid:11000,partsCost:1000});expect(parseClosingReply('11000,50 1000.25').paid).toBe(11000.5);for(const value of ['-1 0','100 20 30','11 000 1000','abc','0 0','99999999999 0'])expect(()=>parseClosingReply(value)).toThrow();});
+ it('parses SD amount and variable day range',()=>{expect(parseSdReply('5000 пред\nСрок 5-7 дней')).toEqual({prepay:5000,minDays:5,maxDays:7});expect(parseSdReply('0 пред\nСрок 3 дня').maxDays).toBe(3);for(const value of ['5000 7-5','5000 0-7','5000 5-999'])expect(()=>parseSdReply(value)).toThrow();expect(sdDeadline(7,new Date('2026-11-16T22:00:00Z')).toISOString()).toBe('2026-11-24T20:59:59.999Z');});
+ it('does not write payment until confirmation and counts advance only once',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect(x.terms).toHaveBeenCalledWith(10000,'ХД','m');const token=x.token();await x.click('gf:'+token);expect(x.order.status).toBe('DONE');expect(x.order.payment).toMatchObject({paid:11000,prepay:5000,partsCost:1000,masterSalary:5000,reinvestAmount:2500,ownerNet:2500});expect(x.prisma.cashTx.create).toHaveBeenCalledTimes(1);await x.click('gf:'+token);expect(x.prisma.cashTx.create).toHaveBeenCalledTimes(1);});
+ it('ignores replies from another master and unrelated reply targets',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000',999);await x.reply('11000 1000',456,999);expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect([...x.values.keys()].some(k=>k.startsWith('bot.flow.confirm.'))).toBe(false);});
+ it('rejects a confirmation by another person',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');await x.click('gf:'+x.token(),999);expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();});
+ it('rejects reassigned or changed orders before confirmation',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');x.order.masterId='other';await x.click('gf:'+x.token());expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();});
+ it('cancels without payment writes',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');await x.click('gx:'+x.token());expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect(x.order.status).toBe('IN_PROGRESS');});
+ it('rejects expired reply sessions',async()=>{const x=setup();await x.click('gs:o:DONE');const key='bot.flow.reply.-123.10';x.values.set(key,JSON.stringify({...JSON.parse(x.values.get(key)!),expires:0}));await x.reply('11000 1000');expect([...x.values.keys()].some(k=>k.startsWith('bot.flow.confirm.'))).toBe(false);});
+ it('stores SD advance and deadline without closing or creating income',async()=>{const x=setup();await x.click('gs:o:IN_PROGRESS_SD');await x.reply('5000 пред\nСрок 5-7 дней');expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();await x.click('gf:'+x.token());expect(x.order.status).toBe('IN_PROGRESS_SD');expect(x.order.payment.prepay).toBe(5000);expect(x.order.sdDueAt.getTime()-x.order.sdDueFrom.getTime()).toBe(2*86400000);expect(x.prisma.cashTx.create).not.toHaveBeenCalled();});
+ it('rejects expenses above total and totals below the advance',async()=>{for(const text of ['11000 12000','4000 1000']){const x=setup();await x.click('gs:o:DONE');await x.reply(text);expect([...x.values.keys()].some(k=>k.startsWith('bot.flow.confirm.'))).toBe(false);expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();}});
+});

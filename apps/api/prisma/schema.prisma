@@ -272,6 +272,9 @@ model Client {
 }
 
 model Order {
+  sdStartedAt DateTime? @map("sd_started_at")
+  sdDueFrom DateTime? @map("sd_due_from")
+  sdDueAt DateTime? @map("sd_due_at")
   isServiceCenter Boolean @default(false) @map("is_service_center")
   isPersonal Boolean @default(false) @map("is_personal")
   id            String      @id @default(cuid())

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { SdDeadline } from '@/components/SdDeadline';
 import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
@@ -66,6 +67,8 @@ type DocPreview = {
 };
 
 type Order = {
+  sdDueFrom?: string | null;
+  sdDueAt?: string | null;
   isPersonal: boolean;
   isServiceCenter: boolean;
   id: string;
@@ -101,6 +104,7 @@ type Order = {
     }>;
   };
   payment?: {
+    prepay?: string | number;
     paid: string | number;
     partsCost: string | number;
     partsYesNo: boolean;
@@ -767,6 +771,7 @@ export default function OrderDetailPage() {
             </div>
           </div>
 
+          <SdDeadline status={order.status} from={order.sdDueFrom} due={order.sdDueAt} prepay={order.payment?.prepay ?? 0}/>
           <div className="order-client-row">
             <Link
               className="order-client"
