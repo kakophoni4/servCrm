@@ -438,6 +438,13 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Для статуса «Готов» назначьте мастера');
     });
 
+    it('reports Telegram failure without losing the assignment', async()=>{
+      mockExistingOrder({masterId:null});setupUpdateTransaction({resultOrder:{masterId:'m-1'}});
+      bot.notifyMasterOrder.mockRejectedValueOnce(new Error('Telegram unavailable'));
+      const result=await service.update(orderId,{masterId:'m-1'},userId,Role.OWNER);
+      expect(result).toEqual(expect.objectContaining({masterId:'m-1',telegramDelivery:'failed'}));
+      expect(txMock.order.update).toHaveBeenCalled();
+    });
     it('reserves advertising from the full check', async () => {
       mockExistingOrder({masterId:'m-1'}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:'m-1'}});
       await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1400},userId,Role.OWNER);

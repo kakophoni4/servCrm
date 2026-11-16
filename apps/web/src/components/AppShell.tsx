@@ -24,6 +24,7 @@ type NavItem = {
 const NAV: NavItem[] = [
  {href:'/orders',label:'Заявки и клиенты'},
  {href:'/masters',label:'Мастера'},
+ {href:'/settings/bot',label:'Telegram'},
  {href:'/reports',label:'Деньги и статистика'},
  {href:'/settings/salary',label:'Расчёт долей'},
  {href:'/settings/account',label:'Аккаунт'},

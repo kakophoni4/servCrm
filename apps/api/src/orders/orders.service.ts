@@ -634,11 +634,13 @@ export class OrdersService {
         )
         .catch(() => undefined);
     }
+    let telegramDelivery: string | undefined;
     if (
       dto.masterId &&
       dto.masterId !== existing.masterId
     ) {
-      await this.bot.notifyMasterOrder(dto.masterId, id);
+      try { const sent = await this.bot.notifyMasterOrder(dto.masterId, id); telegramDelivery = sent?.ok ? 'sent' : 'failed'; }
+      catch { telegramDelivery = 'failed'; }
     }
 
     if (becameDone) {
@@ -674,7 +676,7 @@ export class OrdersService {
       void this.bot.ackOrderNotify(id).catch(() => undefined);
     }
 
-    return result;
+    return telegramDelivery ? {...result,telegramDelivery} : result;
   }
 
   /** Повтор = новая заявка на того же клиента. */

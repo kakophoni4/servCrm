@@ -55,6 +55,16 @@ export class BotController {
     return this.bot.handleWebhook(secret, update);
   }
 
+  @Post('masters/:id/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  masterLink(@Param('id') id: string) { return this.bot.createMasterLink(id); }
+
+  @Post('orders/:id/send')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  resend(@Param('id') id: string) { return this.bot.sendAssignedOrder(id); }
+
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.DIRECTOR, Role.OWNER, Role.MASTER)

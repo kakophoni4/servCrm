@@ -192,6 +192,7 @@ export default function OrderDetailPage() {
   const [status, setStatus] = useState('');
   const [masterId, setMasterId] = useState('');
   const [isPersonal,setIsPersonal]=useState(false);
+  const [delivery,setDelivery]=useState('');
   const [address, setAddress] = useState('');
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
@@ -442,7 +443,8 @@ export default function OrderDetailPage() {
           body.cancelFault = cancelFault || null;
         }
       }
-      await api(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      const saved = await api<{telegramDelivery?:string}>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      if(saved.telegramDelivery) setDelivery(saved.telegramDelivery==='sent'?'Заявка отправлена мастеру в Telegram.':'Заявка сохранена, но Telegram не доставлен. Проверьте подключение бота и мастера, затем повторите отправку.');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -956,7 +958,7 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          <div className="order-actions"><button className="btn secondary" type="button" onClick={async()=>{const text = ['Заявка: '+order.publicId,'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,'Адрес: '+address,'Техника: '+typeTech,'Время: '+(scheduledAt?new Date(scheduledAt).toLocaleString('ru-RU'):'не указано'),'Комментарий: '+(order.comment||''),adminComment].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({text})}else if(navigator.clipboard){await navigator.clipboard.writeText(text);alert('Заявка скопирована — вставьте её в чат мастера')}else{window.prompt('Скопируйте заявку в чат мастера',text)}}catch(e){if(e instanceof Error && e.name!=='AbortError')setError('Не удалось отправить. Попробуйте скопировать текст.')}}}>Передать в чат</button>
+          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{masterId===order.masterId&&masterId&&!isPersonal&&<button type="button" className="btn secondary" onClick={async()=>{try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send`,{method:'POST'});setDelivery(r.sent?'Отправлено в Telegram.':'Не доставлено. Проверьте подключение бота и мастера.')}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки')}}}>Повторить в Telegram</button>}<button className="btn secondary" type="button" onClick={async()=>{const text = ['Заявка: '+order.publicId,'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,'Адрес: '+address,'Техника: '+typeTech,'Время: '+(scheduledAt?new Date(scheduledAt).toLocaleString('ru-RU'):'не указано'),'Комментарий: '+(order.comment||''),adminComment].filter(Boolean).join('\n');try{if(navigator.share){await navigator.share({text})}else if(navigator.clipboard){await navigator.clipboard.writeText(text);alert('Заявка скопирована — вставьте её в чат мастера')}else{window.prompt('Скопируйте заявку в чат мастера',text)}}catch(e){if(e instanceof Error && e.name!=='AbortError')setError('Не удалось отправить. Попробуйте скопировать текст.')}}}>Передать в чат</button>
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>

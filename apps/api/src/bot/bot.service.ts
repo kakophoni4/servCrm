@@ -21,6 +21,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { extname } from 'path';
+import { randomBytes, createHash } from 'crypto';
 import { ChatService } from '../chat/chat.service';
 import { calcPayment } from '../common/utils/formulas';
 import {
@@ -304,6 +305,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
       });
       return (await res.json()) as T;
     } catch (e) {
@@ -810,8 +812,50 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** Карточка заявки мастеру с inline-кнопками статусов. */
+  async createMasterLink(id: string) {
+    const master = await this.prisma.master.findUnique({where:{id}});
+    if (!master || master.status !== 'ACTIVE') throw new BadRequestException('Мастер не активен');
+    const config = await this.settings.getBotConfig();
+    if (!config.hasToken || !config.enabled) throw new BadRequestException('Сначала подключите и включите бота в настройках Telegram');
+    const test = await this.settings.testBot();
+    if (!test.ok || !test.username) throw new BadRequestException('Бот недоступен. Проверьте токен в настройках Telegram');
+    const token = randomBytes(16).toString('hex');
+    const value = JSON.stringify({hash:createHash('sha256').update(token).digest('hex'),expires:Date.now()+24*60*60*1000});
+    await this.settings.set('master.bind.'+id,value);
+    return {url:'https://t.me/'+test.username+'?start=m_'+id+'_'+token};
+  }
+
+  async bindMaster(payload: string, telegramId: string, chatId: string) {
+    if (chatId !== telegramId) throw new BadRequestException('Откройте ссылку в личном чате с ботом');
+    const match = /^m_([a-z0-9]+)_([a-f0-9]{32})$/.exec(payload);
+    if (!match) throw new BadRequestException('Некорректная ссылка');
+    const key = 'master.bind.'+match[1];
+    await this.prisma.$transaction(async tx=>{
+      const row = await tx.appSetting.findUnique({where:{key}});
+      if (!row) throw new BadRequestException('Ссылка использована или отозвана');
+      const data = JSON.parse(row.value);
+      if (data.expires < Date.now() || data.hash !== createHash('sha256').update(match[2]).digest('hex')) throw new BadRequestException('Ссылка истекла или недействительна');
+      const master = await tx.master.findUnique({where:{id:match[1]},include:{user:true}});
+      if (!master || master.status !== 'ACTIVE') throw new BadRequestException('Мастер не активен');
+      const other = await tx.user.findFirst({where:{telegramId,id:{not:master.userId}}});
+      if (other) throw new BadRequestException('Этот Telegram уже привязан к другой анкете');
+      const consumed = await tx.appSetting.deleteMany({where:{key,value:row.value}});
+      if (consumed.count !== 1) throw new BadRequestException('Ссылка уже использована');
+      await tx.user.update({where:{id:master.userId},data:{telegramId}});
+    });
+  }
+
+  async sendAssignedOrder(id: string) {
+    const order = await this.prisma.order.findUnique({where:{id}});
+    if (!order?.masterId || order.isPersonal) throw new BadRequestException('Назначьте мастера в обычной заявке');
+    const result = await this.notifyMasterOrder(order.masterId,id);
+    return {sent:!!result?.ok};
+  }
+
+  /** Отправка назначенной заявки в личный чат мастера. */
   async notifyMasterOrder(masterId: string, orderId: string) {
+    const config = await this.settings.getBotConfig();
+    if (!config.hasToken || !config.enabled) return null;
     const master = await this.prisma.master.findUnique({
       where: { id: masterId },
       include: { user: true },
@@ -842,12 +886,16 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     // Снять предыдущую карточку этой заявки (если была у другого мастера).
     await this.clearMasterOrderCard(orderId);
 
-    await this.clearEphemeral(telegramId);
-    const intro = await this.sendMessage(telegramId, 'Новая заявка назначена.', {
-      reply_markup: this.masterReplyKeyboard(),
-    });
-    this.trackEphemeral(telegramId, this.tgMessageId(intro));
-    return this.sendMasterOrderCard(telegramId, order);
+    const sent = await this.sendMessage(telegramId,[
+      'Новая заявка '+order.publicId, 'Клиент: '+order.client.name,
+      'Телефон: '+order.client.phoneNormalized, 'Адрес: '+order.address,
+      'Техника: '+(order.typeTech||'не указана'),
+      'Время: '+(order.scheduledAt?order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'не указано'),
+      order.comment ? 'Описание: '+order.comment : '',
+      order.adminComment ? 'Комментарий: '+order.adminComment : '',
+    ].filter(Boolean).join('\n'));
+    if (sent?.ok && sent.result?.message_id) await this.prisma.order.update({where:{id:orderId},data:{masterTgChatId:telegramId,masterTgMessageId:sent.result.message_id}});
+    return sent;
   }
 
   /** Уведомление мастеру о штрафе (касса → FINE + masterId). */
@@ -1283,6 +1331,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     const text = msg.text.trim();
     if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
+      const payload = text.split(/\s+/)[1];
+      if (payload?.startsWith('m_')) {
+        try { await this.bindMaster(payload,telegramId,chatId); await this.sendMessage(chatId,'Telegram подключён. Новые назначенные заявки будут приходить сюда автоматически.'); }
+        catch(e) { await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить Telegram. Попросите владельца выдать новую ссылку.'); }
+        return;
+      }
       const masterUser = await this.prisma.user.findFirst({
         where: { telegramId, role: 'MASTER', status: 'ACTIVE' },
         include: { masterProfile: true },
