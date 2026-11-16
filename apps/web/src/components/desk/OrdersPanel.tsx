@@ -17,6 +17,7 @@ import { hasPermission } from '@/lib/permissions';
 
 type OrderRow = {
   isPersonal?: boolean;
+  isServiceCenter?: boolean;
   id: string;
   publicId: string;
   status: string;
@@ -128,7 +129,7 @@ export function OrdersPanel() {
   }
 
   return (
-    <section className={`desk-panel ${styles.list}`}>
+    <section className={`desk-panel ${styles.list} ${styles.orders}`}>
       <div className="desk-panel-head">
         <div className="desk-panel-actions desk-panel-actions-end">
           {canWrite ? (
@@ -148,7 +149,32 @@ export function OrdersPanel() {
           </p>
         ) : null}
         {!loading && !error ? (
-          <div className="table-scroll">
+          <>
+          <div className={styles.mobileOrders}>
+            {visible.map(o => {
+              const urgent = isUrgentUnassigned(o, now);
+              return <Link key={o.id} href={`/orders/${o.id}`} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
+                <div className={styles.orderHeading}>
+                  <strong>{o.client.name}</strong>
+                  <span className={statusBadgeClass(o.status)}>{STATUS_LABELS[o.status] ?? o.status}</span>
+                </div>
+                <div className={styles.orderAddress}>{o.isServiceCenter ? 'Привезут в СЦ' : o.address || 'Адрес не указан'}</div>
+                <div className={styles.orderSchedule}>
+                  <span>{o.scheduledAt ? formatSchedule(o.scheduledAt) : 'Время не назначено'}</span>
+                  <span className={styles.orderMaster}>{o.isPersonal ? 'Выполняю сам' : o.master?.user.fullName ? `Мастер: ${o.master.user.fullName}` : 'Без мастера'}</span>
+                </div>
+                <div className={styles.orderFoot}>
+                  <span>№ {o.publicId}</span>
+                  <span>{formatRuPhoneDisplay(o.client.phoneNormalized)}</span>
+                  {urgent && <span className="urgent-pill">срочно</span>}
+                  {o.isClaim && <span className="badge badge-warn">претензия</span>}
+                  {o.type === 'WARRANTY' && <span className="badge">Гарантия</span>}
+                </div>
+              </Link>;
+            })}
+            {!visible.length && <p className={styles.orderEmpty}>Нет заявок по выбранным условиям.</p>}
+          </div>
+          <div className={`table-scroll ${styles.desktopOrders}`}>
             <table className="table desk-list">
               <thead>
                 <tr>
@@ -247,6 +273,7 @@ export function OrdersPanel() {
               </tbody>
             </table>
           </div>
+          </>
         ) : null}
       </div>
     </section>

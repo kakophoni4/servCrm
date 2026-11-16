@@ -32,3 +32,27 @@
  .list :global(.desk-claims-form-row) { grid-template-columns: minmax(0, 1fr); }
  .list :global(.desk-claims-picked) { flex-wrap: wrap; }
 }
+
+.mobileOrders { display: none; }
+@media(max-width:620px) {
+ .orders .desktopOrders { display: none; }
+ .orders :global(.desk-panel-head) { padding: 12px; }
+ .orders :global(.desk-panel-body) { padding: 12px; }
+ .orders .filters { gap: 8px; margin-bottom: 12px; }
+ .mobileOrders { display: grid; gap: 10px; }
+ .orderCard { display: grid; gap: 7px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); min-width: 0; }
+ .orderCard:hover { border-color: var(--accent); }
+ .orderCard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+ .orderHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+ .orderHeading strong { font-size: 15px; line-height: 1.35; font-weight: 650; overflow-wrap: anywhere; min-width: 0; }
+ .orderHeading :global(.badge) { flex-shrink: 0; max-width: 48%; white-space: normal; text-align: center; font-size: 11px; padding: 3px 7px; }
+ .orderAddress { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+ .orderSchedule { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; line-height: 1.4; }
+ .orderSchedule > span { min-width: 0; overflow-wrap: anywhere; }
+ .orderSchedule > span:first-child { font-variant-numeric: tabular-nums; }
+ .orderMaster { color: var(--accent); font-weight: 600; }
+ .orderFoot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; line-height: 1.4; color: var(--muted); }
+ .orderFoot > span { overflow-wrap: anywhere; }
+ .urgentCard { border-left: 3px solid var(--warn); }
+ .orderEmpty { margin: 0; padding: 24px 12px; text-align: center; color: var(--muted); font-size: 14px; }
+}
