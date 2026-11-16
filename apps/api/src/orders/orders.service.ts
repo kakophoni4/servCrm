@@ -269,6 +269,9 @@ export class OrdersService {
       .notifyAdminsNewOrder(created.id)
       .catch(() => undefined);
 
+    if(created.isPersonal || created.isServiceCenter){
+      try{const sent=await this.bot.sendOrderToGroup(created.id);return {...created,telegramDelivery:sent.sent?'sent':'failed'};}catch{return {...created,telegramDelivery:'failed'};}
+    }
     return created;
   }
 
@@ -642,7 +645,10 @@ export class OrdersService {
     }
     let telegramDelivery: string | undefined;
     let telegramGroupDelivery: string | undefined;
-    if (
+    const specialRouteChanged = (nextPersonal || nextServiceCenter) && (centerChanged || nextPersonal!==existing.isPersonal || becameDone);
+    if (specialRouteChanged) {
+      try{const sent=await this.bot.sendOrderToGroup(id);telegramDelivery=sent.sent?'sent':'failed';}catch{telegramDelivery='failed';}
+    } else if (
       dto.masterId &&
       dto.masterId !== existing.masterId
     ) {

@@ -1,23 +1,25 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 type Group = {chatId:string;title:string} | null;
-export function GroupSettingsPanel() {
+export function GroupSettingsPanel({kind='common'}:{kind?:'common'|'owner'|'center'}) {
+  const endpoint=kind==='common'?'/bot/group':'/bot/destinations/'+kind;
+  const title=kind==='owner'?'Мой чат':kind==='center'?'Чат СЦ':'Общая группа';
   const [group,setGroup]=useState<Group>(null);
   const [command,setCommand]=useState('');
   const [username,setUsername]=useState('');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [copied,setCopied]=useState(false);
-  async function refresh(){setGroup(await api<Group>('/bot/group'));}
-  useEffect(()=>{refresh().catch(e=>setError(e.message));},[]);
-  useEffect(()=>{if(!command)return;const timer=setInterval(()=>{refresh().catch(()=>{});},5000);return ()=>clearInterval(timer);},[command]);
-  async function connect(){setBusy(true);setError('');try{const r=await api<{command:string;username:string}>('/bot/group/link',{method:'POST'});setCommand(r.command);setUsername(r.username);setCopied(false);}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения');}finally{setBusy(false);}}
-  async function disconnect(){if(!confirm('Отключить отправку заявок в группу?'))return;setBusy(true);setError('');try{await api('/bot/group/disconnect',{method:'POST'});setGroup(null);setCommand('');}catch(e){setError(e instanceof Error?e.message:'Ошибка');}finally{setBusy(false);}}
+  const refresh=useCallback(async()=>{setGroup(await api<Group>(endpoint));},[endpoint]);
+  useEffect(()=>{refresh().catch(e=>setError(e.message));},[refresh]);
+  useEffect(()=>{if(!command)return;const timer=setInterval(()=>{refresh().catch(()=>{});},5000);return ()=>clearInterval(timer);},[command,refresh]);
+  async function connect(){setBusy(true);setError('');try{const r=await api<{command:string;username:string}>(endpoint+'/link',{method:'POST'});setCommand(r.command);setUsername(r.username);setCopied(false);}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения');}finally{setBusy(false);}}
+  async function disconnect(){if(!confirm('Отключить отправку заявок в группу?'))return;setBusy(true);setError('');try{await api(endpoint+'/disconnect',{method:'POST'});setGroup(null);setCommand('');}catch(e){setError(e instanceof Error?e.message:'Ошибка');}finally{setBusy(false);}}
   return <section className="panel group-settings">
-    <h2 className="bot-settings-title">Группа заявок</h2>
+    <h2 className="bot-settings-title">{title}</h2>
     <p>{group ? <>Подключена: <strong>{group.title}</strong></> : 'Группа не подключена'}</p>
-    <p className="muted">Дублировать заявки после назначения мастера.</p>
+    <p className="muted">{kind==='owner'?'Личные заявки, которые выполняю сам.':kind==='center'?'Заявки с отметкой «Привезут в СЦ».':'Для мастеров без отдельной группы.'}</p>
     <div className="bot-settings-actions"><button className="btn secondary" onClick={connect} disabled={busy}>{group?'Подключить другую группу':'Подключить группу'}</button>{group&&<button className="btn secondary" onClick={disconnect} disabled={busy}>Отключить</button>}</div>
     {command&&<div className="group-connect">
       <ol><li>Добавьте @{username} в группу и назначьте администратором.</li><li>Отправьте команду ниже в группу от своего аккаунта администратора.</li></ol>

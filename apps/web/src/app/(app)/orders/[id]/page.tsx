@@ -454,7 +454,7 @@ export default function OrderDetailPage() {
         }
       }
       const saved = await api<{telegramDelivery?:string;telegramGroupDelivery?:string}>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      if(saved.telegramDelivery) setDelivery((saved.telegramDelivery==='sent'?'Отправлено мастеру.':'Сохранено. Мастеру не отправлено.')+(saved.telegramGroupDelivery ? (saved.telegramGroupDelivery==='sent'?' В группу отправлено.':' В группу не отправлено.') : ''));
+      if(saved.telegramDelivery) setDelivery((saved.telegramDelivery==='sent'?'Заявка отправлена в Telegram.':'Сохранено. Не удалось отправить в Telegram.')+(saved.telegramGroupDelivery ? (saved.telegramGroupDelivery==='sent'?' В группу отправлено.':' В группу не отправлено.') : ''));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
@@ -987,7 +987,7 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{order.masterId && !order.isPersonal && <button type="button" className="btn secondary" disabled={sendingGroup || masterId !== order.masterId || isPersonal} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Отправлено в группу мастера.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':'Отправить мастеру'}</button>}
+          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{<button type="button" className="btn secondary" disabled={sendingGroup || masterId !== order.masterId || isPersonal !== order.isPersonal || isServiceCenter !== order.isServiceCenter} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Заявка отправлена в чат.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':isServiceCenter?'Отправить в СЦ':isPersonal || !masterId?'Отправить в мой чат':'Отправить мастеру'}</button>}
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>

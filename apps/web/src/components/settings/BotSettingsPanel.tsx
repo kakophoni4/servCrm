@@ -186,6 +186,8 @@ export function BotSettingsPanel() {
           </p>
         ) : null}
       </form>
+      <GroupSettingsPanel kind="owner" />
+      <GroupSettingsPanel kind="center" />
       <GroupSettingsPanel />
     </div>
   );

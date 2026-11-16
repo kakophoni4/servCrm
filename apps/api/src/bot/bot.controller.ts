@@ -70,6 +70,21 @@ export class BotController {
   @Roles(Role.OWNER)
   disconnectGroup() { return this.bot.disconnectGroup(); }
 
+  @Get('destinations/:kind')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  destination(@Param('kind') kind:string) { return this.bot.getOrderGroup(kind); }
+
+  @Post('destinations/:kind/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  destinationLink(@Param('kind') kind:string) { return this.bot.createGroupLink(kind); }
+
+  @Post('destinations/:kind/disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  disconnectDestination(@Param('kind') kind:string) { return this.bot.disconnectGroup(kind); }
+
   @Post('masters/:id/link')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)

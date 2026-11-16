@@ -815,8 +815,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async getOrderGroup(): Promise<{chatId: string; title: string} | null> {
-    const value = await this.settings.get('bot.orders.group');
+  private groupKey(kind='common') {
+    if(!['common','owner','center'].includes(kind))throw new BadRequestException('Неизвестный чат');
+    return kind==='common'?'bot.orders.group':'bot.orders.group.'+kind;
+  }
+
+  async getOrderGroup(kind='common'): Promise<{chatId: string; title: string} | null> {
+    const value = await this.settings.get(this.groupKey(kind));
     return value ? JSON.parse(value) : null;
   }
 
@@ -826,7 +831,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getOrderDestination(orderId: string) {
-    const order=await this.prisma.order.findUnique({where:{id:orderId},select:{masterId:true}});
+    const order=await this.prisma.order.findUnique({where:{id:orderId},select:{masterId:true,isPersonal:true,isServiceCenter:true}});
+    if(order?.isServiceCenter)return this.getOrderGroup('center');
+    if(order?.isPersonal || !order?.masterId)return this.getOrderGroup('owner');
     return (order?.masterId ? await this.getMasterGroup(order.masterId) : null) || await this.getOrderGroup();
   }
 
@@ -866,25 +873,28 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return master.user.fullName;
   }
 
-  async createGroupLink() {
+  async createGroupLink(kind='common') {
+    const key=this.groupKey(kind);
     const config = await this.settings.getBotConfig();
     if (!config.hasToken || !config.enabled) throw new BadRequestException('Сначала включите бота');
     const bot = await this.settings.testBot();
     if (!bot.ok || !bot.username) throw new BadRequestException('Бот недоступен');
     const code = randomBytes(16).toString('hex');
-    await this.settings.set('bot.orders.group.bind', JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+24*60*60*1000}));
-    return {command:`/connect_group@${bot.username} ${code}`,username:bot.username};
+    await this.settings.set(key+'.bind', JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+24*60*60*1000}));
+    return {command:`/connect_${kind==='common'?'group':kind}@${bot.username} ${code}`,username:bot.username};
   }
 
-  async disconnectGroup() {
-    await this.prisma.appSetting.deleteMany({where:{key:{in:['bot.orders.group','bot.orders.group.bind']}}});
+  async disconnectGroup(kind='common') {
+    const key=this.groupKey(kind);
+    await this.prisma.appSetting.deleteMany({where:{key:{in:[key,key+'.bind']}}});
     return {ok:true};
   }
 
-  async bindOrderGroup(code: string, chat: TgChat, senderId: string) {
+  async bindOrderGroup(code: string, chat: TgChat, senderId: string, kind='common') {
     if (!['group','supergroup'].includes(chat.type || '') || !chat.id) throw new BadRequestException('Отправьте команду в нужную группу');
     if (!/^[a-f0-9]{32}$/.test(code)) throw new BadRequestException('Неверный код подключения');
-    const key = 'bot.orders.group.bind';
+    const destinationKey=this.groupKey(kind);
+    const key = destinationKey+'.bind';
     const row = await this.prisma.appSetting.findUnique({where:{key}});
     if (!row) throw new BadRequestException('Создайте новую команду в CRM');
     const data = JSON.parse(row.value);
@@ -895,7 +905,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.$transaction(async tx => {
       const consumed = await tx.appSetting.deleteMany({where:{key,value:row.value}});
       if (consumed.count !== 1) throw new BadRequestException('Код уже использован');
-      await tx.appSetting.upsert({where:{key:'bot.orders.group'},create:{key:'bot.orders.group',value},update:{value}});
+      await tx.appSetting.upsert({where:{key:destinationKey},create:{key:destinationKey,value},update:{value}});
     });
   }
 
@@ -1022,7 +1032,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = [
       'Заявка '+order.publicId,
       'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята мастером' : ''),
-      'Мастер: '+(order.master?.user.fullName || 'не назначен'),
+      order.isPersonal?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
       'Клиент: '+order.client.name,'Телефон: '+order.client.phoneNormalized,
       order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
       'Техника: '+(order.typeTech || 'не указана'),
@@ -1030,6 +1040,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) : '',
       order.status===OrderStatus.DONE && order.payment ? 'Получено всего: '+Number(order.payment.paid)+' ₽ · расходы: '+Number(order.payment.partsCost)+' ₽' : '',
+      order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
       order.comment ? 'Описание: '+order.comment : '',order.adminComment ? 'Комментарий: '+order.adminComment : '',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
@@ -1046,9 +1057,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const config = await this.settings.getBotConfig();
     if (!config.enabled || !config.hasToken) throw new BadRequestException('Бот выключен');
     const card = await this.groupOrderCard(orderId);
-    const group = masterOnly ? (card.order.masterId ? await this.getMasterGroup(card.order.masterId) : null) : await this.getOrderDestination(orderId);
-    if (!group) throw new BadRequestException('Подключите группу в карточке назначенного мастера');
-    if (!card.order.masterId || card.order.isPersonal) throw new BadRequestException('Сначала назначьте мастера');
+    const special=card.order.isPersonal || card.order.isServiceCenter || !card.order.masterId;
+    const group = masterOnly && !special ? await this.getMasterGroup(card.order.masterId!) : await this.getOrderDestination(orderId);
+    if (!group) throw new BadRequestException(card.order.isServiceCenter?'Подключите чат СЦ в разделе Telegram':card.order.isPersonal || !card.order.masterId?'Подключите «Мой чат» в разделе Telegram':'Подключите группу в карточке назначенного мастера');
     const result = await this.sendMessage(group.chatId,card.text,{reply_markup:card.reply_markup});
     return {sent:!!result?.ok};
   }
@@ -1145,7 +1156,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Заявка не найдена');
     }
 
-    if (order.isPersonal || order.masterId !== masterId) return null;
+    if (order.masterId !== masterId) return null;
+    if(order.isPersonal || order.isServiceCenter){const sent=await this.sendOrderToGroup(orderId);return {ok:sent.sent,groupSent:sent.sent};}
     const text = [
       'Заявка '+order.publicId, 'Мастер: '+master.user.fullName, 'Клиент: '+order.client.name,
       'Телефон: '+order.client.phoneNormalized, order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
@@ -1600,6 +1612,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(masterGroupCommand){
       try{const name=await this.bindMasterGroup(masterGroupCommand[1],masterGroupCommand[2],msg.chat!,telegramId);await this.sendMessage(chatId,'Группа подключена к мастеру: '+name+'. Его заявки будут приходить сюда.');}
       catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить группу');}
+      return;
+    }
+    const destinationCommand=/^\/connect_(owner|center)(?:@\w+)?\s+(\S+)$/i.exec(msg.text?.trim() || '');
+    if(destinationCommand){
+      try{await this.bindOrderGroup(destinationCommand[2],msg.chat!,telegramId,destinationCommand[1].toLowerCase());await this.sendMessage(chatId,destinationCommand[1].toLowerCase()==='owner'?'Чат личных заявок подключён':'Чат СЦ подключён');}
+      catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить чат');}
       return;
     }
     const groupCommand = /^\/connect_group(?:@\w+)?\s+(\S+)$/i.exec(msg.text?.trim() || '');

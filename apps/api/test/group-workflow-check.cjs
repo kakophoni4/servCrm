@@ -22,7 +22,7 @@ const settings = {
   testBot: async () => ({ok:true,username:'TestBot'}),
 };
 const svc = new BotService(p, {}, settings, {}, new SettlementsService(p, {}), new SalaryService(p));
-svc.sendMessage = async (chat,text,options={}) => { assert.equal(String(chat),chatId); const message={id:++messageId,text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
+svc.sendMessage = async (chat,text,options={}) => { assert([chatId,'-222222','-333333'].includes(String(chat))); const message={id:++messageId,chatId:String(chat),text,...options}; messages.push(message); return {ok:true,result:{message_id:message.id}}; };
 svc.telegram = async (method,body) => { if(method==='getChatMember')return {ok:true,result:{status:'administrator'}}; assert(['editMessageText','answerCallbackQuery'].includes(method)); calls.push({method,...body}); return {ok:true}; };
 const click = (data, from=telegramId, chat=chatId) => svc.processUpdate({callback_query:{id:'q'+messageId,data,from:{id:Number(from)},message:{chat:{id:Number(chat),type:'supergroup'},message_id:50}}});
 const reply = (text, prompt=messages.at(-1), from=telegramId) => svc.processUpdate({message:{message_id:++messageId,chat:{id:Number(chatId),type:'supergroup'},from:{id:Number(from)},reply_to_message:{message_id:prompt.id},text}});
@@ -82,6 +82,20 @@ async function close(id, text, expected) {
     await click(`ga:${routing}`); assert.deepEqual(await buttons(routing),['Принять']);
     await settings.set('bot.master.group.'+master.id,JSON.stringify({chatId,title:'Master group'}));
     console.log('PASS master group binding, one-time code, private-chat rejection, group-only routing, disconnect');
+    for(const [kind,destination] of [['owner','-222222'],['center','-333333']]){
+      const link=await svc.createGroupLink(kind); assert(link.command.startsWith('/connect_'+kind+'@'));
+      await svc.bindOrderGroup(link.command.split(' ').at(-1),{id:Number(destination),type:'supergroup',title:kind},telegramId,kind);
+      settingsKeys.add('bot.orders.group.'+kind);
+    }
+    const personal=await createOrder({masterId:null,isPersonal:true});
+    await svc.sendOrderToGroup(personal,true); assert.equal(messages.at(-1).chatId,'-222222');assert(messages.at(-1).text.includes('Исполнитель: владелец'));
+    const center=await createOrder({masterId:null,isServiceCenter:true});
+    await svc.sendOrderToGroup(center,true); assert.equal(messages.at(-1).chatId,'-333333');
+    const both=await createOrder({masterId:null,isPersonal:true,isServiceCenter:true});
+    await svc.sendOrderToGroup(both,true); assert.equal(messages.at(-1).chatId,'-333333');
+    const unassigned=await createOrder({masterId:null});await svc.sendOrderToGroup(unassigned,true);assert.equal(messages.at(-1).chatId,'-222222');
+    await svc.disconnectGroup('center');await assert.rejects(()=>svc.sendOrderToGroup(center,true));
+    console.log('PASS owner and service-center routing without master, center priority, no fallback when disconnected');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
     console.log('PASS direct: accept -> depart -> arrive -> close; 5500 / 2750 / 2750');
