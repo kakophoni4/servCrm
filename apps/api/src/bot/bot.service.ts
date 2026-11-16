@@ -913,7 +913,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(order.isPersonal || order.isServiceCenter || !order.masterId){
       const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
       if(owner)return {id:owner.id,isOwner:true};
-      if(order.isPersonal || !order.masterId)throw new BadRequestException('Этой заявкой управляет только владелец. Подключите свой Telegram в CRM');
+      const owners=await this.prisma.user.findMany({where:{role:Role.OWNER,status:UserStatus.ACTIVE},select:{id:true}});
+      for(const account of owners){
+        const grant=await this.settings.get('owner.partner.'+account.id);
+        if(grant && JSON.parse(grant).telegramId===telegramId)return {id:account.id,isOwner:true};
+      }
+      if(order.isPersonal || !order.masterId)throw new BadRequestException('Нет доступа. В CRM откройте Telegram → Мой Telegram или Напарник, перейдите по своей ссылке и нажмите «Запустить»');
     }
     const user=await this.masterByTelegram(telegramId);
     if(user.masterProfile!.id!==order.masterId)throw new BadRequestException('Эта заявка назначена другому мастеру');
@@ -1111,7 +1116,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   async ownerConnection(userId:string) {
     const user=await this.prisma.user.findUnique({where:{id:userId}});
-    return {connected:!!user?.telegramId};
+    return {connected:!!user?.telegramId,partnerConnected:!!await this.settings.get('owner.partner.'+userId)};
   }
 
   async createOwnerLink(userId:string) {
@@ -1136,10 +1141,44 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(data.expires<Date.now() || data.hash!==createHash('sha256').update(match[2]).digest('hex'))throw new BadRequestException('Ссылка истекла или недействительна');
       const owner=await tx.user.findUnique({where:{id:match[1]}});
       if(!owner || owner.role!==Role.OWNER || owner.status!==UserStatus.ACTIVE)throw new BadRequestException('Владелец не активен');
-      if(await tx.user.findFirst({where:{telegramId,id:{not:owner.id}}}))throw new BadRequestException('Этот Telegram привязан к другой анкете');
+      if(await tx.user.findFirst({where:{telegramId,id:{not:owner.id},role:{not:Role.MASTER}}}))throw new BadRequestException('Этот Telegram привязан к другому аккаунту владельца или сотрудника');
       const consumed=await tx.appSetting.deleteMany({where:{key,value:row.value}});
       if(consumed.count!==1)throw new BadRequestException('Ссылка уже использована');
       await tx.user.update({where:{id:owner.id},data:{telegramId}});
+    });
+  }
+
+  async createPartnerLink(userId:string) {
+    const user=await this.prisma.user.findUnique({where:{id:userId}});
+    if(!user || user.role!==Role.OWNER || user.status!==UserStatus.ACTIVE)throw new BadRequestException('Владелец не найден');
+    const bot=await this.settings.testBot();
+    if(!bot.ok || !bot.username)throw new BadRequestException('Бот недоступен');
+    const token=randomBytes(16).toString('hex');
+    await this.settings.set('partner.bind.'+userId,JSON.stringify({hash:createHash('sha256').update(token).digest('hex'),expires:Date.now()+86400000}));
+    return {url:`https://t.me/${bot.username}?start=p_${userId}_${token}`};
+  }
+
+  async disconnectPartner(userId:string) {
+    await this.prisma.appSetting.deleteMany({where:{key:{in:['partner.bind.'+userId,'owner.partner.'+userId]}}});
+    return {ok:true};
+  }
+
+  async bindPartner(payload:string,telegramId:string,chatId:string) {
+    if(chatId!==telegramId)throw new BadRequestException('Откройте ссылку в личном чате с ботом');
+    const match=/^p_([a-z0-9]+)_([a-f0-9]{32})$/.exec(payload);
+    if(!match)throw new BadRequestException('Некорректная ссылка');
+    const key='partner.bind.'+match[1];
+    await this.prisma.$transaction(async tx=>{
+      const row=await tx.appSetting.findUnique({where:{key}});
+      if(!row)throw new BadRequestException('Ссылка использована или отозвана');
+      const data=JSON.parse(row.value);
+      if(data.expires<Date.now() || data.hash!==createHash('sha256').update(match[2]).digest('hex'))throw new BadRequestException('Ссылка истекла или недействительна');
+      const owner=await tx.user.findUnique({where:{id:match[1]}});
+      if(!owner || owner.role!==Role.OWNER || owner.status!==UserStatus.ACTIVE)throw new BadRequestException('Владелец не активен');
+      const consumed=await tx.appSetting.deleteMany({where:{key,value:row.value}});
+      if(consumed.count!==1)throw new BadRequestException('Ссылка уже использована');
+      const value=JSON.stringify({telegramId});
+      await tx.appSetting.upsert({where:{key:'owner.partner.'+owner.id},create:{key:'owner.partner.'+owner.id,value},update:{value}});
     });
   }
 
@@ -1690,6 +1729,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = msg.text.trim();
     if (/^\/start(?:@\w+)?(?:\s|$)/i.test(text)) {
       const payload = text.split(/\s+/)[1];
+      if(payload?.startsWith('p_')){
+        try{await this.bindPartner(payload,telegramId,chatId);await this.sendMessage(chatId,'Вы подключены как напарник. Можно принимать и закрывать заявки в чате владельца и чате СЦ.');}
+        catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить Telegram');}
+        return;
+      }
       if(payload?.startsWith('o_')){
         try{await this.bindOwner(payload,telegramId,chatId);await this.sendMessage(chatId,'Telegram владельца подключён. Вы можете управлять заявками в своём чате и чате СЦ.');}
         catch(e){await this.sendMessage(chatId,e instanceof BadRequestException?e.message:'Не удалось подключить Telegram');}

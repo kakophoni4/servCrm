@@ -66,6 +66,16 @@ export class BotController {
   @Roles(Role.OWNER)
   ownerLink(@CurrentUser() user:{userId:string}) { return this.bot.createOwnerLink(user.userId); }
 
+  @Post('owner/partner/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  partnerLink(@CurrentUser() user:{userId:string}) { return this.bot.createPartnerLink(user.userId); }
+
+  @Post('owner/partner/disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  disconnectPartner(@CurrentUser() user:{userId:string}) { return this.bot.disconnectPartner(user.userId); }
+
   @Get('group')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)

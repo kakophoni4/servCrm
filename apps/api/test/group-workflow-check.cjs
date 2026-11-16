@@ -158,6 +158,25 @@ async function close(id, text, expected) {
       await closeAs(id,scenario.actor,dest,{masterSalary:salary,toCompany:company,reinvestAmount:avito,ownerNet:company-avito,prepay:scenario.sd?5000:0});
     }
     console.log('PASS full owner/center matrix: direct and SD, both authorized actors, routing, exact buttons, cancellation, concurrent confirmation');
+    const partnerId=String(Number(telegramId)+777);
+    const partnerLink=await svc.createPartnerLink(owner.id);const partnerPayload=new URL(partnerLink.url).searchParams.get('start');
+    await assert.rejects(()=>svc.bindPartner(partnerPayload,partnerId,'-222222'));
+    await svc.bindPartner(partnerPayload,partnerId,partnerId);settingsKeys.add('owner.partner.'+owner.id);
+    await assert.rejects(()=>svc.bindPartner(partnerPayload,partnerId,partnerId));
+    for(const special of [{isPersonal:true,isServiceCenter:false,masterId:null,chat:'-222222'},{isPersonal:false,isServiceCenter:true,masterId:master.id,chat:'-333333'}]){
+      const {chat,...data}=special;const id=await createOrder(data);await reachAs(id,partnerId,chat);
+      await closeAs(id,partnerId,chat,special.masterId?{masterSalary:5000,reinvestAmount:1500,ownerNet:3500}:{masterSalary:0,reinvestAmount:5000,ownerNet:5000});
+    }
+    const revoked=await createOrder({isPersonal:true,masterId:null});await reachAs(revoked,partnerId,'-222222');
+    await click(`gs:${revoked}:DONE`,partnerId,'-222222');await reply('11000 1000',messages.at(-1),partnerId,'-222222');const revokedToken=confirm();
+    await svc.disconnectPartner(owner.id);await click(revokedToken,partnerId,'-222222');assert.equal((await read(revoked)).status,'IN_PROGRESS');
+    const blocked=await createOrder();await click(`ga:${blocked}`,partnerId,chatId);assert.deepEqual(await buttons(blocked),['Принять']);
+    const dualLink=await svc.createOwnerLink(owner.id);await svc.bindOwner(new URL(dualLink.url).searchParams.get('start'),telegramId,telegramId);
+    assert.equal((await p.user.findUnique({where:{id:user.id}})).telegramId,telegramId);
+    assert.equal((await p.user.findUnique({where:{id:owner.id}})).telegramId,telegramId);
+    await svc.groupActor({masterId:null,isPersonal:true,isServiceCenter:false},telegramId);
+    await svc.masterByTelegram(telegramId);
+    console.log('PASS partner binding, both chat actions, revocation before confirmation, restricted master group, dual owner/master identity');
     console.log('PASS owner binding, personal owner-only actions, SD without master 30/70, center assigned master and owner actions');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
@@ -181,7 +200,7 @@ async function close(id, text, expected) {
     await close(custom,'12000 1000',{paid:12000,partsCost:1000,workSum:11000,masterSalary:4400,toCompany:6600,reinvestAmount:1980,ownerNet:4620});
     console.log('PASS custom percentages: 40% master, 30% Avito from owner share');
     const settlement=await p.masterSettlement.findFirst({where:{masterId:master.id}});
-    assert.equal(Number(settlement.amount),37100);
+    assert.equal(Number(settlement.amount),42100);
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
