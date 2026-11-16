@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { type BranchCity } from '@/components/BranchSelect';
@@ -153,15 +154,17 @@ export default function NewOrderPage() {
 
   return (
     <div className="order-new-page">
-      <h1 className="page-title">Новая заявка</h1><div className="order-options"><label className="service-center-check"><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div>
-      <form className="panel order-new-form" onSubmit={onSubmit}>
+      <h1 className="page-title">Новая заявка</h1>
+      <form id="new-order-form" className="panel order-new-form order-new-compact" onSubmit={onSubmit}>
         <section className="order-new-section">
           <h2 className="order-new-section-title">Клиент</h2>
           <div className="order-new-grid">
             <div className="field">
-              <label>Телефон</label>
+              <label htmlFor="new-client-phone">Телефон</label>
               <input
                 required
+                id="new-client-phone"
+                type="tel"
                 inputMode="tel"
                 autoComplete="tel"
                 value={form.clientPhone}
@@ -178,9 +181,11 @@ export default function NewOrderPage() {
               ) : null}
             </div>
             <div className="field">
-              <label>Имя клиента</label>
+              <label htmlFor="new-client-name">Имя клиента</label>
               <input
                 required
+                id="new-client-name"
+                autoComplete="name"
                 value={form.clientName}
                 onChange={(e) => set('clientName', e.target.value)}
                 placeholder="Как обращаться"
@@ -191,6 +196,46 @@ export default function NewOrderPage() {
 
         <section className="order-new-section">
           <h2 className="order-new-section-title">Заявка</h2>
+          <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>set('isServiceCenter',e.target.checked)}/> Привезут в СЦ - на Авито 30%</label>
+          <div className="order-new-grid order-new-grid-details">
+            {!form.isServiceCenter && <div className="field order-new-field-wide">
+              <label htmlFor="new-address">Адрес</label>
+              <input
+                required
+                id="new-address"
+                autoComplete="street-address"
+                value={form.address}
+                onChange={(e) => set('address', e.target.value)}
+                placeholder="Улица, дом, квартира"
+              />
+            </div>}
+            <div className="field">
+              <label>Тип техники</label>
+              <TechPicker value={form.typeTech} onChange={v=>set('typeTech',v)}/>
+            </div>
+            <div className="field">
+              <label>Дата и время</label>
+              <DateTimeField
+                required
+                showQuickPicks
+                value={form.scheduledAt}
+                onChange={(scheduledAt) => set('scheduledAt', scheduledAt)}
+              />
+            </div>
+            <div className="field order-new-field-wide">
+              <label>Комментарий</label>
+              <AutoTextarea
+                value={form.comment}
+                onChange={(e) => set('comment', e.target.value)}
+                placeholder="Необязательно"
+              />
+            </div>
+          </div>
+        </section>
+
+        <MobileFold title="Дополнительно" className="order-new-section order-new-extra">
+          <h2 className="order-new-section-title">Дополнительно</h2>
+          <label className="service-center-check"><input type="checkbox" checked={form.isPersonal} onChange={e=>set('isPersonal',e.target.checked)}/> Выполняю сам</label>
           <div className="order-new-grid">
             <div className="field">
               <label>Тип</label>
@@ -240,44 +285,8 @@ export default function NewOrderPage() {
                 </select>
               </div>
             )}
-            <div className="field">
-              <label>Дата и время</label>
-              <DateTimeField
-                required
-                showQuickPicks
-                value={form.scheduledAt}
-                onChange={(scheduledAt) => set('scheduledAt', scheduledAt)}
-              />
-            </div>
           </div>
-        </section>
-
-        <section className="order-new-section">
-          <h2 className="order-new-section-title">{form.isServiceCenter?'Детали заявки':'Адрес и детали'}</h2>
-          <div className="order-new-grid order-new-grid-details">
-            {!form.isServiceCenter && <div className="field order-new-field-wide">
-              <label>Адрес</label>
-              <input
-                required
-                value={form.address}
-                onChange={(e) => set('address', e.target.value)}
-                placeholder="Улица, дом, квартира"
-              />
-            </div>}
-            <div className="field">
-              <label>Тип техники</label>
-              <TechPicker value={form.typeTech} onChange={v=>set('typeTech',v)}/>
-            </div>
-            <div className="field order-new-field-wide">
-              <label>Комментарий</label>
-              <AutoTextarea
-                value={form.comment}
-                onChange={(e) => set('comment', e.target.value)}
-                placeholder="Необязательно"
-              />
-            </div>
-          </div>
-        </section>
+        </MobileFold>
 
         <div className="order-new-footer">
           {error ? <p className="error order-new-error">{error}</p> : null}

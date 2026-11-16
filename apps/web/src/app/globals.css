@@ -28,7 +28,7 @@
   --ink: #eee8e9;
   --muted: #b3a9ad;
   --line: #3b3539;
-  --accent: #ce8d92;
+  --accent: #d97c85;
   --accent-ink: #26191c;
   --danger: #f0919c;
   --warn: #d1af79;
@@ -5054,4 +5054,27 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
  .order-actions .btn[type=submit] { display: none; }
  .order-mobile-bar { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.5fr); gap: 10px; position: fixed; bottom: 0; left: 0; right: 0; z-index: 45; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--panel); box-shadow: 0 -4px 20px #20151a08; }
  .order-mobile-bar .btn { min-height: 44px; }
+}
+
+.order-new-center { display: flex; align-items: center; gap: 9px; font-size: 13px; margin-bottom: 14px; line-height: 1.4; }
+.order-new-center input { flex-shrink: 0; }
+.order-new-extra .service-center-check { margin-bottom: 16px; }
+@media(max-width:600px) {
+ .order-new-page { gap: 14px; padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+ .order-new-compact { padding: 16px; gap: 14px; }
+ .order-new-compact .order-new-section { padding-bottom: 14px; margin: 0; gap: 10px; }
+ .order-new-compact .order-new-section-title { font-size: 14px; margin-bottom: 10px; }
+ .order-new-compact .order-new-grid { gap: 10px; }
+ .order-new-compact .field { gap: 4px; }
+ .order-new-compact .field label { font-size: 12px; }
+ .order-new-compact .field input, .order-new-compact .field select { min-height: 44px; padding: 9px 10px; }
+ .order-new-compact .datetime-field-row { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); gap: 8px; }
+ .order-new-compact .datetime-field-quick { margin-top: 4px; }
+ .order-new-compact .tech-picker { gap: 6px; }
+ .order-new-compact .tech-picker .btn { min-width: 0; min-height: 40px; padding: 8px 11px; font-size: 13px; }
+ .order-new-compact .order-new-extra { padding: 0; }
+ .order-new-extra > .mobile-fold-content > .order-new-section-title { display: none; }
+ .order-new-compact .order-new-footer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 45; display: grid; gap: 6px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -4px 20px #20151a08; }
+ .order-new-compact .order-new-error { margin: 0; font-size: 13px; text-align: left; max-height: 70px; overflow: auto; }
+ .order-new-compact .order-new-submit { min-height: 44px; margin: 0; }
 }
