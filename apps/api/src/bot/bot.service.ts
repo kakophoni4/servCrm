@@ -96,7 +96,7 @@ type TgFrom = {
   first_name?: string;
 };
 
-type TgChat = { id?: number | string };
+type TgChat = { id?: number | string; type?: string; title?: string };
 
 type TgPhotoSize = { file_id: string; file_unique_id?: string };
 
@@ -812,6 +812,44 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async getOrderGroup(): Promise<{chatId: string; title: string} | null> {
+    const value = await this.settings.get('bot.orders.group');
+    return value ? JSON.parse(value) : null;
+  }
+
+  async createGroupLink() {
+    const config = await this.settings.getBotConfig();
+    if (!config.hasToken || !config.enabled) throw new BadRequestException('Сначала включите бота');
+    const bot = await this.settings.testBot();
+    if (!bot.ok || !bot.username) throw new BadRequestException('Бот недоступен');
+    const code = randomBytes(16).toString('hex');
+    await this.settings.set('bot.orders.group.bind', JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+24*60*60*1000}));
+    return {command:`/connect_group@${bot.username} ${code}`,username:bot.username};
+  }
+
+  async disconnectGroup() {
+    await this.prisma.appSetting.deleteMany({where:{key:{in:['bot.orders.group','bot.orders.group.bind']}}});
+    return {ok:true};
+  }
+
+  async bindOrderGroup(code: string, chat: TgChat, senderId: string) {
+    if (!['group','supergroup'].includes(chat.type || '') || !chat.id) throw new BadRequestException('Отправьте команду в нужную группу');
+    if (!/^[a-f0-9]{32}$/.test(code)) throw new BadRequestException('Неверный код подключения');
+    const key = 'bot.orders.group.bind';
+    const row = await this.prisma.appSetting.findUnique({where:{key}});
+    if (!row) throw new BadRequestException('Создайте новую команду в CRM');
+    const data = JSON.parse(row.value);
+    if (data.expires < Date.now() || data.hash !== createHash('sha256').update(code).digest('hex')) throw new BadRequestException('Код истёк или недействителен');
+    const member = await this.telegram<{ok:boolean;result?:{status:string}}>('getChatMember',{chat_id:chat.id,user_id:Number(senderId)});
+    if (!member?.ok || !['creator','administrator'].includes(member.result?.status || '')) throw new BadRequestException('Команду должен отправить администратор группы. Бот тоже должен быть администратором');
+    const value = JSON.stringify({chatId:String(chat.id),title:chat.title || 'Группа заявок'});
+    await this.prisma.$transaction(async tx => {
+      const consumed = await tx.appSetting.deleteMany({where:{key,value:row.value}});
+      if (consumed.count !== 1) throw new BadRequestException('Код уже использован');
+      await tx.appSetting.upsert({where:{key:'bot.orders.group'},create:{key:'bot.orders.group',value},update:{value}});
+    });
+  }
+
   async createMasterLink(id: string) {
     const master = await this.prisma.master.findUnique({where:{id}});
     if (!master || master.status !== 'ACTIVE') throw new BadRequestException('Мастер не активен');
@@ -849,7 +887,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const order = await this.prisma.order.findUnique({where:{id}});
     if (!order?.masterId || order.isPersonal) throw new BadRequestException('Назначьте мастера в обычной заявке');
     const result = await this.notifyMasterOrder(order.masterId,id);
-    return {sent:!!result?.ok};
+    return {sent:!!result?.ok,groupSent:result?.groupSent};
   }
 
   /** Отправка назначенной заявки в личный чат мастера. */
@@ -864,13 +902,6 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Мастер не найден');
     }
     const telegramId = master.user.telegramId;
-    if (!telegramId) {
-      this.logger.warn(
-        `notifyMasterOrder: у мастера ${masterId} нет telegramId`,
-      );
-      return null;
-    }
-
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { client: true, payment: true, city: true },
@@ -879,23 +910,27 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Заявка не найдена');
     }
 
-    this.logger.log(
-      `notifyMasterOrder → telegramId=${telegramId} order=${order.publicId}`,
-    );
-
-    // Снять предыдущую карточку этой заявки (если была у другого мастера).
-    await this.clearMasterOrderCard(orderId);
-
-    const sent = await this.sendMessage(telegramId,[
-      'Новая заявка '+order.publicId, 'Клиент: '+order.client.name,
+    if (order.isPersonal || order.masterId !== masterId) return null;
+    const text = [
+      'Заявка '+order.publicId, 'Мастер: '+master.user.fullName, 'Клиент: '+order.client.name,
       'Телефон: '+order.client.phoneNormalized, order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
       'Техника: '+(order.typeTech||'не указана'),
       'Время: '+(order.scheduledAt?order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'не указано'),
       order.comment ? 'Описание: '+order.comment : '',
       order.adminComment ? 'Комментарий: '+order.adminComment : '',
-    ].filter(Boolean).join('\n'));
+    ].filter(Boolean).join('\n');
+
+    const group = await this.getOrderGroup();
+    // Each destination is independent: a missing private chat must not suppress the group copy.
+    let groupSent: boolean | undefined;
+    if (group) groupSent = !!(await this.sendMessage(group.chatId,text))?.ok;
+    let sent: Awaited<ReturnType<BotService['sendMessage']>> = null;
+    if (telegramId) {
+      await this.clearMasterOrderCard(orderId);
+      sent = await this.sendMessage(telegramId,text);
+    }
     if (sent?.ok && sent.result?.message_id) await this.prisma.order.update({where:{id:orderId},data:{masterTgChatId:telegramId,masterTgMessageId:sent.result.message_id}});
-    return sent;
+    return {...sent,ok:!!sent?.ok,groupSent};
   }
 
   /** Уведомление мастеру о штрафе (касса → FINE + masterId). */
@@ -1321,6 +1356,18 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const chatId = String(msg.chat.id);
     const telegramId =
       msg.from?.id != null ? String(msg.from.id) : chatId;
+
+    const groupCommand = /^\/connect_group(?:@\w+)?\s+(\S+)$/i.exec(msg.text?.trim() || '');
+    if (groupCommand) {
+      try {
+        await this.bindOrderGroup(groupCommand[1], msg.chat!, telegramId);
+        await this.sendMessage(chatId,'Группа подключена. После назначения мастера заявки будут дублироваться сюда.');
+      } catch (e) {
+        await this.sendMessage(chatId,e instanceof BadRequestException ? e.message : 'Не удалось подключить группу');
+      }
+      return;
+    }
+    if (msg.chat?.type === 'group' || msg.chat?.type === 'supergroup') return;
 
     if (msg.photo?.length || msg.document) {
       await this.handleIncomingFile(telegramId, chatId, msg);

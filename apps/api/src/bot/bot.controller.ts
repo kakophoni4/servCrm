@@ -55,6 +55,21 @@ export class BotController {
     return this.bot.handleWebhook(secret, update);
   }
 
+  @Get('group')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  group() { return this.bot.getOrderGroup(); }
+
+  @Post('group/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  groupLink() { return this.bot.createGroupLink(); }
+
+  @Post('group/disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  disconnectGroup() { return this.bot.disconnectGroup(); }
+
   @Post('masters/:id/link')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)

@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { GroupSettingsPanel } from './GroupSettingsPanel';
 import { api } from '@/lib/api';
 
 type BotConfig = {
@@ -185,6 +186,7 @@ export function BotSettingsPanel() {
           </p>
         ) : null}
       </form>
+      <GroupSettingsPanel />
     </div>
   );
 }

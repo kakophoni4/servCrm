@@ -641,11 +641,12 @@ export class OrdersService {
         .catch(() => undefined);
     }
     let telegramDelivery: string | undefined;
+    let telegramGroupDelivery: string | undefined;
     if (
       dto.masterId &&
       dto.masterId !== existing.masterId
     ) {
-      try { const sent = await this.bot.notifyMasterOrder(dto.masterId, id); telegramDelivery = sent?.ok ? 'sent' : 'failed'; }
+      try { const sent = await this.bot.notifyMasterOrder(dto.masterId, id); telegramDelivery = sent?.ok ? 'sent' : 'failed'; if(sent?.groupSent !== undefined) telegramGroupDelivery = sent.groupSent ? 'sent' : 'failed'; }
       catch { telegramDelivery = 'failed'; }
     }
 
@@ -682,7 +683,7 @@ export class OrdersService {
       void this.bot.ackOrderNotify(id).catch(() => undefined);
     }
 
-    return telegramDelivery ? {...result,telegramDelivery} : result;
+    return telegramDelivery ? {...result,telegramDelivery,telegramGroupDelivery} : result;
   }
 
   /** Повтор = новая заявка на того же клиента. */

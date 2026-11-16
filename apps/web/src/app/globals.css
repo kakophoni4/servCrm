@@ -5100,3 +5100,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
  .order-history-panel.mobile-fold > summary, .order-docs-panel.mobile-fold > summary { width: 100%; text-align: left; }
  .order-execution-grid .field select { width: 100%; }
 }
+
+.group-settings { margin-top: 20px; display: grid; gap: 14px; }
+.group-settings p { margin: 0; overflow-wrap: anywhere; }
+.group-connect { display: grid; gap: 12px; min-width: 0; }
+.group-connect ol { margin: 0; padding-left: 20px; font-size: 14px; }
+.group-connect li + li { margin-top: 8px; }
+.group-connect textarea { overflow-wrap: anywhere; font-size: 13px; }
