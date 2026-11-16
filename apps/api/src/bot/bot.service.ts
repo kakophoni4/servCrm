@@ -308,7 +308,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(method==='getFile'?30000:10000),
       });
       return (await res.json()) as T;
     } catch (e) {
@@ -2456,12 +2456,19 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Нет файла в сообщении');
     }
 
-    const meta = await this.telegram<{
-      ok?: boolean;
-      result?: { file_path?: string };
-    }>('getFile', { file_id: fileId });
-    const filePath = meta?.result?.file_path;
-    if (!filePath) throw new BadRequestException('Не удалось получить файл');
+    type FileMeta={ok?:boolean;result?:{file_path?:string};error_code?:number;description?:string};
+    let meta:FileMeta|null=null;
+    for(let attempt=0;attempt<3;attempt++){
+      meta=await this.telegram<FileMeta>('getFile',{file_id:fileId});
+      if(meta?.ok && meta.result?.file_path)break;
+      if(meta?.error_code && meta.error_code<500 && meta.error_code!==429)break;
+      if(attempt<2)await this.sleep(1000*(attempt+1));
+    }
+    const filePath=meta?.result?.file_path;
+    if(!filePath){
+      if(meta?.description?.includes('file is too big'))throw new BadRequestException('Файл больше 20 МБ. Отправьте фото со сжатием или уменьшите PDF');
+      throw new BadRequestException('Telegram не отдал файл. Пришлите его ещё раз в ответ на запрос акта или чеков');
+    }
 
     const ext = extname(fileName || filePath).toLowerCase() || '.jpg';
     if (!ALLOWED_TG_EXT.has(ext)) {
@@ -2470,11 +2477,24 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const res = await fetch(
-      `https://api.telegram.org/file/bot${token}/${filePath}`,
-    );
-    if (!res.ok) throw new BadRequestException('Ошибка скачивания файла');
-    const buffer = Buffer.from(await res.arrayBuffer());
+    let buffer:Buffer|undefined;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const res=await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`,{signal:AbortSignal.timeout(60000)});
+        if(!res.ok){
+          if(res.status<500 && res.status!==429)throw new BadRequestException('Telegram не разрешил скачать файл. Отправьте его ещё раз');
+          throw new Error('Temporary Telegram download failure');
+        }
+        buffer=Buffer.from(await res.arrayBuffer());
+        if(!buffer.length)throw new Error('Empty Telegram file');
+        break;
+      }catch(e){
+        if(e instanceof BadRequestException)throw e;
+        if(attempt===2)throw new BadRequestException('Не удалось скачать файл из Telegram. Пришлите его ещё раз в ответ на запрос');
+        await this.sleep(1000*(attempt+1));
+      }
+    }
+    if(!buffer)throw new BadRequestException('Не удалось скачать файл');
 
     return {
       originalname: fileName.endsWith(ext) ? fileName : `${fileName}${ext}`,
