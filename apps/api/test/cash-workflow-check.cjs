@@ -11,7 +11,7 @@ const ids=[];let owner,user,master,client;
  user=await p.user.create({data:{login:tag,passwordHash:'test',fullName:'Cash test',role:'MASTER',telegramId:tag+'2',masterProfile:{create:{}}},include:{masterProfile:true}});master=user.masterProfile;
  client=await p.client.create({data:{name:'Test',phoneNormalized:tag}});
  const old=new Date('2026-11-15T20:59:59Z'),today=new Date('2026-11-15T21:00:00Z'),now=new Date('2026-11-16T12:00:00Z');
- async function order(status,when,paid,toCompany,isPersonal=false){const o=await p.order.create({data:{publicId:tag+ids.length,seqPrefix:tag,seq:ids.length+1,clientId:client.id,masterId:master.id,address:'Test',sourceKind:'OUR',status,isPersonal,createdAt:when,updatedAt:when,scheduledAt:when,completedAt:status==='DONE'?when:null,payment:{create:{paid,toCompany}}}});ids.push(o.id)}
+ async function order(status,when,paid,toCompany,isPersonal=false){const o=await p.order.create({data:{publicId:tag+ids.length,seqPrefix:tag,seq:ids.length+1,clientId:client.id,masterId:master.id,address:'Test',sourceKind:'OUR',status,isPersonal,createdAt:when,updatedAt:when,scheduledAt:when,completedAt:status==='DONE'?when:null,payment:{create:{paid,toCompany}}}});ids.push(o.id);return o}
  await order('DONE',old,4000,2000);await order('DONE',today,10000,5000);await order('WAITING',today,0,0);await order('REFUSAL',today,0,0);await order('DONE',today,9999,9999,true);
  await p.cashTx.create({data:{masterId:master.id,direction:'INCOME',incomeBasis:'FINE',amount:300,createdById:owner.id}});
  await p.masterSettlement.create({data:{masterId:master.id,amount:7000,paidAmount:1000,periodFrom:old,periodTo:now}});
@@ -25,7 +25,18 @@ const ids=[];let owner,user,master,client;
  await svc.receiveCash({...input,amount:1300,requestId:randomUUID()},owner.id,'OWNER');assert.equal((await svc.cashBalance(master.id)).remaining,0);
  const cleared=await svc.cashReport(master.id,now);assert(cleared.includes('К сдаче: 0 ₽'));assert(!cleared.includes('Уже сдано'));assert(!cleared.includes('за всё время'));
  await assert.rejects(()=>svc.receiveCash({...input,amount:1,requestId:randomUUID()},owner.id,'OWNER'));
- const settings={get:async key=>key==='bot.master.group.'+master.id?JSON.stringify({chatId:'-123',title:'Test'}):null};
+ const ownerDay=new Date('2040-03-05T12:00:00Z');
+ const personal=await order('DONE',ownerDay,10000,8000,true);
+ await p.orderPayment.update({where:{orderId:personal.id},data:{partsCost:2000,reinvestAmount:2400,ownerNet:5600}});
+ const center=await order('DONE',ownerDay,6000,5000);
+ await p.order.update({where:{id:center.id},data:{isServiceCenter:true,masterId:null}});
+ await p.orderPayment.update({where:{orderId:center.id},data:{partsCost:1000,reinvestAmount:1500,ownerNet:3500}});
+ const assigned=await order('DONE',ownerDay,90000,40000);await p.order.update({where:{id:assigned.id},data:{isServiceCenter:true}});
+ await order('DONE',new Date('2040-03-04T12:00:00Z'),70000,70000,true);
+ const ownReport=(await svc.ownerCashReport(ownerDay)).replace(/\u00a0/g,' ');
+ for(const line of ['Выполнено: 2','Получено: 16 000 ₽','Расходы: 3 000 ₽','На Авито: 3 900 ₽','Мне: 9 100 ₽'])assert(ownReport.includes(line),line);
+ assert(!ownReport.includes('К сдаче:'));assert(!ownReport.includes('Мастер:'));
+ const settings={get:async key=>key==='bot.master.group.'+master.id?JSON.stringify({chatId:'-123',title:'Test'}):key==='bot.orders.group.owner'?JSON.stringify({chatId:'-321',title:'Owner'}):null};
  const bot=new BotService(p,{},settings,{},svc,{}),messages=[];bot.sendMessage=async(chat,text)=>{messages.push({chat,text});return {ok:true}};
  const message=(sender,chat,type,text='касса')=>bot.processUpdate({message:{from:{id:sender},chat:{id:chat,type},text}});
  // Use real numeric Telegram identities for command routing.
@@ -34,6 +45,9 @@ const ids=[];let owner,user,master,client;
  await message(780000001,-999,'supergroup');assert(!messages.at(-1).text.startsWith('Касса'));
  await message(780000003,-123,'supergroup');assert(!messages.at(-1).text.startsWith('Касса'));
  await message(780000002,-123,'supergroup','/kassa');assert(messages.at(-1).text.includes('Мастер: Cash test'));
+ await message(780000002,780000002,'private');assert(messages.at(-1).text.startsWith('Моя касса'));assert(!messages.at(-1).text.includes('Мастер:'));
+ await message(780000002,-321,'supergroup');assert(messages.at(-1).text.startsWith('Моя касса'));
+ console.log('PASS owner cash includes personal and unassigned center only; owner private/group routing never substitutes master cash');
  console.log('PASS Moscow day boundary, live lifetime debt, old receipts, partial/full cash handover, retries, concurrent overpayment prevention, owner-only receipt, Telegram routing and privacy');
 }finally{
  await p.cashTx.deleteMany({where:{masterId:master?.id||'missing'}});

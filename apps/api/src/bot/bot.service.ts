@@ -1043,6 +1043,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       await this.validateFileSession(job);
       const key=`bot.file.pending.${token}.${msg.chat.id}.${msg.message_id}`;
       await this.prisma.appSetting.upsert({where:{key},create:{key,value:JSON.stringify(job)},update:{}});
+      await this.telegram('editMessageText',{chat_id:String(msg.chat.id),message_id:msg.reply_to_message.message_id,text:'Фото принято. Загружаю и сохраняю в заявку. Можно прислать ещё фото ответом на это сообщение.',reply_markup:{inline_keyboard:[[{text:'Далее',callback_data:'gd:'+token},{text:'Отмена',callback_data:'gx:'+token}]]}});
       void this.retryPendingFiles().catch(()=>this.logger.warn('Pending Telegram file retry failed'));
     }catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось принять документ. Отправьте его ещё раз');}
     return true;
@@ -1843,14 +1844,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
     let masterIds:string[]=[];
     if(owner){
+      const ownerGroup=await this.getOrderGroup('owner');
+      if(msg.chat.type==='private' || ownerGroup?.chatId===chatId){await this.sendMessage(chatId,await this.settlements.ownerCashReport());return;}
       const masters=await this.prisma.master.findMany({where:{status:UserStatus.ACTIVE},select:{id:true}});
-      if(msg.chat.type==='private')masterIds=masters.map(m=>m.id);
-      else {
+      {
         for(const master of masters){if((await this.getMasterGroup(master.id))?.chatId===chatId)masterIds.push(master.id);}
         if(!masterIds.length){
-          const own=await this.getOrderGroup('owner');
-          if(own?.chatId!==chatId)throw new BadRequestException('Общая касса доступна в личном чате с ботом или в чате владельца');
-          masterIds=masters.map(m=>m.id);
+          throw new BadRequestException('Запросите свою кассу в личном чате с ботом или в чате владельца');
         }
       }
     }else{

@@ -48,6 +48,24 @@ export class SettlementsService {
     return {masterId,due,paid,remaining:Math.max(0,Math.round((due-paid)*100)/100),credit:Math.max(0,Math.round((paid-due)*100)/100)};
   }
 
+  async ownerCashReport(now=new Date()) {
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+    const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
+    const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-3*3600000),end=new Date(start.getTime()+86400000);
+    const orders=await this.prisma.order.findMany({where:{status:OrderStatus.DONE,completedAt:{gte:start,lt:end},OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}]},include:{payment:true}});
+    const sum=(field:'paid'|'partsCost'|'reinvestAmount'|'ownerNet')=>orders.reduce((total,o)=>total+Number(o.payment?.[field]||0),0);
+    const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
+    return [
+      'Моя касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),
+      'Личные заявки и СЦ без мастера',
+      'Выполнено: '+orders.length,
+      'Получено: '+money(sum('paid')),
+      'Расходы: '+money(sum('partsCost')),
+      'На Авито: '+money(sum('reinvestAmount')),
+      'Мне: '+money(sum('ownerNet')),
+    ].join('\n');
+  }
+
   async cashReport(masterId:string,now=new Date()) {
     const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
     if(!master)throw new NotFoundException('Мастер не найден');
