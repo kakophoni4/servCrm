@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './DeskLists.module.css';
+
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -126,7 +128,7 @@ export function OrdersPanel() {
   }
 
   return (
-    <section className="desk-panel">
+    <section className={`desk-panel ${styles.list}`}>
       <div className="desk-panel-head">
         <div className="desk-panel-actions desk-panel-actions-end">
           {canWrite ? (
@@ -136,7 +138,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body"><div className="field"><input aria-label="Поиск заявок" placeholder="Имя, телефон, адрес, мастер или номер заявки" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="all">Все заявки</option></select></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="all">Все заявки</option></select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
@@ -184,7 +186,7 @@ export function OrdersPanel() {
                         }
                       }}
                     >
-                      <td>
+                      <td data-label="Заявка">
                         <div className="desk-cell">
                           <div className="desk-cell-top">
                             <span className="desk-id">{o.publicId}</span>
@@ -200,16 +202,16 @@ export function OrdersPanel() {
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Клиент">
                         <div className="desk-cell">
                           <div className="desk-cell-main">{o.client.name}</div>
                           <div className="desk-cell-phone">
                             {formatRuPhoneDisplay(o.client.phoneNormalized)}
                           </div>
-                          <div className="desk-cell-sub">{source}</div>
+                          <div className="desk-cell-sub">{o.address || source}</div>
                         </div>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Время">
                         {o.scheduledAt ? (
                           <span className="desk-time">
                             {formatSchedule(o.scheduledAt)}
@@ -218,18 +220,18 @@ export function OrdersPanel() {
                           <span className="desk-cell-sub">не назначено</span>
                         )}
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Статус">
                         <span className={statusBadgeClass(o.status)}>
                           {STATUS_LABELS[o.status] ?? o.status}
                         </span>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Мастер">
                         {o.master?.user.fullName ? (
                           <span className="desk-cell-main">
                             {o.master.user.fullName}
                           </span>
                         ) : (
-                          <span className="desk-cell-sub">-</span>
+                          <span className="desk-cell-sub">Не назначен</span>
                         )}
                       </td>
                     </tr>

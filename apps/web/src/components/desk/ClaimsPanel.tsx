@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './DeskLists.module.css';
+
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { BranchSelect } from '@/components/BranchSelect';
@@ -175,7 +177,7 @@ export function ClaimsPanel() {
   }
 
   return (
-    <section className="desk-panel">
+    <section className={`desk-panel ${styles.list}`}>
       <div className="desk-panel-body desk-claims">
         {canWrite ? (
           <form onSubmit={onCreate} className="panel desk-claims-form">
@@ -304,7 +306,7 @@ export function ClaimsPanel() {
                       key={c.id}
                       className={closed ? '' : 'row-claim-open'}
                     >
-                      <td>
+                      <td data-label="Заявка">
                         <div className="desk-cell">
                           <div className="desk-cell-top">
                             <Link
@@ -321,12 +323,12 @@ export function ClaimsPanel() {
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Тип">
                         <div className="desk-cell-main">
                           {CLAIM_TYPES[c.type] ?? c.type}
                         </div>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Дата">
                         <span className="desk-cell-sub">
                           {new Date(c.createdAt).toLocaleDateString('ru-RU', {
                             day: '2-digit',
@@ -335,12 +337,12 @@ export function ClaimsPanel() {
                           })}
                         </span>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Возврат">
                         <span className="desk-money">
                           {formatMoney(c.refundSum)} ₽
                         </span>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Статус">
                         <span
                           className={
                             closed ? 'badge badge-muted' : 'badge badge-warn'
@@ -349,7 +351,7 @@ export function ClaimsPanel() {
                           {closed ? 'Закрыта' : 'Открыта'}
                         </span>
                       </td>
-                      <td className="desk-col-center">
+                      <td className="desk-col-center" data-label="Действие">
                         {!closed && canWrite ? (
                           <button
                             type="button"

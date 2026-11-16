@@ -858,8 +858,8 @@ export default function OrderDetailPage() {
             <div className="order-section">
               <div className="order-section-title">Исполнение</div>
               <div className="order-fields-grid">
-                <div className="field">
-                  <label><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label><label>Статус</label>
+                <div className="order-options">
+                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>setIsPersonal(e.target.checked)}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>setIsServiceCenter(e.target.checked)}/> Привезут в СЦ - на Авито 30%</label></div><div className="field"><label>Статус</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
@@ -934,12 +934,11 @@ export default function OrderDetailPage() {
                 </div>
               </div>
 
-              {order.payment && <div className="panel"><p>На Авито ({Number(order.payment.reinvestPct)*100}%): <strong>{String(order.payment.reinvestAmount)} ₽</strong></p><p>Мне: <strong>{String(order.payment.ownerNet)} ₽</strong></p></div>}
               {order.payment ? (
                 <div className="order-pay-summary">
                   <div className="order-pay-item">
                     <span>Сумма работ</span>
-                    <strong>{String(order.payment.workSum)} ₽</strong>
+                    <strong>{Number(order.payment.workSum).toLocaleString('ru-RU')} ₽</strong>
                   </div>
                   <div className="order-pay-item">
                     <span>% мастера</span>
@@ -949,11 +948,19 @@ export default function OrderDetailPage() {
                   </div>
                   <div className="order-pay-item">
                     <span>Мастеру</span>
-                    <strong>{String(order.payment.masterSalary)} ₽</strong>
+                    <strong>{Number(order.payment.masterSalary).toLocaleString('ru-RU')} ₽</strong>
+                  </div>
+                  <div className="order-pay-item">
+                    <span>Моя доля</span>
+                    <strong>{Number(order.payment.toCompany).toLocaleString('ru-RU')} ₽</strong>
+                  </div>
+                  <div className="order-pay-item">
+                    <span>На Авито · {Number(order.payment.reinvestPct) * 100}%</span>
+                    <strong>{Number(order.payment.reinvestAmount).toLocaleString('ru-RU')} ₽</strong>
                   </div>
                   <div className="order-pay-item accent">
-                    <span>Моя доля</span>
-                    <strong>{String(order.payment.toCompany)} ₽</strong>
+                    <span>Мне</span>
+                    <strong>{Number(order.payment.ownerNet).toLocaleString('ru-RU')} ₽</strong>
                   </div>
                 </div>
               ) : null}
@@ -1342,8 +1349,8 @@ export default function OrderDetailPage() {
                         <strong>{o.publicId}</strong>
                         {o.isClaim ? ' ⚠' : ''}
                       </td>
-                      <td>{TYPE_LABELS[o.type]}</td>
-                      <td>{STATUS_LABELS[o.status]}</td>
+                      <td data-label="Тип">{TYPE_LABELS[o.type]}</td>
+                      <td data-label="Статус">{STATUS_LABELS[o.status]}</td>
                       <td>
                         {new Date(o.createdAt).toLocaleDateString('ru-RU')}
                       </td>

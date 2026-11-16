@@ -25,7 +25,7 @@ const NAV: NavItem[] = [
  {href:'/orders',label:'Заявки и клиенты'},
  {href:'/masters',label:'Мастера'},
  {href:'/settings/bot',label:'Telegram'},
- {href:'/reports',label:'Деньги и статистика'},
+ {href:'/reports',label:'Финансы'},
  {href:'/settings/salary',label:'Расчёт долей'},
  {href:'/settings/account',label:'Аккаунт'},
 ];
@@ -95,29 +95,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           pathname.startsWith('/orders/') ||
           pathname.startsWith('/clients') ||
           pathname.startsWith('/claims')
-        : item.href === '/cash'
-          ? pathname.startsWith('/cash') ||
-            pathname.startsWith('/assets') ||
-            pathname.startsWith('/ads')
-          : item.href === '/manage'
-            ? pathname.startsWith('/manage') ||
-              pathname.startsWith('/settlements') ||
-              pathname.startsWith('/settings/salary') ||
-              pathname.startsWith('/settings/dispatcher-pay') ||
-              pathname.startsWith('/users') ||
-              pathname.startsWith('/masters')
-            : item.href === '/settings/cities'
-              ? pathname.startsWith('/settings/cities') ||
-                pathname.startsWith('/settings/bot')
-              : item.href === '/settings/account'
-                ? pathname.startsWith('/settings/account')
-                : pathname === item.href ||
-                  pathname.startsWith(item.href + '/');
+        : pathname === item.href || pathname.startsWith(item.href + '/');
     return (
       <Link
         key={item.href}
         href={item.href}
         className={active ? 'active' : ''}
+        aria-current={active ? 'page' : undefined}
         onClick={() => setNavOpen(false)}
       >
         <NavIcon href={item.href} className="nav-icon" />
@@ -137,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
       <aside className="sidebar" id="app-sidebar">
         <div className="sidebar-head">
-          <div className="brand">СРМ Сервис</div>
+          <div className="brand"><span className="brand-mark"><NavIcon href="/orders" /></span>СРМ Сервис</div>
           <button
             type="button"
             className="nav-close"
@@ -147,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ×
           </button>
         </div>
-        <nav>{navLinks}</nav>
+        <nav aria-label="Главное меню">{navLinks}</nav>
       </aside>
       <div className="app-content">
         <header className="topbar">

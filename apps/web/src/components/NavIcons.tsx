@@ -98,7 +98,20 @@ export function IconAccount({ className }: IconProps) {
   );
 }
 
+function IconMasters({ className }: IconProps) {
+  return <Svg className={className}><circle cx="9" cy="8" r="3" /><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M21 21v-2a6 6 0 0 0-4-5.65" /></Svg>;
+}
+function IconTelegram({ className }: IconProps) {
+  return <Svg className={className}><path d="m21 3-7 18-4-7-7-4 18-7ZM10 14 21 3" /></Svg>;
+}
+function IconShares({ className }: IconProps) {
+  return <Svg className={className}><path d="m7 17 10-10" /><circle cx="7" cy="7" r="2" /><circle cx="17" cy="17" r="2" /></Svg>;
+}
+
 const BY_HREF: Record<string, (p: IconProps) => ReactNode> = {
+  '/masters': IconMasters,
+  '/settings/bot': IconTelegram,
+  '/settings/salary': IconShares,
   '/chat': IconChat,
   '/orders': IconOrders,
   '/cash': IconCash,

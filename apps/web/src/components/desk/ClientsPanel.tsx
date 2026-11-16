@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './DeskLists.module.css';
+
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
@@ -43,7 +45,7 @@ export function ClientsPanel() {
   if (!canRead) return null;
 
   return (
-    <section className="desk-panel">
+    <section className={`desk-panel ${styles.list}`}>
       <div className="desk-panel-body">
         {error ? <p className="error">{error}</p> : null}
         <div className="table-scroll">
@@ -72,31 +74,31 @@ export function ClientsPanel() {
                     }
                   }}
                 >
-                  <td>
+                  <td data-label="Клиент">
                     <div className="desk-cell">
                       <div className="desk-cell-main">{c.name}</div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Телефон">
                     <span className="desk-cell-phone">
                       {formatRuPhoneDisplay(c.phoneNormalized)}
                     </span>
                   </td>
-                  <td className="desk-col-center">
+                  <td className="desk-col-center" data-label="Возраст">
                     {c.ageCategory?.label ? (
                       <span className="desk-cell-main">{c.ageCategory.label}</span>
                     ) : (
                       <span className="desk-cell-sub">-</span>
                     )}
                   </td>
-                  <td className="desk-col-center">
+                  <td className="desk-col-center" data-label="Филиал">
                     {c.city?.name ? (
                       <span className="desk-cell-main">{c.city.name}</span>
                     ) : (
                       <span className="desk-cell-sub">-</span>
                     )}
                   </td>
-                  <td className="desk-col-center">
+                  <td className="desk-col-center" data-label="Заявок">
                     <span className="desk-count">{c._count.orders}</span>
                   </td>
                 </tr>
