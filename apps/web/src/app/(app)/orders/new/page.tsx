@@ -253,9 +253,9 @@ export default function NewOrderPage() {
         </section>
 
         <section className="order-new-section">
-          <h2 className="order-new-section-title">Адрес и детали</h2>
+          <h2 className="order-new-section-title">{form.isServiceCenter?'Детали заявки':'Адрес и детали'}</h2>
           <div className="order-new-grid order-new-grid-details">
-            <div className="field order-new-field-wide">
+            {!form.isServiceCenter && <div className="field order-new-field-wide">
               <label>Адрес</label>
               <input
                 required
@@ -263,7 +263,7 @@ export default function NewOrderPage() {
                 onChange={(e) => set('address', e.target.value)}
                 placeholder="Улица, дом, квартира"
               />
-            </div>
+            </div>}
             <div className="field">
               <label>Тип техники</label>
               <TechPicker value={form.typeTech} onChange={v=>set('typeTech',v)}/>

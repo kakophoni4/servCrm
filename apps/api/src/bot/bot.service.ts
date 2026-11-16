@@ -888,7 +888,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     const sent = await this.sendMessage(telegramId,[
       'Новая заявка '+order.publicId, 'Клиент: '+order.client.name,
-      'Телефон: '+order.client.phoneNormalized, 'Адрес: '+order.address,
+      'Телефон: '+order.client.phoneNormalized, order.isServiceCenter?'Привезут в СЦ':'Адрес: '+order.address,
       'Техника: '+(order.typeTech||'не указана'),
       'Время: '+(order.scheduledAt?order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'не указано'),
       order.comment ? 'Описание: '+order.comment : '',

@@ -39,9 +39,9 @@ export class CreateOrderDto {
   @IsDateString()
   scheduledAt!: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  address!: string;
+  address?: string;
 
   @IsOptional()
   @IsString()

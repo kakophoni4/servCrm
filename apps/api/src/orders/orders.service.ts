@@ -148,6 +148,7 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto, userId: string, role: Role) {
+    if (!dto.isServiceCenter && !dto.address?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     if (dto.sourceKind === SourceKind.OUR && !dto.sourceOur) {
       throw new BadRequestException('Укажите Авито или листовку');
     }
@@ -243,7 +244,7 @@ export class OrdersService {
           partnerId:
             dto.sourceKind === SourceKind.PARTNER ? dto.partnerId : null,
           scheduledAt,
-          address: dto.address.trim(),
+          address: dto.address?.trim() || '',
           ageCategoryId: dto.ageCategoryId,
           comment: dto.comment,
           status,
@@ -435,6 +436,7 @@ export class OrdersService {
     }
 
     const nextServiceCenter = dto.isServiceCenter ?? existing.isServiceCenter;
+    if (!nextServiceCenter && (dto.address !== undefined || dto.isServiceCenter === false) && !(dto.address ?? existing.address)?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     const centerChanged = dto.isServiceCenter !== undefined && dto.isServiceCenter !== existing.isServiceCenter;
     const nextPersonal = dto.isPersonal ?? existing.isPersonal;
     const nextStatus = status ?? existing.status;
@@ -694,6 +696,8 @@ export class OrdersService {
         clientName: source.client.name,
         clientPhone: source.client.phoneNormalized,
         type: OrderType.REPEAT,
+        isServiceCenter: source.isServiceCenter,
+        isPersonal: source.isPersonal,
         sourceKind: source.sourceKind,
         sourceOur: source.sourceOur ?? undefined,
         partnerId: source.partnerId ?? undefined,

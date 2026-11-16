@@ -139,6 +139,7 @@ describe('OrdersService', () => {
       id: orderId,
       cityId: 'A',
       masterId: null,
+      address: 'Test address',
       status: OrderStatus.WAITING,
       ...overrides,
     });
@@ -208,6 +209,13 @@ describe('OrdersService', () => {
   });
 
   describe('create', () => {
+    it('accepts a service-center order without address',async()=>{
+      setupCreateTransaction();await service.create({...baseCreateDto(),isServiceCenter:true,address:undefined},userId,Role.OWNER);
+      expect(txMock.order.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({isServiceCenter:true,address:''})}));
+    });
+    it('requires address for a field visit',async()=>{
+      await expect(service.create({...baseCreateDto(),address:''},userId,Role.OWNER)).rejects.toThrow('укажите адрес');
+    });
     it('throws BadRequestException when sourceKind OUR without sourceOur', async () => {
       const dto = { ...baseCreateDto(), sourceOur: undefined };
 
