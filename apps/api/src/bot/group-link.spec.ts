@@ -33,7 +33,15 @@ describe('Assignment group', () => {
     expect(card.text).not.toContain('09:00:00');
     expect(card.text).toContain('😀 <Иван>');
     const labels=card.entities.map((e:{offset:number;length:number})=>card.text.slice(e.offset,e.offset+e.length));
-    expect(labels).toEqual(expect.arrayContaining(['Заявка','Статус:','Телефон:','Всего:','Чистыми:']));
+    expect(labels).toEqual(expect.arrayContaining(['Заявка','Статус:','Телефон:']));
+  });
+  it('hides totals until closed, including service-center work with payment entered',async()=>{
+    const {svc,prisma}=setup();const order=await prisma.order.findUnique();
+    for(const status of ['WAITING','NOT_SCHEDULED','ON_THE_WAY','IN_PROGRESS','IN_PROGRESS_SD','REFUSAL','CANCELLED_CC']){
+      prisma.order.findUnique.mockResolvedValue({...order,status,isServiceCenter:true,payment:{paid:10000,partsCost:3500,prepay:5000}});
+      const card=await (svc as any).groupOrderCard('o');
+      expect(card.text).not.toMatch(/Всего:|Чистыми:/);
+    }
   });
   it('refreshes an existing bot card in place without sending another order or changing its status',async()=>{
     const {svc,send,prisma}=setup();jest.spyOn(svc,'masterByTelegram').mockResolvedValue({id:'u',masterProfile:{id:'m'}} as any);

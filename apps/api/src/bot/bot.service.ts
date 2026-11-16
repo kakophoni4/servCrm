@@ -1067,8 +1067,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
-      'Всего: '+paid+' ₽',
-      'Чистыми: '+(paid-partsCost)+' ₽',
+      order.status===OrderStatus.DONE ? 'Всего: '+paid+' ₽' : '',
+      order.status===OrderStatus.DONE ? 'Чистыми: '+(paid-partsCost)+' ₽' : '',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
     if(order.isServiceCenter){
