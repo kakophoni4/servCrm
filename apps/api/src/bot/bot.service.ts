@@ -976,7 +976,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const terms=await this.salary.termsFor(amounts.paid-amounts.partsCost,card.order.typeTech,flow.masterId);
         const ownWork=card.order.isPersonal || !card.order.masterId;
         const base=calcPayment(amounts.paid,amounts.partsCost,ownWork?0:terms.masterPct);
-        const reinvestPct=card.order.isServiceCenter?0.3:ownWork?0.5:terms.reinvestPct;
+        const reinvestPct=card.order.isServiceCenter || ownWork?0.3:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
         summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
@@ -997,7 +997,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async confirmGroupFlow(cq:TgCallbackQuery) {
-    const answer=(text:string)=>this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
+    const answer=(text?:string)=>this.telegram('answerCallbackQuery',{callback_query_id:cq.id,...(text?{text,show_alert:true}:{})});
     try {
       const key='bot.flow.confirm.'+(cq.data || '').slice(3);
       const raw=await this.settings.get(key);
@@ -1008,7 +1008,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(cq.data?.startsWith('gx:')) {
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
         await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Отменено',reply_markup:{inline_keyboard:[]}});
-        await answer('Отменено');return;
+        await answer();return;
       }
       if(flow.expires<Date.now())throw new BadRequestException('Подтверждение истекло. Нажмите кнопку заявки заново');
       const currentCard=await this.groupOrderCard(flow.orderId);
@@ -1018,6 +1018,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         if(consumed.count!==1)throw new BadRequestException('Уже обработано');
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
         if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
+        if(flow.kind==='close' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
@@ -1037,7 +1038,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const fresh=await this.groupOrderCard(flow.orderId);
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.messageId,text:fresh.text,reply_markup:fresh.reply_markup});
       await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:flow.kind==='close'?'Заявка закрыта':'Заявка передана в СД',reply_markup:{inline_keyboard:[]}});
-      await answer('Сохранено в CRM');
+      await answer();
     }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
 
@@ -1082,7 +1083,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   private async handleGroupAction(cq: TgCallbackQuery) {
     if (/^(gf|gx):/.test(cq.data || '')) { await this.confirmGroupFlow(cq); return; }
-    const answer = (text:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text,show_alert:true});
+    const answer = (text?:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,...(text?{text,show_alert:true}:{})});
     try {
       const match = /^(ga|gs):([a-z0-9-]+)(?::([A-Z_]+))?$/.exec(cq.data || '');
       if (!match || !cq.from?.id) throw new BadRequestException('Некорректное действие');
@@ -1099,7 +1100,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const status = match[3] as OrderStatus;
         if (![OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD,OrderStatus.DONE].includes(status as any)) throw new BadRequestException('Недопустимый статус');
         if(status===OrderStatus.ON_THE_WAY && await this.settings.get('bot.orders.accepted.'+card.order.id)!==(card.order.masterId || 'owner')) throw new BadRequestException('Сначала примите заявку');
-        if(status===OrderStatus.DONE || status===OrderStatus.IN_PROGRESS_SD){await this.beginGroupFlow(cq,status===OrderStatus.DONE?'close':'sd');await answer('Ответьте на сообщение бота');return;}
+        if(status===OrderStatus.DONE || status===OrderStatus.IN_PROGRESS_SD){await this.beginGroupFlow(cq,status===OrderStatus.DONE?'close':'sd');await answer();return;}
         if(user.isOwner){
           this.assertStatusTransition(card.order.status,status);
           const changed=await this.prisma.order.updateMany({where:{id:card.order.id,masterId:card.order.masterId,status:card.order.status,updatedAt:card.order.updatedAt},data:{status,notifyAckedAt:new Date()}});
@@ -1108,7 +1109,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       }
       const fresh = await this.groupOrderCard(card.order.id);
       const edited = await this.telegram<{ok:boolean}>('editMessageText',{chat_id:group.chatId,message_id:cq.message?.message_id,text:fresh.text,reply_markup:fresh.reply_markup});
-      await answer(edited?.ok ? (match[1]==='ga'?'Заявка принята':'Статус сохранён') : 'Сохранено в CRM. Сообщение не обновилось - отправьте заявку в группу заново');
+      await answer(edited?.ok ? undefined : 'Сохранено в CRM. Сообщение не обновилось - отправьте заявку в группу заново');
     } catch(e) {
       await answer(e instanceof BadRequestException || e instanceof NotFoundException ? e.message : 'Не удалось изменить статус. Подключите Telegram в карточке назначенного мастера и попробуйте снова');
     }

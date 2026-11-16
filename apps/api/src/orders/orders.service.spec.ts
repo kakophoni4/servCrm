@@ -479,10 +479,10 @@ describe('OrdersService', () => {
       await service.update(orderId,{status:OrderStatus.DONE,paid:12000,partsCost:1000},userId,Role.OWNER);
       expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:5500,reinvestAmount:2750,ownerNet:2750})}));
     });
-    it('closes a personal order without a master, reserving half the owner share', async () => {
+    it('closes a personal order without a master, reserving 30 percent of the owner share', async () => {
       mockExistingOrder({masterId:null}); setupUpdateTransaction({resultOrder:{status:OrderStatus.DONE,masterId:null}});
       await service.update(orderId,{status:OrderStatus.DONE,isPersonal:true,paid:12000,partsCost:1400},userId,Role.OWNER);
-      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:5300,ownerNet:5300})}));
+      expect(txMock.orderPayment.upsert).toHaveBeenCalledWith(expect.objectContaining({create:expect.objectContaining({masterSalary:0,reinvestAmount:3180,ownerNet:7420})}));
     });
     it('closes a paid order without attachments', async () => {
       mockExistingOrder({ masterId: 'm-1' });

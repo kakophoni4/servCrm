@@ -107,7 +107,7 @@ async function close(id, text, expected) {
       await click(`ga:${id}`,actor,'-999');assert.deepEqual(await buttons(id),['Принять']);
       await click(`ga:${id}`,Number(telegramId)+555,chat);assert.deepEqual(await buttons(id),['Принять']);
       await click(`gs:${id}:DONE`,actor,chat);assert.equal((await read(id)).status,'WAITING');
-      await click(`ga:${id}`,actor,chat);assert.deepEqual(await buttons(id),['Вышел']);
+      await click(`ga:${id}`,actor,chat);assert.deepEqual(await buttons(id),['Вышел']);assert.equal(calls.at(-1).show_alert,undefined);
       await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');assert.deepEqual(await buttons(id),['На адресе']);
       await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');assert.deepEqual(await buttons(id),['СД','Закрыть']);
     }
@@ -128,7 +128,7 @@ async function close(id, text, expected) {
     }
     await click(`ga:${personal}`,telegramId,'-222222');assert.deepEqual(await buttons(personal),['Принять']);
     await reachAs(personal,ownerTelegramId,'-222222');
-    await closeAs(personal,ownerTelegramId,'-222222',{paid:11000,masterSalary:0,toCompany:10000,reinvestAmount:5000,ownerNet:5000});
+    await closeAs(personal,ownerTelegramId,'-222222',{paid:11000,masterSalary:0,toCompany:10000,reinvestAmount:3000,ownerNet:7000});
     await reachAs(center,ownerTelegramId,'-333333');
     await click(`gs:${center}:IN_PROGRESS_SD`,ownerTelegramId,'-333333');await reply('5000 пред\nСрок 5-7 дней',messages.at(-1),ownerTelegramId,'-333333');await click(confirm(),ownerTelegramId,'-333333');
     assert.equal((await read(center)).status,'IN_PROGRESS_SD');
@@ -154,9 +154,17 @@ async function close(id, text, expected) {
       }
       await click(`gs:${id}:DONE`,scenario.actor,dest);await reply('11000 12000',messages.at(-1),scenario.actor,dest);assert(messages.at(-1).text.includes('превышать'));
       await reply('11000 1000',messages.at(-1),scenario.actor,dest);const cancel=confirm().replace('gf:','gx:');await click(cancel,scenario.actor,dest);assert.notEqual((await read(id)).status,'DONE');
-      const salary=scenario.assigned?5000:0;const company=10000-salary;const avito=scenario.center?company*0.3:company*0.5;
+      const salary=scenario.assigned?5000:0;const company=10000-salary;const avito=company*0.3;
       await closeAs(id,scenario.actor,dest,{masterSalary:salary,toCompany:company,reinvestAmount:avito,ownerNet:company-avito,prepay:scenario.sd?5000:0});
     }
+    const example=await createOrder({isPersonal:true,masterId:null});await reachAs(example,ownerTelegramId,'-222222');
+    await click(`gs:${example}:DONE`,ownerTelegramId,'-222222');assert.equal(calls.at(-1).show_alert,undefined);
+    await reply('11700 2300',messages.at(-1),ownerTelegramId,'-222222');
+    const oldToken=confirm();const oldKey='bot.flow.confirm.'+oldToken.slice(3);const draft=JSON.parse(await settings.get(oldKey));draft.calc.reinvestPct=0.5;await settings.set(oldKey,JSON.stringify(draft));
+    await click(oldToken,ownerTelegramId,'-222222');assert.equal((await read(example)).status,'IN_PROGRESS');assert.equal(calls.at(-1).show_alert,true);
+    await click(`gs:${example}:DONE`,ownerTelegramId,'-222222');await reply('11700 2300',messages.at(-1),ownerTelegramId,'-222222');await click(confirm(),ownerTelegramId,'-222222');
+    const exampleDone=await read(example);assert.equal(exampleDone.status,'DONE');assert.equal(Number(exampleDone.payment.reinvestAmount),2820);assert.equal(Number(exampleDone.payment.ownerNet),6580);assert.equal(calls.at(-1).show_alert,undefined);
+    console.log('PASS screenshot amounts 11700/2300 -> 2820/6580, silent success and rejected stale 50/50 confirmation');
     console.log('PASS full owner/center matrix: direct and SD, both authorized actors, routing, exact buttons, cancellation, concurrent confirmation');
     const partnerId=String(Number(telegramId)+777);
     const partnerLink=await svc.createPartnerLink(owner.id);const partnerPayload=new URL(partnerLink.url).searchParams.get('start');
@@ -165,7 +173,7 @@ async function close(id, text, expected) {
     await assert.rejects(()=>svc.bindPartner(partnerPayload,partnerId,partnerId));
     for(const special of [{isPersonal:true,isServiceCenter:false,masterId:null,chat:'-222222'},{isPersonal:false,isServiceCenter:true,masterId:master.id,chat:'-333333'}]){
       const {chat,...data}=special;const id=await createOrder(data);await reachAs(id,partnerId,chat);
-      await closeAs(id,partnerId,chat,special.masterId?{masterSalary:5000,reinvestAmount:1500,ownerNet:3500}:{masterSalary:0,reinvestAmount:5000,ownerNet:5000});
+      await closeAs(id,partnerId,chat,special.masterId?{masterSalary:5000,reinvestAmount:1500,ownerNet:3500}:{masterSalary:0,reinvestAmount:3000,ownerNet:7000});
     }
     const revoked=await createOrder({isPersonal:true,masterId:null});await reachAs(revoked,partnerId,'-222222');
     await click(`gs:${revoked}:DONE`,partnerId,'-222222');await reply('11000 1000',messages.at(-1),partnerId,'-222222');const revokedToken=confirm();
