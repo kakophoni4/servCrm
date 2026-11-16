@@ -271,6 +271,52 @@ async function close(id, text, expected) {
     await click(`gs:${zeroCost}:DONE`,ownerTelegramId,'-222222');await reply('1000 0',messages.at(-1),ownerTelegramId,'-222222');
     assert(confirm().startsWith('gf:'));await click(confirm(),ownerTelegramId,'-222222');assert.equal((await read(zeroCost)).status,'DONE');
     console.log('PASS mandatory act and expense receipts, actual file storage, duplicate files, foreign senders/chats, no expenses, closure gate');
+    // One complete journey: bot documents -> close -> Telegram report -> CRM receipts.
+    const {SettlementsController}=require('../dist/settlements/settlements.controller');
+    const {randomUUID}=require('node:crypto');
+    const cashService=new SettlementsService(p,{}),cashController=new SettlementsController(cashService);
+    const actor={userId:owner.id,role:'OWNER'};
+    async function receive(amount,requestId=randomUUID()){
+      settingsKeys.add('cash.receipt.'+owner.id+'.'+requestId);
+      return cashController.receiveCash({masterId:master.id,amount,requestId},actor);
+    }
+    const previousDebt=(await cashService.cashBalance(master.id)).remaining;
+    if(previousDebt)await receive(previousDebt);
+    await p.salaryCategory.update({where:{id:rule.id},data:{percent:0.5,reinvestPct:0.5}});
+    const chain=await createOrder({status:'IN_PROGRESS',scheduledAt:new Date()});
+    await p.orderDocument.deleteMany({where:{orderId:chain}});
+    await click(`gs:${chain}:DONE`);await reply('12000 1000');
+    assert(messages.at(-1).text.includes('акт выполненных работ'));
+    prompt=messages.at(-1);step=confirm();
+    await upload('chain-act',telegramId,chatId);await click(step);
+    assert(messages.at(-1).text.includes('чеки на расходы'));
+    prompt=messages.at(-1);step=confirm();
+    await upload('chain-receipt',telegramId,chatId);await click(step);
+    const closeToken=confirm();await click(closeToken);
+    const done=await read(chain);assert.equal(done.status,'DONE');
+    assert.equal(Number(done.payment.paid),12000);assert.equal(Number(done.payment.partsCost),1000);
+    assert.equal(Number(done.payment.masterSalary),5500);assert.equal(Number(done.payment.toCompany),5500);
+    const files=await p.orderDocument.findMany({where:{orderId:chain}});assert.equal(files.length,2);
+    for(const file of files)assert(fs.existsSync(path.join(uploadRoot,file.filePath)));
+    async function compareDebt(expected){
+      const crm=(await cashController.cash()).find(row=>row.masterId===master.id);
+      assert.equal(crm.remaining,expected);
+      await svc.processUpdate({message:{from:{id:Number(telegramId)},chat:{id:Number(chatId),type:'supergroup'},text:'касса'}});
+      const match=/К сдаче за всё время: ([\d\s.,]+) ₽/.exec(messages.at(-1).text);
+      assert(match,'Telegram cash report was not produced');
+      const telegram=Number(match[1].replace(/\s/g,'').replace(',','.'));
+      assert.equal(telegram,crm.remaining);
+      console.log(`PASS combined flow: CRM debt = Telegram debt = ${expected}`);
+    }
+    await compareDebt(5500);
+    const partialId=randomUUID();await receive(2000,partialId);await compareDebt(3500);
+    await receive(2000,partialId);await compareDebt(3500);
+    await receive(3500);await compareDebt(0);
+    await click(closeToken);await compareDebt(0);
+    assert.equal(await p.cashTx.count({where:{orderId:chain}}),1);
+    assert.equal((await read(chain)).status,'DONE');
+    console.log('PASS combined documents/closure/cash journey: 12000 paid, 1000 expenses, 5500 to hand over; partial/full receipts, duplicate receipt and closure');
+
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
