@@ -23,6 +23,7 @@ const ids=[];let owner,user,master,client;
  await assert.rejects(()=>svc.receiveCash({...input,amount:2000},owner.id,'OWNER'));
  const concurrent=await Promise.allSettled([1,2].map(()=>svc.receiveCash({...input,amount:4000,requestId:randomUUID()},owner.id,'OWNER')));assert.equal(concurrent.filter(r=>r.status==='fulfilled').length,1);assert.equal((await svc.cashBalance(master.id)).remaining,1300);
  await svc.receiveCash({...input,amount:1300,requestId:randomUUID()},owner.id,'OWNER');assert.equal((await svc.cashBalance(master.id)).remaining,0);
+ const cleared=await svc.cashReport(master.id,now);assert(cleared.includes('К сдаче: 0 ₽'));assert(!cleared.includes('Уже сдано'));assert(!cleared.includes('за всё время'));
  await assert.rejects(()=>svc.receiveCash({...input,amount:1,requestId:randomUUID()},owner.id,'OWNER'));
  const settings={get:async key=>key==='bot.master.group.'+master.id?JSON.stringify({chatId:'-123',title:'Test'}):null};
  const bot=new BotService(p,{},settings,{},svc,{}),messages=[];bot.sendMessage=async(chat,text)=>{messages.push({chat,text});return {ok:true}};

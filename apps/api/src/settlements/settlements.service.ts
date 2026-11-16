@@ -67,8 +67,7 @@ export class SettlementsService {
       'Средний чек: '+money(completed.length?completed.reduce((sum,o)=>sum+Number(o.payment?.paid||0),0)/completed.length:0)+' ₽',
       'Без ремонта: '+count(OrderStatus.REFUSAL),'Отменено: '+count(OrderStatus.CANCELLED_CC),
       'Гарантийных: '+orders.filter(o=>o.type==='WARRANTY').length,'',
-      'К сдаче за всё время: '+money(balance.remaining)+' ₽',
-      'Уже сдано: '+money(balance.paid)+' ₽',
+      'К сдаче: '+money(balance.remaining)+' ₽',
       balance.credit?'Переплата: '+money(balance.credit)+' ₽':'',
     ].filter(line=>line!=='').join('\n');
   }

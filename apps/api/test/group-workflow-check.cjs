@@ -317,7 +317,7 @@ async function close(id, text, expected) {
       const crm=(await cashController.cash()).find(row=>row.masterId===master.id);
       assert.equal(crm.remaining,expected);
       await svc.processUpdate({message:{from:{id:Number(telegramId)},chat:{id:Number(chatId),type:'supergroup'},text:'касса'}});
-      const match=/К сдаче за всё время: ([\d\s.,]+) ₽/.exec(messages.at(-1).text);
+      const match=/К сдаче: ([\d\s.,]+) ₽/.exec(messages.at(-1).text);
       assert(match,'Telegram cash report was not produced');
       const telegram=Number(match[1].replace(/\s/g,'').replace(',','.'));
       assert.equal(telegram,crm.remaining);
