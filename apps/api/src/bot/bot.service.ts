@@ -953,7 +953,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const reinvestPct=card.order.isServiceCenter?0.3:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
-        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽`;
+        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽` + (card.order.isPersonal ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
       } else {
         let terms:ReturnType<typeof parseSdReply>;
         try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await this.prisma.appSetting.deleteMany({where:{key,value:raw}});return true;}

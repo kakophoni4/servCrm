@@ -48,6 +48,7 @@ async function close(id, text, expected) {
   const prompt=messages.at(-1); assert.equal(prompt.reply_markup.force_reply,true);
   await reply(text,prompt,Number(telegramId)+1); assert.equal(messages.at(-1),prompt);
   await reply(text,prompt);
+  assert(!messages.at(-1).text.includes('На Авито:')); assert(!messages.at(-1).text.includes('Владельцу:'));
   const token=confirm(); assert.notEqual((await read(id)).status,'DONE');
   await click(token,Number(telegramId)+1); assert.notEqual((await read(id)).status,'DONE');
   await click(token);
