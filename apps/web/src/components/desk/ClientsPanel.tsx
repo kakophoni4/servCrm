@@ -2,6 +2,7 @@
 
 import styles from './DeskLists.module.css';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
@@ -45,10 +46,23 @@ export function ClientsPanel() {
   if (!canRead) return null;
 
   return (
-    <section className={`desk-panel ${styles.list}`}>
+    <section className={`desk-panel ${styles.list} ${styles.clients}`}>
       <div className="desk-panel-body">
         {error ? <p className="error">{error}</p> : null}
-        <div className="table-scroll">
+        <div className={styles.mobileClients}>
+          {clients.map(c => <article key={c.id} className={styles.clientCard}>
+            <div className={styles.clientHeading}>
+              <Link href={`/clients/${c.id}`} className={styles.clientName}>{c.name}</Link>
+              <span className={styles.clientCount}>Заявок: <strong>{c._count.orders}</strong></span>
+            </div>
+            <div className={styles.clientActions}>
+              <a href={`tel:${c.phoneNormalized}`} className={styles.clientPhone} aria-label={`Позвонить: ${c.name}`}>{formatRuPhoneDisplay(c.phoneNormalized)}</a>
+              <Link href={`/clients/${c.id}#history`} className={styles.clientHistory} aria-label={`История заявок: ${c.name}`}>История <span aria-hidden="true">›</span></Link>
+            </div>
+          </article>)}
+          {!clients.length && !error && <p className={styles.orderEmpty}>Клиентов пока нет.</p>}
+        </div>
+        <div className={`table-scroll ${styles.desktopClients}`}>
           <table className="table desk-list">
             <thead>
               <tr>

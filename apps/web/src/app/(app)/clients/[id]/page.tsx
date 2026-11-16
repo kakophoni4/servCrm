@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import styles from '@/components/desk/DeskLists.module.css';
+import { formatRuPhoneDisplay } from '@/lib/phone';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -36,6 +39,12 @@ export default function ClientCardPage() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'));
   }, [id]);
 
+  useEffect(() => {
+    if (client && window.location.hash === '#history') {
+      document.getElementById('history')?.scrollIntoView({ block: 'start' });
+    }
+  }, [client]);
+
   function goOrder(orderId: string) {
     router.push(`/orders/${orderId}`);
   }
@@ -49,20 +58,29 @@ export default function ClientCardPage() {
   }
 
   return (
-    <div>
+    <div className={styles.clientPage}>
       <h1 className="page-title">{client.name}</h1>
       <div className="panel" style={{ marginBottom: 16 }}>
         <p>
-          Телефон: <strong>{client.phoneNormalized}</strong>
+          <a href={`tel:${client.phoneNormalized}`}>{formatRuPhoneDisplay(client.phoneNormalized)}</a>
         </p>
 
         {client.branchComment ? (
           <p>Комментарий: {client.branchComment}</p>
         ) : null}
       </div>
-      <div className="panel">
-        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История заказов</h2>
-        <div className="table-scroll">
+      <div className="panel" id="history" style={{ scrollMarginTop: 80 }}>
+        <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История заявок</h2>
+        <div className={styles.mobileClients}>
+          {client.orders.map(o => <Link href={`/orders/${o.id}`} className={styles.clientOrder} key={o.id}>
+            <div className={styles.clientHeading}><strong>№ {o.publicId}</strong><span className="badge">{STATUS_LABELS[o.status] ?? o.status}</span></div>
+            <div>{o.address || 'Адрес не указан'}</div>
+            <div className={styles.orderFoot}><span>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</span><span>{TYPE_LABELS[o.type] ?? o.type}</span>{o.isClaim && <span className="badge badge-warn">Претензия</span>}</div>
+            {o.payment && <div className={styles.historyMoney}><span>Оплачено: {Number(o.payment.paid).toLocaleString('ru-RU')} ₽</span><span>Работы: {Number(o.payment.workSum).toLocaleString('ru-RU')} ₽</span></div>}
+          </Link>)}
+          {!client.orders.length && <p className={styles.orderEmpty}>Заявок пока нет.</p>}
+        </div>
+        <div className={`table-scroll ${styles.desktopClients}`}>
           <table className="table">
             <thead>
               <tr>

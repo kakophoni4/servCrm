@@ -56,3 +56,23 @@
  .urgentCard { border-left: 3px solid var(--warn); }
  .orderEmpty { margin: 0; padding: 24px 12px; text-align: center; color: var(--muted); font-size: 14px; }
 }
+
+.mobileClients { display: none; }
+@media(max-width:620px) {
+ .clients .desktopClients, .clientPage .desktopClients { display: none; }
+ .clients :global(.desk-panel-body) { padding: 12px; }
+ .mobileClients { display: grid; gap: 10px; }
+ .clientCard, .clientOrder { display: grid; gap: 5px; border: 1px solid var(--line); padding: 10px 13px; border-radius: 12px; min-width: 0; background: var(--panel); }
+ .clientHeading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+ .clientName { font-size: 15px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+ .clientCount { flex-shrink: 0; font-size: 12px; color: var(--muted); white-space: nowrap; }
+ .clientCount strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+ .clientActions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0 10px; }
+ .clientPhone { display: inline-flex; align-items: center; min-height: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
+ .clientHistory { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 9px; gap: 7px; font-size: 13px; font-weight: 600; color: var(--accent); border-radius: 8px; }
+ .clientHistory:hover { background: color-mix(in srgb,var(--accent) 8%,var(--panel)); }
+ .clientPage :global(.page-title) { overflow-wrap: anywhere; }
+ .clientOrder { gap: 8px; font-size: 13px; overflow-wrap: anywhere; }
+ .clientOrder :global(.badge) { max-width: 50%; white-space: normal; font-size: 11px; }
+ .historyMoney { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+}
