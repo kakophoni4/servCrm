@@ -1024,8 +1024,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const {flow,actor}=await this.validateFileSession(job);
         await this.documents.uploadMany(flow.orderId,job.kind,[file],actor.id,OrderStatus.DONE,{preserveOrder:true});
         await this.prisma.appSetting.deleteMany({where:{key:row.key,value:lease}});
-        const count=await this.prisma.orderDocument.count({where:{orderId:flow.orderId,kind:job.kind,pendingReview:false}});
-        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:flow.docPromptId,text:`Сохранено файлов: ${count}. Можно прислать ещё фото или файлы в ответ на это сообщение.`,reply_markup:{inline_keyboard:[]}});
+        const order=await this.prisma.order.findUnique({where:{id:flow.orderId},select:{publicId:true}});
+        await this.sendMessage(flow.chatId,`Документ прикреплён к заявке ${order?.publicId||flow.orderId}.`,{reply_to_message_id:job.msg.message_id,allow_sending_without_reply:true}).catch(()=>undefined);
+        if(flow.docPromptId)await this.deleteMessage(flow.chatId,flow.docPromptId).catch(()=>undefined);
       }catch(e){
         const retry=e instanceof TelegramFileRetryError || !(e instanceof BadRequestException || e instanceof NotFoundException);
         if(retry){

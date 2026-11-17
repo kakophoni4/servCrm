@@ -23,7 +23,7 @@ export class MastersService {
   ) {
     const allowed = await this.branch.allowedCityIds(userId, role);
     const cityIds = this.branch.resolveCityIds(allowed, cityId);
-    return this.prisma.master.findMany({
+    const masters=await this.prisma.master.findMany({
       where: {
         status: activeOnly ? UserStatus.ACTIVE : undefined,
         cityId: this.branch.cityWhere(cityIds),
@@ -31,6 +31,9 @@ export class MastersService {
       include: { user: true, city: true },
       orderBy: { createdAt: 'desc' },
     });
+    const orders=await this.prisma.order.findMany({where:{masterId:{in:masters.map(m=>m.id)},status:'DONE',isPersonal:false},select:{masterId:true,payment:{select:{paid:true}}}});
+    return masters.map(m=>{const completed=orders.filter(o=>o.masterId===m.id);const revenue=completed.reduce((sum,o)=>sum+Number(o.payment?.paid||0),0);return {...m,completedOrders:completed.length,averageCheck:completed.length?Math.round(revenue/completed.length*100)/100:0};}).sort((a,b)=>b.averageCheck-a.averageCheck||b.completedOrders-a.completedOrders||a.user.fullName.localeCompare(b.user.fullName,'ru'));
+
   }
 
   async create(input: {

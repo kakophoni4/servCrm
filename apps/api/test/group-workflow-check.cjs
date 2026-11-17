@@ -277,6 +277,8 @@ async function close(id, text, expected) {
     resumed.telegram=svc.telegram;resumed.sendMessage=svc.sendMessage;resumed.downloadTgFile=download;
     await resumed.retryPendingFiles();svc.downloadTgFile=download;
     await upload('act');await upload('receipt');
+    assert(messages.some(m=>m.text.includes('Документ прикреплён к заявке '+done.publicId)));
+    assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===prompt.id));
     const files=await p.orderDocument.findMany({where:{orderId:chain}});assert.equal(files.length,2);
     for(const file of files)assert(fs.existsSync(path.join(uploadRoot,file.filePath)));
     assert(!calls.filter(c=>c.method==='editMessageText'&&c.message_id===prompt.id).some(c=>(c.reply_markup?.inline_keyboard||[]).flat().some(b=>b.text==='Далее')));

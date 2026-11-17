@@ -7,7 +7,7 @@ import { formatRuPhoneDisplay } from '@/lib/phone';
 import styles from '@/components/settings/OwnerPanels.module.css';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
-type Master = {id:string;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
+type Master = {id:string;averageCheck:number;completedOrders:number;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
 type Order = {id:string;publicId:string;masterId?:string;status:string;client:{name:string}};
 export default function MastersPage(){
  const [techFilter,setTechFilter]=useState('');
@@ -40,12 +40,14 @@ export default function MastersPage(){
  <div className="field"><label htmlFor="master-address">Адрес</label><input id="master-address" autoComplete="street-address" value={address} onChange={e=>setAddress(e.target.value)}/></div>
  </div><fieldset className={styles.masterTechField}><legend>Что ремонтирует</legend><div className="tech-picker">{TECH.map(([code,label])=><button key={code} type="button" title={label} aria-label={label} aria-pressed={repairTech.includes(code)} className={repairTech.includes(code)?'btn':'btn secondary'} onClick={()=>setRepairTech(v=>v.includes(code)?v.filter(x=>x!==code):[...v,code])}>{code}</button>)}</div></fieldset><div className={styles.actions}><button className="btn" disabled={busy||!name.trim()}>{busy?'Сохраняем…':editId?'Сохранить':'Добавить мастера'}</button>
  {editId&&<button type="button" className="btn secondary" onClick={()=>{setEditId('');setShowForm(false);setName('');setPhone('');setAddress('');setRepairTech([])}}>Отмена</button>}</div></form>
+ <p className="muted">По среднему чеку · за всё время</p>
  <div className="tech-picker" aria-label="Фильтр по технике">{[['','Все'],...TECH].map(([code,label])=><button type="button" key={code} title={label} aria-pressed={techFilter===code} className={techFilter===code?'btn':'btn secondary'} onClick={()=>setTechFilter(code)}>{code||'Все'}</button>)}</div>
  {error&&<p className="error" role="alert">{error}</p>}
  <div className={styles.sectionHead}><h2>В списке <span className={styles.count}>{masters.filter(m=>!techFilter||m.repairTech?.includes(techFilter)).length}</span></h2><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Обновить</button></div>
  {!masters.length&&!error&&<div className={`panel ${styles.empty}`}>Мастеров пока нет</div>}
  <div className={styles.cards}>{masters.filter(m=>!techFilter||m.repairTech?.includes(techFilter)).map(m=>{const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC'].includes(o.status));return <section className={`panel ${styles.card} ${styles.masterCard}`} key={m.id}>
  <div className={styles.masterHead}><span className={styles.avatar} aria-hidden="true">{m.user.fullName.trim().slice(0,1).toUpperCase()}</span><div><h3>{m.user.fullName}</h3>{m.user.phone&&<a href={'tel:'+m.user.phone}>{formatRuPhoneDisplay(m.user.phone)}</a>}</div><span className={styles.count}>{active.length} в работе</span></div>
+ <div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:8}}><span>Средний чек <strong>{(m.averageCheck||0).toLocaleString('ru-RU',{maximumFractionDigits:0})} ₽</strong></span><span className="muted">Закрыто {m.completedOrders||0}</span></div>
  <div className={styles.masterTech} aria-label="Ремонтирует">{m.repairTech?.length?m.repairTech.map(code=><span className="badge" key={code} title={TECH.find(([key])=>key===code)?.[1]||code}>{code}</span>):<span className="muted">Техника не указана</span>}</div>
  {cash.find(c=>c.masterId===m.id)&&<MasterCash balance={cash.find(c=>c.masterId===m.id)!} onSaved={load}/>}
  {active.length>0&&<MobileFold title={`Открыть заявки · ${active.length}`} className={styles.masterJobs}><div className={styles.jobs}>{active.map(o=><Link key={o.id} href={'/orders/'+o.id}><span>№ {o.publicId}</span><strong>{o.client.name}</strong><span aria-hidden="true">›</span></Link>)}</div></MobileFold>}
