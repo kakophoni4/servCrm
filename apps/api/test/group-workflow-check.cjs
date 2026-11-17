@@ -282,6 +282,41 @@ async function close(id, text, expected) {
     const files=await p.orderDocument.findMany({where:{orderId:chain}});assert.equal(files.length,2);
     for(const file of files)assert(fs.existsSync(path.join(uploadRoot,file.filePath)));
     assert(!calls.filter(c=>c.method==='editMessageText'&&c.message_id===prompt.id).some(c=>(c.reply_markup?.inline_keyboard||[]).flat().some(b=>b.text==='Далее')));
+    // Queue a photo album while downloads are delayed; verify storage before every acknowledgement.
+    const albumIds=new Map(),acknowledged=new Set();
+    const originalSend=svc.sendMessage,originalTelegram=svc.telegram;
+    let deletedPrompt=false;
+    svc.telegram=async(method,body)=>{
+      if(method==='deleteMessage'&&body.message_id===prompt.id)deletedPrompt=true;
+      if(deletedPrompt&&method==='editMessageText'&&body.message_id===prompt.id)return {ok:false,description:'message to edit not found'};
+      return originalTelegram(method,body);
+    };
+    svc.sendMessage=async(chat,text,options={})=>{
+      if(text.startsWith('Документ прикреплён')&&albumIds.has(options.reply_to_message_id)){
+        const saved=await p.orderDocument.findMany({where:{orderId:chain}});
+        const expected=albumIds.get(options.reply_to_message_id);
+        assert(saved.some(f=>fs.readFileSync(path.join(uploadRoot,f.filePath),'utf8')===expected),'Acknowledgement must follow disk and database persistence');
+        acknowledged.add(options.reply_to_message_id);
+      }
+      return originalSend(chat,text,options);
+    };
+    svc.pollStop=true;
+    for(const name of ['act-page-1','act-page-2','receipt-1','receipt-2']){
+      const id=++messageId;albumIds.set(id,name);
+      await svc.processUpdate({message:{message_id:id,media_group_id:'album-test',chat:{id:Number(chatId),type:'supergroup'},from:{id:Number(telegramId)},reply_to_message:{message_id:prompt.id},photo:[{file_id:name,width:100,height:100}]}});
+    }
+    assert.equal(acknowledged.size,0);assert.equal(await p.orderDocument.count({where:{orderId:chain}}),2);
+    let release,entered;const waiting=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);let first=true;
+    svc.downloadTgFile=async msg=>{if(first){first=false;entered();await gate;}const buffer=Buffer.from(msg.photo.at(-1).file_id);return {buffer,size:buffer.length,mimetype:'image/jpeg',originalname:'photo.jpg'}};
+    svc.pollStop=false;const processing=svc.retryPendingFiles();await waiting;
+    assert.equal(acknowledged.size,0);assert.equal(await p.orderDocument.count({where:{orderId:chain}}),2);
+    release();await processing;
+    assert.equal(acknowledged.size,4);assert(deletedPrompt);
+    const albumFiles=await p.orderDocument.findMany({where:{orderId:chain}});assert.equal(albumFiles.length,6);
+    for(const expected of albumIds.values())assert(albumFiles.some(f=>fs.readFileSync(path.join(uploadRoot,f.filePath),'utf8')===expected));
+    await svc.retryPendingFiles();assert.equal(acknowledged.size,4);assert.equal(await p.orderDocument.count({where:{orderId:chain}}),6);
+    svc.sendMessage=originalSend;svc.telegram=originalTelegram;svc.downloadTgFile=download;
+    console.log('PASS four queued album photos: delayed download sends no early confirmation; each acknowledgement follows saved disk bytes and DB record; deleted prompt does not block remaining photos; all four saved, no extra files on retry');
     assert.equal((await read(chain)).completedAt.toISOString(),done.completedAt.toISOString());
     async function compareDebt(expected){
       const crm=(await cashController.cash()).find(row=>row.masterId===master.id);assert.equal(crm.remaining,expected);
