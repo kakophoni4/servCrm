@@ -21,7 +21,7 @@ describe('Assignment group', () => {
     const card=await (svc as any).groupOrderCard('o');
     expect(card.text).toContain('ФИО: Client');
     expect(card.text).toContain('Примечание: Ремонт');
-    expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽$/);
+    expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽\nЧек отсутствует ❌$/);
     expect(card.text).not.toMatch(/На Авито|Владельцу/);
   });
   it('formats labels with safe Telegram entities, Moscow minutes and a phone starting with +7',async()=>{

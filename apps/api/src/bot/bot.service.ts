@@ -1027,6 +1027,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const order=await this.prisma.order.findUnique({where:{id:flow.orderId},select:{publicId:true}});
         await this.sendMessage(flow.chatId,`Документ прикреплён к заявке ${order?.publicId||flow.orderId}.`,{reply_to_message_id:job.msg.message_id,allow_sending_without_reply:true}).catch(()=>undefined);
         if(flow.docPromptId)await this.deleteMessage(flow.chatId,flow.docPromptId).catch(()=>undefined);
+        await this.refreshSavedDocumentCards(flow.orderId).catch(()=>this.logger.warn('Document card refresh failed'));
       }catch(e){
         const retry=e instanceof TelegramFileRetryError || !(e instanceof BadRequestException || e instanceof NotFoundException);
         if(retry){
@@ -1182,8 +1183,20 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
 
+  async refreshSavedDocumentCards(orderId:string) {
+    const destination=await this.getOrderDestination(orderId);
+    if(!destination)return;
+    const card=await this.groupOrderCard(orderId);
+    const rows=await this.prisma.appSetting.findMany({where:{key:{startsWith:'bot.card.'}}});
+    for(const row of rows){
+      const saved=JSON.parse(row.value);
+      if(saved.orderId!==orderId||saved.chatId!==destination.chatId)continue;
+      await this.telegram('editMessageText',{chat_id:saved.chatId,message_id:saved.messageId,text:card.text,entities:card.entities,reply_markup:card.reply_markup});
+    }
+  }
+
   private async groupOrderCard(orderId: string) {
-    const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true}});
+    const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true,documents:{where:{pendingReview:false},select:{id:true}}}});
     if (!order) throw new NotFoundException('Заявка не найдена');
     const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
     const paid = Number(order.payment?.paid || 0);
@@ -1205,6 +1218,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Всего: '+paid+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Чистыми: '+(paid-partsCost)+' ₽' : '',
+      order.status===OrderStatus.DONE ? (order.documents?.length?'Чек прикреплён ✅':'Чек отсутствует ❌') : '',
     ].filter(Boolean).join('\n');
     const buttons: {text:string;callback_data:string}[] = [];
     if(order.isServiceCenter){

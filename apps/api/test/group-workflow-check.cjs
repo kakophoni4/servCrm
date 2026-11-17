@@ -77,7 +77,7 @@ async function close(id, text, expected) {
   await Promise.all([click(token),click(token)]); await click(`gs:${id}:DONE`);
   assert.equal(await p.cashTx.count({where:{orderId:id}}),1);
   assert.equal((await read(id)).completedAt.toISOString(),order.completedAt.toISOString());
-  assert(calls.some(c=>c.method==='editMessageText' && c.text.endsWith(`Всего: ${Number(order.payment.paid)} ₽\nЧистыми: ${Number(order.payment.paid)-Number(order.payment.partsCost)} ₽`) && c.reply_markup.inline_keyboard.flat().some(b=>b.text==='Прикрепить документы')));
+  assert(calls.some(c=>c.method==='editMessageText' && c.text.includes(`Всего: ${Number(order.payment.paid)} ₽\nЧистыми: ${Number(order.payment.paid)-Number(order.payment.partsCost)} ₽`) && c.reply_markup.inline_keyboard.flat().some(b=>b.text==='Прикрепить документы')));
 }
 (async()=>{
   try {
@@ -258,6 +258,7 @@ async function close(id, text, expected) {
     const done=await read(chain);assert.equal(done.status,'DONE');
     assert.equal(Number(done.payment.toCompany),5500);assert.equal(await p.orderDocument.count({where:{orderId:chain}}),0);
     assert.deepEqual(await buttons(chain),['Прикрепить документы']);
+    assert((await svc.groupOrderCard(chain)).text.includes('Чек отсутствует ❌'));
     const before=messages.length;await click(`gu:${chain}`,Number(telegramId)+1);assert.equal(messages.length,before);
     await click(`gu:${chain}`);const prompt=messages.at(-1);assert(prompt.reply_markup.force_reply);
     assert(!prompt.text.includes('Далее'));
@@ -278,6 +279,8 @@ async function close(id, text, expected) {
     await resumed.retryPendingFiles();svc.downloadTgFile=download;
     await upload('act');await upload('receipt');
     assert(messages.some(m=>m.text.includes('Документ прикреплён к заявке '+done.publicId)));
+    assert((await svc.groupOrderCard(chain)).text.includes('Чек прикреплён ✅'));
+    assert(calls.some(c=>c.method==='editMessageText'&&c.text?.includes('Заявка '+done.publicId)&&c.text?.includes('Чек прикреплён ✅')));
     assert(calls.some(c=>c.method==='deleteMessage'&&c.message_id===prompt.id));
     const files=await p.orderDocument.findMany({where:{orderId:chain}});assert.equal(files.length,2);
     for(const file of files)assert(fs.existsSync(path.join(uploadRoot,file.filePath)));
