@@ -39,13 +39,16 @@ export class SettlementsService {
 
   async cashBalance(masterId:string, db:any=this.prisma) {
     const [orders,fines,receipts]=await Promise.all([
-      db.orderPayment.aggregate({where:{order:{masterId,isPersonal:false,status:OrderStatus.DONE}},_sum:{toCompany:true}}),
-      db.cashTx.aggregate({where:{masterId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.FINE},_sum:{amount:true}}),
+      db.order.findMany({where:{masterId,isPersonal:false,status:OrderStatus.DONE},include:{payment:true}}),
+      db.cashTx.findMany({where:{masterId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.FINE}}),
       db.masterSettlement.aggregate({where:{masterId},_sum:{paidAmount:true}}),
     ]);
-    const due=Math.round((Number(orders._sum.toCompany||0)+Number(fines._sum.amount||0))*100)/100;
-    const paid=Math.round(Number(receipts._sum.paidAmount||0)*100)/100;
-    return {masterId,due,paid,remaining:Math.max(0,Math.round((due-paid)*100)/100),credit:Math.max(0,Math.round((paid-due)*100)/100)};
+    const cents=(v:any)=>Math.round(Number(v||0)*100);
+    const entries=[...orders.map((o:any)=>({id:o.id,publicId:o.publicId,address:o.address,date:o.completedAt||o.updatedAt,amount:cents(o.payment?.toCompany),kind:'order'})),...fines.map((f:any)=>({id:f.id,publicId:null,address:f.description||'Штраф',date:f.createdAt,amount:cents(f.amount),kind:'fine'}))].sort((a,b)=>new Date(a.date).getTime()-new Date(b.date).getTime()||a.id.localeCompare(b.id));
+    const due=entries.reduce((sum,e)=>sum+e.amount,0),paid=cents(receipts._sum.paidAmount);
+    let available=paid;
+    const unpaid=entries.flatMap(e=>{const applied=Math.min(Math.max(available,0),e.amount);available-=applied;const remaining=e.amount-applied;return remaining>0?[{...e,amount:e.amount/100,remaining:remaining/100}]:[]});
+    return {masterId,due:due/100,paid:paid/100,remaining:Math.max(0,due-paid)/100,credit:Math.max(0,paid-due)/100,unpaid};
   }
 
   async ownerCashReport(now=new Date()) {
@@ -69,25 +72,9 @@ export class SettlementsService {
   async cashReport(masterId:string,now=new Date()) {
     const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
     if(!master)throw new NotFoundException('Мастер не найден');
-    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
-    const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
-    const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-3*3600000),end=new Date(start.getTime()+86400000);
-    const range={gte:start,lt:end};
-    const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,OR:[{scheduledAt:range},{createdAt:range},{completedAt:range},{status:{in:[OrderStatus.REFUSAL,OrderStatus.CANCELLED_CC]},updatedAt:range}]},include:{payment:true}});
-    const completed=orders.filter(o=>o.status===OrderStatus.DONE && o.completedAt && o.completedAt>=start && o.completedAt<end);
-    const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2});
-    const count=(status:OrderStatus)=>orders.filter(o=>o.status===status).length;
     const balance=await this.cashBalance(masterId);
-    return [
-      'Касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),
-      'Мастер: '+master.user.fullName,'',
-      'Заявок: '+orders.length,'Выполнено: '+completed.length,
-      'Средний чек: '+money(completed.length?completed.reduce((sum,o)=>sum+Number(o.payment?.paid||0),0)/completed.length:0)+' ₽',
-      'Без ремонта: '+count(OrderStatus.REFUSAL),'Отменено: '+count(OrderStatus.CANCELLED_CC),
-      'Гарантийных: '+orders.filter(o=>o.type==='WARRANTY').length,'',
-      'К сдаче: '+money(balance.remaining)+' ₽',
-      balance.credit?'Переплата: '+money(balance.credit)+' ₽':'',
-    ].filter(line=>line!=='').join('\n');
+    const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
+    return ['Касса '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),'Мастер: '+master.user.fullName,'','К сдаче: '+money(balance.remaining),'',...balance.unpaid.flatMap(e=>[e.kind==='order'?'ID заказа: '+e.publicId:'Штраф',e.address,new Date(e.date).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'})+' - '+money(e.remaining),'']),...(balance.credit?['Переплата: '+money(balance.credit)]:[])].join('\n').trim();
   }
 
   async cashBalances() {

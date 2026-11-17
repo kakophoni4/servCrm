@@ -180,6 +180,14 @@ async function close(id, text, expected) {
       const salary=scenario.assigned?5000:0;const company=10000-salary;const avito=company*0.3;
       await closeAs(id,scenario.actor,dest,{masterSalary:salary,toCompany:company,reinvestAmount:avito,ownerNet:company-avito,prepay:scenario.sd?5000:0});
     }
+    const ownerAssigned=await createOrder();await reachAs(ownerAssigned,ownerTelegramId,chatId);
+    await closeAs(ownerAssigned,ownerTelegramId,chatId,{masterSalary:5000,reinvestAmount:2500,ownerNet:2500});
+    const moved=await createOrder();await svc.sendOrderToGroup(moved);
+    await p.order.update({where:{id:moved},data:{scheduledAt:new Date('2026-11-18T12:00:00Z')}});
+    await svc.notifyOrderRescheduled(moved);
+    assert(messages.at(-1).text.includes('18.11.26, 15:00'));assert.equal(String(messages.at(-1).chatId),String(chatId));
+    assert(calls.some(c=>c.method==='editMessageText' && c.text?.includes('18.11, 15:00')));
+    console.log('PASS owner manages assigned master order; reschedule updates tracked card and sends Moscow time');
     const example=await createOrder({isPersonal:true,masterId:null});await reachAs(example,ownerTelegramId,'-222222');
     await click(`gs:${example}:DONE`,ownerTelegramId,'-222222');assert.equal(calls.at(-1).show_alert,undefined);
     await reply('11700 2300',messages.at(-1),ownerTelegramId,'-222222');
@@ -231,7 +239,7 @@ async function close(id, text, expected) {
     await close(custom,'12000 1000',{paid:12000,partsCost:1000,workSum:11000,masterSalary:4400,toCompany:6600,reinvestAmount:1980,ownerNet:4620});
     console.log('PASS custom percentages: 40% master, 30% Avito from owner share');
     const settlement=await p.masterSettlement.findFirst({where:{masterId:master.id}});
-    assert.equal(Number(settlement.amount),42100);
+    assert.equal(Number(settlement.amount),47100);
     await p.user.update({where:{id:owner.id},data:{telegramId:ownerTelegramId}});
     const {SettlementsController}=require('../dist/settlements/settlements.controller');
     const {randomUUID}=require('node:crypto');

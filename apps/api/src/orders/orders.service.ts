@@ -658,6 +658,10 @@ export class OrdersService {
       catch { telegramDelivery = 'failed'; }
     }
 
+    if(dto.scheduledAt!==undefined && (existing.scheduledAt?.getTime()??null)!==(result.scheduledAt?.getTime()??null)){
+      try{const sent=await this.bot.notifyOrderRescheduled(id);telegramDelivery=sent?.ok?'sent':'failed';}catch{telegramDelivery='failed';}
+    }
+
     if (becameDone) {
       await this.bot.notifyMasterStatusChanged(id, OrderStatus.DONE);
     }

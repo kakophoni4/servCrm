@@ -916,7 +916,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async notifyOrderRescheduled(orderId:string) {
+    const group=await this.getOrderDestination(orderId);
+    if(!group)return {ok:false};
+    const card=await this.groupOrderCard(orderId),when=card.order.scheduledAt;
+    const tracked=await this.prisma.appSetting.findMany({where:{key:{startsWith:'bot.card.'}}});
+    for(const entry of tracked){
+      const saved=JSON.parse(entry.value);
+      if(saved.orderId!==orderId || String(saved.chatId)!==group.chatId)continue;
+      await this.telegram('editMessageText',{chat_id:group.chatId,message_id:saved.messageId,text:card.text,entities:card.entities,reply_markup:card.reply_markup}).catch(()=>undefined);
+    }
+    return this.sendMessage(group.chatId,'Заявка '+card.order.publicId+(when?' перенесена на '+when.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):': время визита снято'));
+  }
+
   private async groupActor(order: {masterId:string|null;isPersonal:boolean;isServiceCenter:boolean}, telegramId:string) {
+    const account=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+    if(account)return {id:account.id,isOwner:true};
     if(order.isPersonal || order.isServiceCenter || !order.masterId){
       const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
       if(owner)return {id:owner.id,isOwner:true};
@@ -1862,7 +1877,15 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       masterIds=[master.id];
     }
     if(!masterIds.length){await this.sendMessage(chatId,'Мастеров пока нет');return;}
-    for(const id of masterIds)await this.sendMessage(chatId,await this.settlements.cashReport(id));
+    for(const id of masterIds){
+      const report=await this.settlements.cashReport(id);
+      let chunk='';
+      for(const line of report.split('\n')){
+        if(chunk.length+line.length+1>3500){await this.sendMessage(chatId,chunk);chunk='';}
+        for(let offset=0;offset<line.length;offset+=3500){const part=line.slice(offset,offset+3500);if(part.length===3500){await this.sendMessage(chatId,part);}else chunk+=(chunk?'\n':'')+part;}
+      }
+      if(chunk)await this.sendMessage(chatId,chunk);
+    }
   }
 
   /** Общая обработка апдейта (webhook или getUpdates). */

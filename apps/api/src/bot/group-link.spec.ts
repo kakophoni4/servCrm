@@ -6,7 +6,7 @@ describe('Assignment group', () => {
   function setup(telegramId:string|null=null) {
     let pending:string|null=JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+10000});
     const appSetting={findUnique:jest.fn(async()=>pending?{value:pending}:null),deleteMany:jest.fn(async()=>{const count=pending?1:0;pending=null;return {count};}),upsert:jest.fn()};
-    const prisma:any={appSetting,$transaction:jest.fn(async f=>f({appSetting})),master:{findUnique:jest.fn(async()=>({user:{fullName:'Master',telegramId}}))},order:{findUnique:jest.fn(async()=>({id:'o',masterId:'m',status:'WAITING',master:{user:{fullName:'Master'}},publicId:'123',client:{name:'Client',phoneNormalized:'7999'},address:'Address',isPersonal:false})),update:jest.fn()}};
+    const prisma:any={user:{findFirst:jest.fn(async()=>null)},appSetting,$transaction:jest.fn(async f=>f({appSetting})),master:{findUnique:jest.fn(async()=>({user:{fullName:'Master',telegramId}}))},order:{findUnique:jest.fn(async()=>({id:'o',masterId:'m',status:'WAITING',master:{user:{fullName:'Master'}},publicId:'123',client:{name:'Client',phoneNormalized:'7999'},address:'Address',isPersonal:false})),update:jest.fn()}};
     const settings:any={set:jest.fn(),getBotConfig:jest.fn(async()=>({hasToken:true,enabled:true})),get:jest.fn(async(key:string)=>key==='bot.orders.group'?JSON.stringify({chatId:'-123',title:'Orders'}):null)};
     const svc=new BotService(prisma,{} as any,settings,{} as any,{} as any,{} as any);
     jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{status:'administrator'}});
