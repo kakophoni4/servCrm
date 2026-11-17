@@ -301,6 +301,37 @@ async function close(id, text, expected) {
     await click(legacyConfirm,ownerTelegramId,'-222222');assert.equal((await read(legacy)).status,'DONE');
     assert.equal(await p.appSetting.count({where:{key:legacyJob}}),1);
     await svc.retryPendingFiles();assert.equal(await p.orderDocument.count({where:{orderId:legacy}}),1);
+    // Close three real fixture orders through the Telegram reply/confirmation flow.
+    const fifo=[];
+    for(const [index,total] of [4000,6000,10000].entries()){
+      const id=await createOrder({status:'IN_PROGRESS',address:'FIFO address '+index});
+      await click(`gs:${id}:DONE`);await reply(`${total} 0`);await click(confirm());
+      assert.equal((await read(id)).status,'DONE');
+      await p.order.update({where:{id},data:{completedAt:new Date(Date.now()+(index+1)*86400000)}});
+      fifo.push(await read(id));
+    }
+    async function compareFifo(expected){
+      const crm=(await cashController.cash()).find(row=>row.masterId===master.id);
+      assert.deepEqual(crm.unpaid.map(e=>[e.id,e.remaining]),expected.map(([i,n])=>[fifo[i].id,n]));
+      const total=expected.reduce((sum,e)=>sum+e[1],0);await compareDebt(total);
+      const report=messages.at(-1).text;
+      for(const [index,order] of fifo.entries()){
+        const row=expected.find(e=>e[0]===index);
+        if(!row){assert(!report.includes('ID заказа: '+order.publicId));continue;}
+        const date=order.completedAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'});
+        const amount=row[1].toLocaleString('ru-RU',{maximumFractionDigits:2});
+        assert(report.includes(`ID заказа: ${order.publicId}\n${order.address}\n${date} - ${amount} ₽`));
+      }
+      assert.equal(crm.unpaid.reduce((sum,e)=>sum+e.remaining,0),crm.remaining);
+    }
+    await compareFifo([[0,2000],[1,3000],[2,5000]]);
+    const receipt=randomUUID();await receive(3500,receipt);
+    await compareFifo([[1,1500],[2,5000]]);
+    await receive(3500,receipt);await compareFifo([[1,1500],[2,5000]]);
+    await receive(2000);await compareFifo([[2,4500]]);
+    await receive(4500);await compareFifo([]);
+    await assert.rejects(()=>receive(1));await compareFifo([]);
+    console.log('PASS three Telegram closures: debts 2000/3000/5000 -> pay 3500 -> 0/1500/5000 -> pay 2000 -> 0/0/4500 -> pay 4500 -> zero; CRM rows and Telegram dates, addresses, amounts match at every step; duplicate and excess receipts rejected');
     console.log('PASS legacy pending photo does not block closure and is saved after closure');
     console.log('PASS close without documents -> cash 5500 -> attach documents automatically without Next -> retry after restart -> partial/full cash 3500/0; no duplicate files, amounts or closure');
     console.log('PASS settlement total, invalid input, foreign users/chats, cancellation, duplicate callbacks');
