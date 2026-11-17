@@ -24,7 +24,7 @@ import {
   isAdminRole,
   requiredOrderDocKinds,
 } from '@/lib/labels';
-import { formatRuPhoneDisplay } from '@/lib/phone';
+import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { downloadFilesAsZipOrSingle } from '@/lib/zip-store';
 
 type Master = { id: string; user: { fullName: string } };
@@ -208,6 +208,7 @@ export default function OrderDetailPage() {
   const [partsCost, setPartsCost] = useState('');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
   const [isProfile, setIsProfile] = useState(true);
+  const [comment, setComment] = useState('');
   const [adminComment, setAdminComment] = useState('');
 
   const [showClaimForm, setShowClaimForm] = useState(false);
@@ -261,6 +262,7 @@ export default function OrderDetailPage() {
         : '',
     );
     setIsProfile(Boolean(data.isProfile));
+    setComment(data.comment ?? '');
     setAdminComment(data.adminComment ?? '');
     setClaimForm((f) => ({
       ...f,
@@ -448,6 +450,7 @@ export default function OrderDetailPage() {
         body.paid = Number(paid);
         body.partsCost = Number(partsCost);
         body.isProfile = isProfile;
+        body.comment = comment.trim() || null;
         body.adminComment = adminComment.trim() || null;
         if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
           body.cancelFault = cancelFault || null;
@@ -742,7 +745,7 @@ export default function OrderDetailPage() {
   return (
     <div className="order-page">
       <div className="order-mobile-bar">
-        <a className="btn secondary" href={`tel:${order.client.phoneNormalized}`}>Позвонить</a>
+        <a className="btn secondary" href={phoneHref(order.client.phoneNormalized)}>Позвонить</a>
         <button type="submit" form="order-edit-form" className="btn" disabled={doneBlocked}>Сохранить</button>
       </div>
       <div className="order-page-grid">
@@ -822,9 +825,8 @@ export default function OrderDetailPage() {
                 <div className="field order-field-full">
                   <label>Описание заявки</label>
                   <AutoTextarea
-                    readOnly
-                    disabled
-                    value={order.comment?.trim() ? order.comment : '-'}
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
                   />
                 </div>
                 <div className="field order-field-full">

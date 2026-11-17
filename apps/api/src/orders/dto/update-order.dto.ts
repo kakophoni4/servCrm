@@ -41,7 +41,9 @@ export class UpdateOrderDto {
   @IsString()
   ageCategoryId?: string | null;
 
-  // comment — только при создании (комментарий диспетчера), в PATCH не принимаем.
+  @IsOptional()
+  @IsString()
+  comment?: string | null;
 
   /** Комментарий администратора / директора / владельца. */
   @IsOptional()

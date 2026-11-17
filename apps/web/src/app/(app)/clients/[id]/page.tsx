@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import styles from '@/components/desk/DeskLists.module.css';
-import { formatRuPhoneDisplay } from '@/lib/phone';
+import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -62,7 +62,7 @@ export default function ClientCardPage() {
       <h1 className="page-title">{client.name}</h1>
       <div className="panel" style={{ marginBottom: 16 }}>
         <p>
-          <a href={`tel:${client.phoneNormalized}`}>{formatRuPhoneDisplay(client.phoneNormalized)}</a>
+          <a href={phoneHref(client.phoneNormalized)}>{formatRuPhoneDisplay(client.phoneNormalized)}</a>
         </p>
 
         {client.branchComment ? (

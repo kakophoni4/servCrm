@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
-import { formatRuPhoneDisplay } from '@/lib/phone';
+import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type Client = {
@@ -56,7 +56,7 @@ export function ClientsPanel() {
               <span className={styles.clientCount}>Заявок: <strong>{c._count.orders}</strong></span>
             </div>
             <div className={styles.clientActions}>
-              <a href={`tel:${c.phoneNormalized}`} className={styles.clientPhone} aria-label={`Позвонить: ${c.name}`}>{formatRuPhoneDisplay(c.phoneNormalized)}</a>
+              <a href={phoneHref(c.phoneNormalized)} className={styles.clientPhone} aria-label={`Позвонить: ${c.name}`}>{formatRuPhoneDisplay(c.phoneNormalized)}</a>
               <Link href={`/clients/${c.id}#history`} className={styles.clientHistory} aria-label={`История заявок: ${c.name}`}>История <span aria-hidden="true">›</span></Link>
             </div>
           </article>)}

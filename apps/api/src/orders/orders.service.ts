@@ -418,6 +418,8 @@ export class OrdersService {
       );
     }
 
+    if (dto.comment !== undefined && !isAdmin) throw new ForbiddenException('Описание заявки может менять только владелец или администратор');
+
     if (dto.adminComment !== undefined && !isAdmin) {
       throw new ForbiddenException(
         'Комментарий администратора могут менять только админ / директор / владелец',
@@ -480,6 +482,7 @@ export class OrdersService {
             ? { connect: { id: dto.ageCategoryId } }
             : { disconnect: true },
       // Комментарий диспетчера задаётся при создании и не меняется.
+      comment: dto.comment === undefined ? undefined : dto.comment?.trim() || null,
       adminComment:
         dto.adminComment === undefined
           ? undefined
