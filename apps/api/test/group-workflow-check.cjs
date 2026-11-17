@@ -49,9 +49,9 @@ async function reachAddress(id) {
   await click(`gs:${id}:ON_THE_WAY`); assert.equal((await read(id)).status,'WAITING');
   await click(`ga:${id}`,Number(telegramId)+1); assert.deepEqual(await buttons(id),['Принять']);
   await click(`ga:${id}`,telegramId,'-999'); assert.deepEqual(await buttons(id),['Принять']);
-  await click(`ga:${id}`); assert.deepEqual(await buttons(id),['Вышел']);
-  await click(`ga:${id}`); assert.deepEqual(await buttons(id),['Вышел']);
-  await click(`gs:${id}:ON_THE_WAY`); assert.equal((await read(id)).status,'ON_THE_WAY'); assert.deepEqual(await buttons(id),['На адресе']);
+  await click(`ga:${id}`); assert.deepEqual(await buttons(id),['На адресе']);
+  await click(`ga:${id}`); assert.deepEqual(await buttons(id),['На адресе']);
+  await click(`gs:${id}:ON_THE_WAY`); assert.equal((await read(id)).status,'ON_THE_WAY'); assert.deepEqual(await buttons(id),['Вышел']);
   await click(`gs:${id}:IN_PROGRESS`); assert.equal((await read(id)).status,'IN_PROGRESS'); assert.deepEqual(await buttons(id),['СД','Закрыть']);
 }
 async function close(id, text, expected) {
@@ -130,8 +130,8 @@ async function close(id, text, expected) {
         await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');
         return;
       }
-      assert.deepEqual(await buttons(id),['Вышел']);assert.equal(calls.at(-1).show_alert,undefined);
-      await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');assert.deepEqual(await buttons(id),['На адресе']);
+      assert.deepEqual(await buttons(id),['На адресе']);assert.equal(calls.at(-1).show_alert,undefined);
+      await click(`gs:${id}:ON_THE_WAY`,actor,chat);assert.equal((await read(id)).status,'ON_THE_WAY');assert.deepEqual(await buttons(id),['Вышел']);
       await click(`gs:${id}:IN_PROGRESS`,actor,chat);assert.equal((await read(id)).status,'IN_PROGRESS');assert.deepEqual(await buttons(id),['СД','Закрыть']);
     }
     async function closeAs(id,actor,chat,expected){
@@ -219,7 +219,7 @@ async function close(id, text, expected) {
     console.log('PASS owner binding, personal owner-only actions, SD without master 30/70, center assigned master and owner actions');
     const direct=await createOrder(); await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
-    console.log('PASS direct: accept -> depart -> arrive -> close; 5500 / 2750 / 2750');
+    console.log('PASS direct: accept -> at address -> left -> close; 5500 / 2750 / 2750');
     const sd=await createOrder(); await reachAddress(sd);
     await click(`gs:${sd}:IN_PROGRESS_SD`); await reply('5000 пред\nСрок 5-7 дней');
     assert.equal((await read(sd)).status,'IN_PROGRESS'); await click(confirm());

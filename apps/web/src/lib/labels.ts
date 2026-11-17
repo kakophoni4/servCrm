@@ -1,7 +1,7 @@
 export const STATUS_LABELS: Record<string, string> = {
   NOT_SCHEDULED: 'Не назначена',
   WAITING: 'Ожидает',
-  ON_THE_WAY: 'В пути',
+  ON_THE_WAY: 'На адресе',
   IN_PROGRESS: 'В работе',
   IN_PROGRESS_SD: 'В работе СД',
   DONE: 'Готов',

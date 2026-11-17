@@ -38,7 +38,7 @@ import { SettlementsService } from '../settlements/settlements.service';
 const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
   [OrderStatus.NOT_SCHEDULED]: 'Не назначено',
   [OrderStatus.WAITING]: 'Ожидание',
-  [OrderStatus.ON_THE_WAY]: 'В пути',
+  [OrderStatus.ON_THE_WAY]: 'На адресе',
   [OrderStatus.IN_PROGRESS]: 'В работе',
   [OrderStatus.DONE]: 'Готов',
   [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
@@ -54,7 +54,7 @@ const STATUS_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
 };
 
 const STATUS_BTN_LABEL: Partial<Record<OrderStatus, string>> = {
-  [OrderStatus.ON_THE_WAY]: 'В пути',
+  [OrderStatus.ON_THE_WAY]: 'На адресе',
   [OrderStatus.IN_PROGRESS]: 'В работе',
   [OrderStatus.DONE]: 'Готов',
   [OrderStatus.IN_PROGRESS_SD]: 'В работе СД',
@@ -1212,8 +1212,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'Указать срок',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }else{
-      if ([OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push(accepted?{text:'Вышел',callback_data:`gs:${order.id}:ON_THE_WAY`}:{text:'Принять',callback_data:'ga:'+order.id});
-      if(order.status===OrderStatus.ON_THE_WAY)buttons.push({text:'На адресе',callback_data:`gs:${order.id}:IN_PROGRESS`});
+      if ([OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any)) buttons.push(accepted?{text:'На адресе',callback_data:`gs:${order.id}:ON_THE_WAY`}:{text:'Принять',callback_data:'ga:'+order.id});
+      if(order.status===OrderStatus.ON_THE_WAY)buttons.push({text:'Вышел',callback_data:`gs:${order.id}:IN_PROGRESS`});
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }

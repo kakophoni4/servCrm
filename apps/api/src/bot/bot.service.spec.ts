@@ -217,7 +217,7 @@ describe('BotService', () => {
 
     it('buttonsForStatus returns sequential steps', () => {
       expect(svc.buttonsForStatus(OrderStatus.WAITING)).toEqual([
-        { status: OrderStatus.ON_THE_WAY, label: 'В пути' },
+        { status: OrderStatus.ON_THE_WAY, label: 'На адресе' },
       ]);
       expect(svc.buttonsForStatus(OrderStatus.ON_THE_WAY)).toEqual([
         { status: OrderStatus.IN_PROGRESS, label: 'В работе' },
