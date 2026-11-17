@@ -393,7 +393,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       include: { masterProfile: true },
     });
     if (!user?.masterProfile) {
-      throw new NotFoundException('Мастер не найден по telegram id');
+      throw new NotFoundException('Telegram не подключён к мастеру. В CRM откройте Мастера → Настройки мастера → Подключить Telegram. Откройте ссылку с аккаунта мастера и нажмите «Запустить».');
     }
     return user;
   }
@@ -1054,7 +1054,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       await this.validateFileSession(job);
       const key=`bot.file.pending.${token}.${msg.chat.id}.${msg.message_id}`;
       await this.prisma.appSetting.upsert({where:{key},create:{key,value:JSON.stringify(job)},update:{}});
-      await this.telegram('editMessageText',{chat_id:String(msg.chat.id),message_id:msg.reply_to_message.message_id,text:'Фото принято. Загружаю и сохраняю в заявку. Можно прислать ещё фото ответом на это сообщение.',reply_markup:{inline_keyboard:[]}});
+      await this.telegram('editMessageText',{chat_id:String(msg.chat.id),message_id:msg.reply_to_message.message_id,text:'Чек в обработке… После сохранения пришлю подтверждение. Можно прислать ещё фото ответом на это сообщение.',reply_markup:{inline_keyboard:[]}});
       void this.retryPendingFiles().catch(()=>this.logger.warn('Pending Telegram file retry failed'));
     }catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось принять документ. Отправьте его ещё раз');}
     return true;
