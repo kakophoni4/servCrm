@@ -12,6 +12,8 @@
 .rows { display:grid; gap:10px; }
 .row { display:grid; grid-template-columns:minmax(0,1fr) 70px auto; align-items:center; gap:8px; }
 .row input,.row select { width:100%; min-width:0; }
+.page > input,.form input,.form select,.row input,.row select { box-sizing:border-box; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink); font:inherit; }
+.page > input:focus,.form input:focus,.row input:focus,.row select:focus { outline:2px solid var(--accent); outline-offset:1px; }
 .actions { display:flex; gap:8px; flex-wrap:wrap; grid-column:1 / -1; }
 .history { display:grid; gap:12px; padding-top:12px; }
 .historyItem { padding-bottom:10px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
