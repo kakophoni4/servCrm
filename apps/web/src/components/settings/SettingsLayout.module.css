@@ -63,3 +63,6 @@
  .account :global(.account-theme-btn) { padding:8px; font-size:14px; }
  .login :global(.login-card) { padding:24px 20px; }
 }
+
+.telegram :global(.bot-settings-check) { display:flex; align-items:center; gap:8px; margin:16px 0; }
+.telegram :global(.bot-settings-form) > details > button { display:block; }

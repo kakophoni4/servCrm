@@ -5,7 +5,6 @@ import {DeskShell} from '@/components/desk/DeskShell';
 import {STATUS_LABELS} from '@/lib/labels';
 import {TECH} from '@/components/TechPicker';
 import {MasterCash,CashBalance} from '@/components/masters/MasterCash';
-import { MobileFold } from '@/components/MobileFold';
 import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import styles from '@/components/settings/OwnerPanels.module.css';
 import { FormEvent, useEffect, useState, useCallback } from 'react';
@@ -63,13 +62,13 @@ export default function MastersPage(){
  {!active.length?<p className="muted">Нет актуальных заявок</p>:['regular','sd'].map(group=>{const rows=active.filter(o=>(o.status==='IN_PROGRESS_SD')===(group==='sd')).sort((a,b)=>(a.scheduledAt||'9999').localeCompare(b.scheduledAt||'9999'));return rows.length>0&&<div key={group}><h4>{group==='sd'?'СД':'Назначены и в работе'} · {rows.length}</h4><div style={{display:'grid',gap:8}}>{rows.map(o=><Link key={o.id} href={'/orders/'+o.id} style={{display:'grid',gap:4,padding:'10px 0',borderBottom:'1px solid var(--border)',overflowWrap:'anywhere'}}><strong>№ {o.publicId} · {o.client.name}</strong><span>{o.address}</span><span className="muted">{STATUS_LABELS[o.status]||o.status} · {o.scheduledAt?new Date(o.scheduledAt).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'Время не назначено'}</span>{group==='sd'&&<span>Срок СД: {o.sdDueAt?new Date(o.sdDueAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан'}{o.sdDueAt&&new Date(o.sdDueAt)<new Date()?' · просрочено':''}</span>}</Link>)}</div></div>})}
  </div>
  </details>
- {owner&&<MobileFold title="Настройки мастера" className={styles.masterSettings}>
+ {owner&&<details className={styles.masterSettings}><summary>Настройки мастера</summary>
  {m.address&&<p className={styles.address}>{m.address}</p>}
  <div className={styles.telegram}><span className={groups[m.id]?styles.connected:styles.disconnected}>{groups[m.id]?'Группа: '+groups[m.id]!.title:'Группа для заявок не подключена'}</span><button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>connectGroup(m.id)}>{groups[m.id]?'Сменить группу':'Подключить группу'}</button>{groups[m.id]&&<button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>disconnectGroup(m.id)}>Отключить группу</button>}</div>
  {commands[m.id]&&<div className={styles.linkBox}><label htmlFor={'group-'+m.id}>Добавьте бота в группу мастера и отправьте туда эту команду от администратора группы.</label><input id={'group-'+m.id} readOnly value={commands[m.id]} onFocus={e=>e.target.select()}/><button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(commands[m.id])}catch{window.prompt('Команда для группы',commands[m.id])}}}>Скопировать команду</button><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Проверить подключение</button></div>}
  <div className={styles.telegram}><span className={m.user.telegramId?styles.connected:styles.disconnected}>Личный Telegram {m.user.telegramId?'подключён':'не подключён'}</span><button className="btn secondary" onClick={()=>connect(m.id)}>{m.user.telegramId?'Переподключить':'Подключить'}</button></div>
  {links[m.id]&&<div className={styles.linkBox}><label htmlFor={'link-'+m.id}>Ссылка для мастера (на сутки)</label><input id={'link-'+m.id} readOnly value={links[m.id]} onFocus={e=>e.target.select()}/><button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(links[m.id])}catch{window.prompt('Ссылка для мастера',links[m.id])}}}>Скопировать ссылку</button></div>}
  <div className={styles.footer}><button className="btn secondary" onClick={()=>{setShowForm(true);setEditId(m.id);setName(m.user.fullName);setPhone(m.user.phone||'');setAddress(m.address||'');setRepairTech(m.repairTech||[]);window.scrollTo({top:0,behavior:'smooth'})}}>Изменить</button><button className={styles.remove} onClick={()=>archive(m.id)}>Убрать из активных</button></div>
- </MobileFold>}
+ </details>}
  </section>})}</div></div></DeskShell>
 }
