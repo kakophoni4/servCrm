@@ -684,6 +684,10 @@ export class OrdersService {
       try{const sent=await this.bot.notifyOrderRescheduled(id);telegramDelivery=sent?.ok?'sent':'failed';}catch{telegramDelivery='failed';}
     }
 
+    if(result.masterId && existing.status!==nextStatus && (nextStatus===OrderStatus.REFUSAL || nextStatus===OrderStatus.CANCELLED_CC)){
+      await this.bot.notifyMasterOrderNotice(result.masterId,result.publicId,result.address,'Заявка отменена').catch(()=>undefined);
+    }
+
     if (becameDone) {
       await this.bot.notifyMasterStatusChanged(id, OrderStatus.DONE);
     }

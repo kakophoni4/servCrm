@@ -11,7 +11,7 @@ import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import styles from '@/components/settings/OwnerPanels.module.css';
 import { FormEvent, useEffect, useState, useCallback, useRef } from 'react';
 import { api, getStoredUser } from '@/lib/api';
-type Master = {id:string;workSchedule?:{weekday:number;isWorking:boolean}[];activeCount:number;sdCount:number;averageCheck:number;completedOrders:number;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
+type Master = {id:string;activity?:string;workSchedule?:{weekday:number;isWorking:boolean}[];activeCount:number;sdCount:number;averageCheck:number;completedOrders:number;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
 type Order = {id:string;publicId:string;masterId?:string;status:string;address:string;scheduledAt?:string|null;sdDueAt?:string|null;client:{name:string}};
 export default function MastersPage(){
  const dates=currentWeek();
@@ -58,9 +58,9 @@ export default function MastersPage(){
  {error&&<p className="error" role="alert">{error}</p>}
  <div className={styles.sectionHead}><h2>В списке <span className={styles.count}>{total}</span></h2><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Обновить</button></div>
  {!loading&&!masters.length&&!error&&<div className={`panel ${styles.empty}`}>Мастеров пока нет</div>}
- <div className={`${styles.cards} ${layout.grid}`}>{masters.map(m=>{const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC'].includes(o.status));return <section className={`panel ${styles.card} ${styles.masterCard} ${layout.card}`} key={m.id}>
+ <div className={`${styles.cards} ${layout.grid}`}>{masters.map((m,index)=>{const working=schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking;const previous=index>0?schedule.days.find(d=>d.masterId===masters[index-1].id&&d.date===moscowDate())?.isWorking:null;const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC'].includes(o.status));return <section style={{borderTop:working!==previous?'3px solid var(--border)':undefined}} className={`panel ${styles.card} ${styles.masterCard} ${layout.card}`} key={m.id}>
  <div className={`${styles.masterHead} ${layout.identity}`}><span className={styles.avatar} aria-hidden="true">{m.user.fullName.trim().slice(0,1).toUpperCase()}</span><div><h3>{m.user.fullName}</h3>{m.user.phone&&<a href={phoneHref(m.user.phone)}>{formatRuPhoneDisplay(m.user.phone)}</a>}</div><span className={styles.count}>{m.activeCount} в работе · СД {m.sdCount}</span></div>
- <div style={{color:schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking===false?"var(--muted)":"var(--ink)"}}>{workLabel(schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking)}</div>
+ <div style={{color:schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking===false?"var(--muted)":"var(--ink)"}}>{working===true?'✅ В смене':working===false?'❌ Выходной':'График не задан'} · {m.activity||'Статус не указан'}</div>
  {!logistic&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:8}}><span>Средний чек <strong>{(m.averageCheck||0).toLocaleString('ru-RU',{maximumFractionDigits:0})} ₽</strong></span><span className="muted">Закрыто {m.completedOrders||0}</span></div>}
  <div className={styles.masterTech} aria-label="Ремонтирует">{m.repairTech?.length?m.repairTech.map(code=><span className="badge" key={code} title={TECH.find(([key])=>key===code)?.[1]||code}>{code}</span>):<span className="muted">Техника не указана</span>}</div>
 

@@ -1485,19 +1485,17 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /**
-   * Старому мастеру при переназначении / снятии: удаляем карточку в Telegram.
-   * (publicId/address оставлены для совместимости вызовов.)
-   */
-  async notifyMasterOrderRevoked(
-    _masterId: string,
-    _publicId: string,
-    _address?: string | null,
-    orderId?: string,
-  ) {
-    if (!orderId) return null;
-    await this.clearMasterOrderCard(orderId);
-    return null;
+  async notifyMasterOrderRevoked(masterId:string,publicId:string,address?:string|null,orderId?:string) {
+    if(orderId) await this.clearMasterOrderCard(orderId);
+    return this.notifyMasterOrderNotice(masterId,publicId,address,'Заявка снята');
+  }
+
+  async notifyMasterOrderNotice(masterId:string,publicId:string,address:string|null|undefined,title:string) {
+    const group=await this.getMasterGroup(masterId);
+    const master=group?null:await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
+    const chatId=group?.chatId||master?.user.telegramId;
+    if(!chatId)return null;
+    return this.sendMessage(chatId,[title+' · '+publicId,address?'Адрес: '+address:''].filter(Boolean).join('\n'));
   }
 
   /** Уведомить мастера о смене статуса (например админ закрыл заявку). */

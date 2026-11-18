@@ -17,6 +17,12 @@ export class MastersService {
     private readonly branch: BranchScopeService,
   ) {}
 
+  private async activity(ids:string[]) {
+    if(!ids.length)return new Map<string,string>();
+    const rows=await this.prisma.order.groupBy({by:['masterId','status'],where:{masterId:{in:ids},isPersonal:false,status:{in:['WAITING','NOT_SCHEDULED','ON_THE_WAY','IN_PROGRESS','IN_PROGRESS_SD']}},_count:{_all:true}});
+    return new Map(ids.map(id=>{const own=rows.filter(r=>r.masterId===id);return [id,own.some(r=>r.status==='ON_THE_WAY')?'На адресе':own.some(r=>r.status==='IN_PROGRESS')?'В работе':own.some(r=>r.status==='IN_PROGRESS_SD')?'Ремонт СД':own.length?'Есть назначенные заявки':'Свободен'];}));
+  }
+
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q);const allowed=await this.branch.allowedCityIds(userId,role),cityIds=this.branch.resolveCityIds(allowed,q.cityId);
     const where:Prisma.MasterWhereInput={status:'ACTIVE',cityId:this.branch.cityWhere(cityIds),...(q.tech?{repairTech:{has:q.tech}}:{}),...(search?{user:{OR:[{fullName:{contains:search,mode:'insensitive'}},{phone:{contains:search.replace(/\D/g,'')||search}}]}}:{})};
@@ -24,6 +30,7 @@ export class MastersService {
     const scoped=cityIds===null?Prisma.empty:cityIds.length?Prisma.sql`AND m.city_id IN (${Prisma.join(cityIds)})`:Prisma.sql`AND FALSE`;
     const searched=search?Prisma.sql`AND (u.full_name ILIKE ${'%'+search+'%'} OR u.phone LIKE ${'%'+(search.replace(/\D/g,'')||search)+'%'})`:Prisma.empty;
     const tech=q.tech?Prisma.sql`AND ${q.tech}=ANY(m.repair_tech)`:Prisma.empty;
+    const weekday=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Samara',weekday:'short'}).format(new Date()))||7;
     const stats=await this.prisma.$queryRaw<{id:string;averageCheck:number;completedOrders:bigint;activeCount:bigint;sdCount:bigint}[]>(Prisma.sql`
       SELECT m.id,COALESCE(AVG(COALESCE(p.paid,0)) FILTER(WHERE o.status='DONE' AND NOT o.is_personal),0)::float AS "averageCheck",
       COUNT(o.id) FILTER(WHERE o.status='DONE' AND NOT o.is_personal) AS "completedOrders",
@@ -31,9 +38,10 @@ export class MastersService {
       COUNT(o.id) FILTER(WHERE o.status='IN_PROGRESS_SD') AS "sdCount"
       FROM masters m JOIN users u ON u.id=m.user_id LEFT JOIN orders o ON o.master_id=m.id LEFT JOIN order_payments p ON p.order_id=o.id
       WHERE m.status='ACTIVE' ${scoped} ${searched} ${tech}
-      GROUP BY m.id,u.full_name ORDER BY "averageCheck" DESC,"completedOrders" DESC,u.full_name,m.id LIMIT ${limit} OFFSET ${(page-1)*limit}`);
+      GROUP BY m.id,u.full_name ORDER BY COALESCE((SELECT CASE WHEN w.is_working THEN 0 ELSE 2 END FROM master_weekdays w WHERE w.master_id=m.id AND w.weekday=${weekday}),1),"averageCheck" DESC,"completedOrders" DESC,u.full_name,m.id LIMIT ${limit} OFFSET ${(page-1)*limit}`);
     const masters=await this.prisma.master.findMany({where:{id:{in:stats.map(x=>x.id)}},include:{workSchedule:true,user:{select:{fullName:true,phone:true,telegramId:true}}}});
-    return pageResult(stats.map(row=>({...masters.find(m=>m.id===row.id)!,averageCheck:Math.round(row.averageCheck*100)/100,completedOrders:Number(row.completedOrders),activeCount:Number(row.activeCount),sdCount:Number(row.sdCount)})),total,page,limit);
+    const activity=await this.activity(masters.map(m=>m.id));
+    return pageResult(stats.map(row=>({...masters.find(m=>m.id===row.id)!,activity:activity.get(row.id),averageCheck:Math.round(row.averageCheck*100)/100,completedOrders:Number(row.completedOrders),activeCount:Number(row.activeCount),sdCount:Number(row.sdCount)})),total,page,limit);
   }
 
   async jobs(id:string,userId:string,role:Role,q:PageQuery) {
@@ -76,7 +84,8 @@ export class MastersService {
     if(!masters.length)return [];
     const stats=await this.prisma.$queryRaw<{masterId:string;count:bigint;average:number}[]>(Prisma.sql`SELECT o.master_id AS "masterId",COUNT(*) AS count,AVG(COALESCE(p.paid,0))::float AS average FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE o.status='DONE' AND NOT o.is_personal AND o.master_id IN (${Prisma.join(masters.map(m=>m.id))}) GROUP BY o.master_id`);
     const byId=new Map(stats.map(r=>[r.masterId,r]));
-    return masters.map(m=>{const r=byId.get(m.id);return {...m,completedOrders:Number(r?.count||0),averageCheck:Math.round(Number(r?.average||0)*100)/100};}).sort((a,b)=>b.averageCheck-a.averageCheck||b.completedOrders-a.completedOrders||a.user.fullName.localeCompare(b.user.fullName,'ru'));
+    const activity=await this.activity(masters.map(m=>m.id));
+    return masters.map(m=>{const r=byId.get(m.id);return {...m,activity:activity.get(m.id),completedOrders:Number(r?.count||0),averageCheck:Math.round(Number(r?.average||0)*100)/100};}).sort((a,b)=>b.averageCheck-a.averageCheck||b.completedOrders-a.completedOrders||a.user.fullName.localeCompare(b.user.fullName,'ru'));
 
 
   }

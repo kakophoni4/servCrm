@@ -33,7 +33,7 @@ import {
 import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { downloadFilesAsZipOrSingle } from '@/lib/zip-store';
 
-type Master = { id: string; repairTech?: string[]; user: { fullName: string } };
+type Master = { activity?:string; id: string; repairTech?: string[]; user: { fullName: string } };
 type City = { id: string; name: string };
 
 type OrderDocument = {
@@ -923,11 +923,10 @@ export default function OrderDetailPage() {
                     required={status === 'DONE' && !isPersonal && !isServiceCenter}
                   >
                     <option value="">Не назначен</option>
-                    {masters.map((m) => (
-                      <option key={m.id} value={m.id} style={{color:masterSchedule.days.find(d=>d.masterId===m.id)?.isWorking===false?"var(--muted)":undefined}}>
-                        {m.user.fullName}{m.repairTech?.length ? ` · ${m.repairTech.join(", ")}` : ""} · {workLabel(masterSchedule.days.find(d=>d.masterId===m.id)?.isWorking)}
-                      </option>
-                    ))}
+                    {([{value:true,label:'✅ В смене'},{value:undefined,label:'График не задан'},{value:false,label:'❌ Выходной'}] as const).map(group=>{
+                      const items=masters.filter(m=>masterSchedule.days.find(d=>d.masterId===m.id)?.isWorking===group.value);
+                      return items.length>0&&<optgroup key={group.label} label={group.label}>{items.map(m=><option key={m.id} value={m.id}>{m.user.fullName}{m.repairTech?.length?` · ${m.repairTech.join(', ')}`:''} · {m.activity||'Загрузка статуса'}</option>)}</optgroup>;
+                    })}
                   </select>
                 </div>
                 {!logistic&&<><div className="field">
