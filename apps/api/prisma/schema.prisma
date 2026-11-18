@@ -273,6 +273,7 @@ model Client {
 }
 
 model Order {
+  stockUsage StockUsage[]
   sdStartedAt DateTime? @map("sd_started_at")
   sdDueFrom DateTime? @map("sd_due_from")
   sdDueAt DateTime? @map("sd_due_at")
@@ -337,6 +338,40 @@ model Order {
   @@index([completedAt])
   @@index([masterId, completedAt])
   @@map("orders")
+}
+
+model StockPart {
+ id String @id
+ name String
+ category String @default("")
+ quantity Int @default(0)
+ minimum Int @default(2)
+ active Boolean @default(true)
+ usage StockUsage[]
+ moves StockMove[]
+ @@unique([category,name])
+ @@map("stock_parts")
+}
+model StockUsage {
+ orderId String @map("order_id")
+ partId String @map("part_id")
+ quantity Int
+ applied Int @default(0)
+ order Order @relation(fields:[orderId],references:[id],onDelete:Cascade)
+ part StockPart @relation(fields:[partId],references:[id])
+ @@id([orderId,partId])
+ @@map("stock_usage")
+}
+model StockMove {
+ id String @id @default(dbgenerated("md5((random())::text || (clock_timestamp())::text)"))
+ partId String @map("part_id")
+ delta Int
+ reason String
+ orderNumber String? @map("order_number")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ part StockPart @relation(fields:[partId],references:[id])
+ @@index([createdAt(sort:Desc)],map:"stock_moves_recent")
+ @@map("stock_moves")
 }
 
 model OrderPayment {

@@ -19,10 +19,13 @@ const {AppModule}=require('../dist/app.module');const p=new PrismaClient(),ids=[
  async function call(method,path,token,body){const r=await fetch(base+'/api'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()}}
  const login=async login=>{const r=await call('POST','/auth/login',null,{login,password});assert.equal(r.status,200);return r.data.accessToken};
  const ownerToken=await login(tag);
+ assert.equal((await call('GET','/inventory',ownerToken)).status,200);
+ assert.equal((await call('POST','/inventory',ownerToken,{name:'bad',category:'',quantity:-1,minimum:0})).status,400);
+ assert.equal((await call('PUT','/inventory/orders/'+order.id,ownerToken,{items:[]})).status,200);
  for(const profile of ['logistic','assistant']){
  const created=await call('POST','/staff',ownerToken,{login:tag+profile,fullName:profile,password,profile});assert.equal(created.status,201,JSON.stringify(created.data));ids.push(created.data.id);
  const token=await login(tag+profile);assert.equal((await call('GET','/auth/me',token)).data.permissions.includes('staff.'+profile),true);
- for(const path of ['/staff','/settings/bot','/salary-categories','/settlements/cash','/users'])assert.equal((await call('GET',path,token)).status,403,path);
+ for(const path of ['/inventory','/inventory/history','/inventory/orders/'+order.id,'/staff','/settings/bot','/salary-categories','/settlements/cash','/users'])assert.equal((await call('GET',path,token)).status,403,path);
  assert.equal((await call('POST','/staff',token,{login:'bad',fullName:'bad',password,profile})).status,403);
  const detail=await call('GET','/orders/'+order.id,token);assert.equal(detail.status,200);assert(!JSON.stringify(detail.data).includes('testsecret'));
  const list=await call('GET','/orders',token);assert.equal(list.status,200);assert(list.data.some(o=>o.id===order.id));

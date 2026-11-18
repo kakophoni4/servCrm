@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { SdDeadline } from '@/components/SdDeadline';
+import {OrderParts} from '@/components/inventory/OrderParts';
 import {DeleteOrder} from '@/components/orders/DeleteOrder';
 import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
@@ -1084,6 +1085,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
+          {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}
           {admin && !logistic ? (
           <MobileFold title={`Фото и документы${pendingDocs.length ? ` · новых: ${pendingDocs.length}` : ''}`} className="panel order-docs-panel">
             <h2 className="order-side-title">Фото и документы</h2>

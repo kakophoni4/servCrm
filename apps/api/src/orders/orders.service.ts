@@ -636,7 +636,7 @@ export class OrdersService {
         where: { id },
         include: this.orderInclude,
       });
-    });
+    }).catch(e=>{if(String(e).includes('Not enough stock:'))throw new BadRequestException('На складе недостаточно выбранных запчастей. Проверьте остатки или состав заявки.');throw e;});
 
     if (masterChanged && existing.masterId) {
       await this.bot

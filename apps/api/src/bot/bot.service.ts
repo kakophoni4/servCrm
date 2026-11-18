@@ -1180,7 +1180,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
         await answer();
       }
-    }catch(e){await answer(e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
+    }catch(e){await answer(String(e).includes('Not enough stock:')?'Не хватает запчастей на складе. Попросите владельца проверить остатки в CRM.':e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
 
   async refreshSavedDocumentCards(orderId:string) {
