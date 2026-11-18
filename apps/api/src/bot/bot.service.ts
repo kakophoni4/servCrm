@@ -1884,7 +1884,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(!orders.length)return 'Актуальные заявки · '+master.user.fullName+'\nНет актуальных заявок';
     const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
-    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,...sd.flatMap(lines)]:[])].join('\n').trim();
+    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
   }
 
   private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
@@ -1908,6 +1908,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const report=statistics?await this.masterMonthlyReport(id):await this.masterActiveReport(id);
       let chunk='';
       for(const line of report.split('\n')){
+        if(!line.length){if(chunk)chunk+='\n';continue;}
         if(chunk.length+line.length+1>3500&&chunk){await this.sendMessage(chatId,chunk);chunk='';}
         for(let offset=0;offset<line.length;offset+=3500){const part=line.slice(offset,offset+3500);if(part.length===3500)await this.sendMessage(chatId,part);else chunk+=(chunk?'\n':'')+part;}
       }
@@ -1944,6 +1945,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const report=await this.settlements.cashReport(id);
       let chunk='';
       for(const line of report.split('\n')){
+        if(!line.length){if(chunk)chunk+='\n';continue;}
         if(chunk.length+line.length+1>3500){await this.sendMessage(chatId,chunk);chunk='';}
         for(let offset=0;offset<line.length;offset+=3500){const part=line.slice(offset,offset+3500);if(part.length===3500){await this.sendMessage(chatId,part);}else chunk+=(chunk?'\n':'')+part;}
       }

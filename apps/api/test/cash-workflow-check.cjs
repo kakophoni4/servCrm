@@ -59,7 +59,7 @@ const ids=[];let owner,user,master,client;
  const sd=await order('IN_PROGRESS_SD',monthDate,0,0);await p.order.update({where:{id:sd.id},data:{sdDueAt:new Date('2035-02-20T20:59:59Z')}});
  const active=await bot.masterActiveReport(master.id);assert(active.includes('СД · 1'));assert(active.includes('Срок СД: 20.02.2035'));assert(active.includes('Заявка '+tag+'2'));assert(!active.includes('Заявка '+inMonth.publicId));assert(!active.includes('Заявка '+tag+'3'));
  await message(780000001,-123,'supergroup','Статистика');assert(messages.at(-1).text.startsWith('Статистика'));
- await message(780000001,780000001,'private','/active@TestBot');assert(messages.at(-1).text.startsWith('Актуальные заявки'));
+ await message(780000001,780000001,'private','/active@TestBot');assert(messages.at(-1).text.startsWith('Актуальные заявки'));assert(messages.at(-1).text.includes('\n\nНазначены и в работе'));assert(messages.at(-1).text.includes('СД · 1\n\nЗаявка'));
  await message(780000001,-999,'supergroup','Актуальные');assert(!messages.at(-1).text.startsWith('Актуальные заявки'));
  await message(780000003,-123,'supergroup','Статистика');assert(!messages.at(-1).text.startsWith('Статистика'));
  await message(780000002,-123,'supergroup','/stats');assert(messages.at(-1).text.startsWith('Статистика'));
