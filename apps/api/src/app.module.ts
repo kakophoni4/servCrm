@@ -1,3 +1,4 @@
+import {MasterPortalModule} from './master-portal/master-portal.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import {AvitoModule} from './avito/avito.module';
 import {InventoryModule} from './inventory/inventory.module';
@@ -29,6 +30,7 @@ import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
+    MasterPortalModule,
     AvitoModule,
     InventoryModule,
     ConfigModule.forRoot({ isGlobal: true }),

@@ -26,9 +26,9 @@ export class AuthService {
       throw new UnauthorizedException('Неверный логин или пароль');
     }
 
-    if (user.role === 'MASTER') {
+    if (user.role === 'MASTER' && !user.masterWebEnabled) {
       throw new UnauthorizedException(
-        'У мастеров нет веб-кабинета. Используйте бот (фаза 4).',
+        'Доступ к кабинету ещё не подключён владельцем.',
       );
     }
 

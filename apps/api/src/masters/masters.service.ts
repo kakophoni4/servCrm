@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,6 +16,20 @@ export class MastersService {
     private readonly branch: BranchScopeService,
   ) {}
 
+  async schedule(userId:string,role:Role,from:string,to:string) {
+    const parse=(v:string)=> { const d=new Date(v+'T00:00:00.000Z'); if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'') || !Number.isFinite(d.getTime()) || d.toISOString().slice(0,10)!==v)throw new BadRequestException('Некорректная дата'); return d; };
+    const start=parse(from),end=parse(to);
+    if(end<start || end.getTime()-start.getTime()>93*86400000)throw new BadRequestException('Выберите период до 93 дней');
+    const allowed=await this.branch.allowedCityIds(userId,role);
+    const masters=await this.prisma.master.findMany({where:{status:'ACTIVE',cityId:this.branch.cityWhere(allowed)},include:{workSchedule:true}});
+    const days:{masterId:string;date:string;isWorking:boolean}[]=[];
+    for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1))for(const master of masters) {
+      const row=master.workSchedule.find(w=>w.weekday===(d.getUTCDay()||7));
+      if(row)days.push({masterId:master.id,date:d.toISOString().slice(0,10),isWorking:row.isWorking});
+    }
+    return {from,to,days};
+  }
+
   async list(
     userId: string,
     role: Role | string,
@@ -28,7 +43,7 @@ export class MastersService {
         status: activeOnly ? UserStatus.ACTIVE : undefined,
         cityId: this.branch.cityWhere(cityIds),
       },
-      include: { user: true, city: true },
+      include: { user: true, city: true, workSchedule: {orderBy:{weekday:'asc'}} },
       orderBy: { createdAt: 'desc' },
     });
     const orders=await this.prisma.order.findMany({where:{masterId:{in:masters.map(m=>m.id)},status:'DONE',isPersonal:false},select:{masterId:true,payment:{select:{paid:true}}}});

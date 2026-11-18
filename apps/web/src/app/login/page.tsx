@@ -25,7 +25,7 @@ export default function LoginPage() {
         },
       );
       setSession(data.accessToken, data.user);
-      router.replace('/orders');
+      router.replace(data.user.role==='MASTER'?'/master':'/orders');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка входа');
     } finally {

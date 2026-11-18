@@ -39,3 +39,25 @@
 .historyItem { font-size:15px; line-height:1.5; }
 .historyItem :global(.muted) { font-size:13px; }
 @media(max-width:480px) { .page .card { padding:16px; } .toolbar { padding:12px; } .toolbar .actions { gap:6px; } .page .head { align-items:flex-start; } }
+
+.groups { display:grid; gap:24px; }
+.group { min-width:0; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+.groupHead { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--accent) 7%,var(--panel)); }
+.groupHead h2 { margin:0; font-size:20px; overflow-wrap:anywhere; }
+.groupHead > span { font-size:14px; color:var(--muted); white-space:nowrap; }
+.group .list { display:block; }
+.group .card { border-bottom:1px solid var(--line); border-radius:0; padding:14px 18px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 20px; }
+.group .card:last-child { border-bottom:0; }
+.group .card > .head { grid-column:1; flex-wrap:nowrap; }
+.group .card h3 { font-size:17px; font-weight:600; }
+.group .card .quantity { font-size:20px; }
+.group .card > .muted,.group .card > :global(.muted) { grid-column:1; }
+.page .group .card > .actions { grid-column:2; grid-row:1/3; border:0; padding:0; align-content:center; }
+.group .card > form { grid-column:1/-1; margin-top:8px; padding-top:14px; border-top:1px solid var(--line); }
+.toolbar select { min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink); font:inherit; min-width:0; width:100%; }
+@media(max-width:600px) {
+ .groupHead { padding:14px; }
+ .group .card { grid-template-columns:minmax(0,1fr); padding:12px 14px; }
+ .page .group .card > .actions { grid-column:1; grid-row:auto; margin-top:4px; }
+ .group .card .quantity { font-size:19px; }
+}

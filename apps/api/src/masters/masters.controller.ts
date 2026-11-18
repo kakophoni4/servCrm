@@ -53,6 +53,11 @@ class CreateMasterDto {
 export class MastersController {
   constructor(private readonly masters: MastersService) {}
 
+  @Get('schedule')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('masters.read')
+  schedule(@CurrentUser() user:{userId:string;role:Role},@Query('from') from:string,@Query('to') to:string) { return this.masters.schedule(user.userId,user.role,from,to); }
+
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('masters.read')

@@ -106,6 +106,11 @@ export class BotController {
   @Roles(Role.OWNER)
   disconnectDestination(@Param('kind') kind:string) { return this.bot.disconnectGroup(kind); }
 
+  @Post('masters/:id/schedule-request')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER)
+  scheduleRequest(@Param('id') id:string) { return this.bot.requestMasterSchedule(id); }
+
   @Post('masters/:id/link')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.OWNER)

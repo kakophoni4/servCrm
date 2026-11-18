@@ -1,4 +1,6 @@
 'use client';
+import {Discussion} from '@/components/master/Discussion';
+import {useWorkSchedule,moscowDate,workLabel} from '@/components/masters/WorkSchedule';
 import '@/components/desk/ReadableWorkflows.css';
 
 import Link from 'next/link';
@@ -30,7 +32,7 @@ import {
 import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { downloadFilesAsZipOrSingle } from '@/lib/zip-store';
 
-type Master = { id: string; user: { fullName: string } };
+type Master = { id: string; repairTech?: string[]; user: { fullName: string } };
 type City = { id: string; name: string };
 
 type OrderDocument = {
@@ -209,6 +211,7 @@ export default function OrderDetailPage() {
   const [address, setAddress] = useState('');
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
+  const masterSchedule=useWorkSchedule(scheduledAt?moscowDate(new Date(scheduledAt)):moscowDate());
   const [paid, setPaid] = useState('0');
   const [partsCost, setPartsCost] = useState('');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
@@ -928,8 +931,8 @@ export default function OrderDetailPage() {
                   >
                     <option value="">Не назначен</option>
                     {masters.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.user.fullName}
+                      <option key={m.id} value={m.id} style={{color:masterSchedule.days.find(d=>d.masterId===m.id)?.isWorking===false?"var(--muted)":undefined}}>
+                        {m.user.fullName}{m.repairTech?.length ? ` · ${m.repairTech.join(", ")}` : ""} · {workLabel(masterSchedule.days.find(d=>d.masterId===m.id)?.isWorking)}
                       </option>
                     ))}
                   </select>
@@ -1390,6 +1393,7 @@ export default function OrderDetailPage() {
           </MobileFold>
         </div>
       </div>
+      <Discussion key={order.id} orderId={order.id}/>
       {user?.role==='OWNER'&&<DeleteOrder id={order.id} publicId={order.publicId}/>}
     </div>
   );

@@ -1,0 +1,9 @@
+ 'use client';
+import {useEffect,useState} from 'react';
+import {api} from '@/lib/api';
+export type WorkDay={masterId:string;date:string;isWorking:boolean};
+export function moscowDate(date=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)}
+export function workLabel(value:boolean|undefined){return value===true?'✓ В смене':value===false?'Выходной':'График не задан'}
+export function useWorkSchedule(from:string,to=from){const [days,setDays]=useState<WorkDay[]>([]);const [error,setError]=useState('');useEffect(()=>{let alive=true;setDays([]);setError('');api<{days:WorkDay[]}>(`/masters/schedule?from=${from}&to=${to}`).then(r=>{if(alive)setDays(r.days)}).catch(()=>{if(alive)setError('Не удалось загрузить график')});return()=>{alive=false}},[from,to]);return {days,error}}
+export function currentWeek(){const now=new Date(moscowDate()+'T12:00:00Z');now.setUTCDate(now.getUTCDate()-(now.getUTCDay()+6)%7);return Array.from({length:7},(_,i)=>{const d=new Date(now);d.setUTCDate(d.getUTCDate()+i);return d.toISOString().slice(0,10)})}
+export function WorkSchedule({masterId,days,dates}:{masterId:string;days:WorkDay[];dates:string[]}){return <div aria-label="Постоянный график" style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:4,marginTop:12}}>{dates.map((date,i)=>{const working=days.find(d=>d.masterId===masterId&&d.date===date)?.isWorking;return <div key={date} title={workLabel(working)} style={{textAlign:'center',padding:'8px 0',borderRadius:8,background:working===true?'color-mix(in srgb,var(--success) 15%,var(--panel))':'var(--bg)',color:working===false?'var(--muted)':'var(--ink)',fontSize:14}}><div>{['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][i]}</div><strong aria-label={workLabel(working)}>{working===true?'✓':working===false?'−':'?'}</strong></div>})}</div>}

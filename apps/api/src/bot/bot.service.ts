@@ -1971,6 +1971,20 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       try{await this.refreshGroupCard(msg);}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось обновить карточку');}
       return;
     }
+    if(/^\/?(?:график|schedule)(?:@\w+)?$/iu.test(msg.text?.trim()||'')) {
+      try {
+        let masterId:string|undefined;
+        if(msg.chat?.type==='private')masterId=(await this.masterByTelegram(telegramId)).masterProfile!.id;
+        else {
+          const bindings=await this.prisma.appSetting.findMany({where:{key:{startsWith:'bot.master.group.'}}});
+          masterId=bindings.find(r=>{try{return JSON.parse(r.value).chatId===chatId}catch{return false}})?.key.replace('bot.master.group.','');
+        }
+        if(!masterId)throw new BadRequestException('Подключите группу мастера в CRM');
+        await this.scheduleActor(masterId,msg.chat!,telegramId);
+        await this.sendScheduleCard(masterId,chatId);
+      }catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось открыть график');}
+      return;
+    }
     const overview=/^\/?(статистика|stats|актуальные|active)(?:@\w+)?$/iu.exec(msg.text?.trim()||'');
     if(overview){
       try{await this.sendMasterOverview(msg,/^(статистика|stats)$/iu.test(overview[1]));}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось получить список. Попробуйте ещё раз');}
@@ -2652,7 +2666,67 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async requestMasterSchedule(masterId:string) {
+    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
+    if(!master || master.status!=='ACTIVE' || master.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
+    const group=await this.getMasterGroup(masterId);
+    const chatId=group?.chatId || master.user.telegramId;
+    if(!chatId)throw new BadRequestException('Подключите Telegram мастера или его группу');
+    await this.sendScheduleCard(masterId,chatId);
+    return {sent:true};
+  }
+
+  private async sendScheduleCard(masterId:string,chatId:string,messageId?:number) {
+    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true,workSchedule:true}});
+    if(!master || master.status!=='ACTIVE' || master.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
+    const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+    const rows=names.map((name,i)=>{
+      const current=master.workSchedule.find(d=>d.weekday===i+1);
+      return [{text:`${name}: ${current ? current.isWorking?'Рабочий':'Выходной':'Не задан'}`,callback_data:`wh:${masterId}:${i+1}`}];
+    });
+    const text=`График: ${master.user.fullName}
+Постоянный график на каждую неделю. Нажмите день, чтобы выбрать рабочий или выходной.`;
+    const payload={chat_id:chatId,text,reply_markup:{inline_keyboard:rows}};
+    if(messageId)await this.telegram('editMessageText',{...payload,message_id:messageId});
+    else await this.sendMessage(chatId,text,{reply_markup:payload.reply_markup});
+  }
+
+  private async scheduleActor(masterId:string,chat:TgChat,telegramId:string) {
+    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});
+    if(!master || master.status!=='ACTIVE' || master.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
+    const owner=await this.prisma.user.findFirst({where:{role:'OWNER',status:'ACTIVE',telegramId}});
+    if(!owner && master.user.telegramId!==telegramId)throw new BadRequestException('Этот график может менять только мастер или владелец');
+    if(chat.type==='private') {
+      if(String(chat.id)!==telegramId)throw new BadRequestException('Откройте свой чат с ботом');
+    } else {
+      const group=await this.getMasterGroup(masterId);
+      if(group?.chatId!==String(chat.id))throw new BadRequestException('Откройте группу этого мастера');
+    }
+  }
+
+  private async handleScheduleCallback(cq:TgCallbackQuery) {
+    try {
+      const match=/^(wh|ww|wb):([a-z0-9]+)(?::([1-7]))?(?::([01]))?$/.exec(cq.data||'');
+      if(!match || !cq.message?.chat || !cq.from?.id)throw new BadRequestException('Откройте график заново');
+      const [,action,masterId,day,value]=match;
+      await this.scheduleActor(masterId,cq.message.chat,String(cq.from.id));
+      const chatId=String(cq.message.chat.id);
+      if(action==='wh' && day) {
+        const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+        await this.telegram('editMessageText',{chat_id:chatId,message_id:cq.message.message_id,text:names[Number(day)-1],reply_markup:{inline_keyboard:[[{text:'Рабочий день',callback_data:`ww:${masterId}:${day}:1`},{text:'Выходной',callback_data:`ww:${masterId}:${day}:0`}],[{text:'К графику',callback_data:`wb:${masterId}`}]]}});
+      } else {
+        if(action==='ww') {
+          if(!day || value===undefined)throw new BadRequestException('Выберите день');
+          await this.prisma.masterWeekday.upsert({where:{masterId_weekday:{masterId,weekday:Number(day)}},create:{masterId,weekday:Number(day),isWorking:value==='1'},update:{isWorking:value==='1'}});
+        }
+        await this.sendScheduleCard(masterId,chatId,cq.message.message_id);
+      }
+      await this.telegram('answerCallbackQuery',{callback_query_id:cq.id});
+    }catch(e){await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:e instanceof BadRequestException?e.message:'Не удалось сохранить график',show_alert:true});}
+  }
+
   private async handleCallbackQuery(cq: TgCallbackQuery) {
+    if (/^(wh|ww|wb):/.test(cq.data || '')) { await this.handleScheduleCallback(cq); return; }
     if (/^(ga|gs|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =
       cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;

@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');
+const {MasterPortalService,validateFiles}=require('../dist/master-portal/master-portal.service');
+const {assertMasterAccess,assertStaffAccess}=require('../dist/common/staff-access.interceptor');
+const u={userId:'u',role:'MASTER'},date=new Date('2026-11-18T09:00:00Z');
+let o={id:'o',masterId:'m',isPersonal:false,status:'IN_PROGRESS',updatedAt:date,client:{name:'Client',phoneNormalized:'79000000000'},documents:[],payment:{prepay:5000},isServiceCenter:false};
+let enabled=true,cas=true,uploads=0,download=0,payment,cash,refresh=0,sync=0;
+const db={master:{findUnique:async()=>({id:'m',status:'ACTIVE',user:{status:'ACTIVE',masterWebEnabled:enabled}})},order:{findFirst:async({where})=>where.id===o.id&&where.masterId===o.masterId&&!o.isPersonal?o:null,updateMany:async({data})=>{if(!cas)return{count:0};o={...o,...data};return{count:1}}},appSetting:{findUnique:async()=>null},orderPayment:{upsert:async({update})=>{payment=update}},cashTx:{findFirst:async()=>null,create:async({data})=>cash=data},$queryRaw:async()=>[]};db.$transaction=async f=>f(db);
+const s=new MasterPortalService(db,{termsFor:async()=>({masterPct:.5,reinvestPct:.5})},{syncForCompletedOrder:async()=>sync++},{uploadMany:async()=>{uploads++;return{created:[],skipped:0}},getDoc:async()=>{download++;return{}}},{refreshSavedDocumentCards:async()=>refresh++},{});
+(async()=>{
+ assert.throws(()=>assertMasterAccess('GET','/orders'));assertMasterAccess('GET','/master-portal/orders');assertStaffAccess('logistic','POST','/master-portal/orders/o/messages',{});
+ enabled=false;await assert.rejects(()=>s.detail(u,'o'));enabled=true;
+ await assert.rejects(()=>s.detail(u,'other'));await assert.rejects(()=>s.document(u,'other','doc'));assert.equal(download,0);
+ o.isPersonal=true;await assert.rejects(()=>s.detail(u,'o'));o.isPersonal=false;
+ assert.equal((await s.detail(u,'o')).client.phone,'79000000000');assert.equal((await s.detail(u,'o')).masterId,undefined);
+ await assert.rejects(()=>s.action(u,'o',{action:'close',version:'2026-11-17T09:00:00Z',paid:11000,partsCost:1000}));
+ await assert.rejects(()=>s.action(u,'o',{action:'close',version:date.toISOString(),paid:4000,partsCost:0}));
+ cas=false;await assert.rejects(()=>s.action(u,'o',{action:'close',version:date.toISOString(),paid:11000,partsCost:1000}));assert.equal(payment,undefined);assert.equal(cash,undefined);cas=true;
+ await s.action(u,'o',{action:'close',version:date.toISOString(),paid:11000,partsCost:1000});assert.equal(payment.paid,11000);assert.equal(payment.masterSalary,5000);assert.equal(payment.toCompany,5000);assert.equal(payment.reinvestAmount,2500);assert.equal(cash.amount,5000);assert.equal(sync,1);assert.equal(refresh,1);
+ await assert.rejects(()=>s.action(u,'o',{action:'close',version:date.toISOString(),paid:11000,partsCost:1000}));assert.equal(sync,1);
+ const pdf={originalname:'act.pdf',buffer:Buffer.from('%PDF-1.7 test')};validateFiles([pdf]);assert.throws(()=>validateFiles([{originalname:'x.jpg',buffer:Buffer.from('<html>bad</html>')}]));assert.throws(()=>validateFiles(Array(31).fill(pdf)));assert.throws(()=>validateFiles([{...pdf,buffer:Buffer.alloc(10*1024*1024+1)}]));
+ await assert.rejects(()=>s.upload(u,'other','CONTRACT',[pdf]));assert.equal(uploads,0);
+ console.log('Master portal: access, IDOR, stale version, CAS rejection, closure finance, duplicate close, file scope/signatures/limits passed');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,7 @@
 'use client';
 import Link from 'next/link';
+import {MasterAccess} from '@/components/master/MasterAccess';
+import {WorkSchedule,currentWeek,useWorkSchedule,moscowDate,workLabel} from '@/components/masters/WorkSchedule';
 import layout from '@/components/masters/MastersLayout.module.css';
 import {DeskShell} from '@/components/desk/DeskShell';
 import {STATUS_LABELS} from '@/lib/labels';
@@ -12,6 +14,7 @@ import { api, getStoredUser } from '@/lib/api';
 type Master = {id:string;averageCheck:number;completedOrders:number;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
 type Order = {id:string;publicId:string;masterId?:string;status:string;address:string;scheduledAt?:string|null;sdDueAt?:string|null;client:{name:string}};
 export default function MastersPage(){
+ const dates=currentWeek();const schedule=useWorkSchedule(dates[0],dates[6]);
  const [currentUser,setCurrentUser]=useState<ReturnType<typeof getStoredUser>>(null);
  useEffect(()=>setCurrentUser(getStoredUser()),[]);
  const owner=currentUser?.role==='OWNER';
@@ -28,7 +31,7 @@ export default function MastersPage(){
  const [repairTech,setRepairTech]=useState<string[]>([]);
  const [address,setAddress]=useState('');const [editId,setEditId]=useState('');
  const [name,setName]=useState('');const [phone,setPhone]=useState('');
- const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+ const [notice,setNotice]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);
  const load=useCallback(async()=>{const [m,o,c]=await Promise.all([api<Master[]>('/masters'),api<Order[]>('/orders'),owner?api<CashBalance[]>('/settlements/cash'):Promise.resolve([])]);setMasters(m);setOrders(o);setCash(c);if(!owner)return;const g=await Promise.all(m.map(async x=>[x.id,await api<{chatId:string;title:string}|null>(`/bot/masters/${x.id}/group`)] as const));setGroups(Object.fromEntries(g))},[owner]);
  useEffect(()=>{if(currentUser)load().catch(e=>setError(e.message))},[load,currentUser]);
  async function connect(id:string){setError('');try{const result=await api<{url:string}>('/bot/masters/'+id+'/link',{method:'POST'});setLinks(v=>({...v,[id]:result.url}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}}
@@ -48,11 +51,14 @@ export default function MastersPage(){
  {editId&&<button type="button" className="btn secondary" onClick={()=>{setEditId('');setShowForm(false);setName('');setPhone('');setAddress('');setRepairTech([])}}>Отмена</button>}</div></form>}
  {!logistic&&<p className="muted">По среднему чеку · за всё время</p>}
  <div className="tech-picker" aria-label="Фильтр по технике">{[['','Все'],...TECH].map(([code,label])=><button type="button" key={code} title={label} aria-pressed={techFilter===code} className={techFilter===code?'btn':'btn secondary'} onClick={()=>setTechFilter(code)}>{code||'Все'}</button>)}</div>
+ {notice&&<p role="status">{notice}</p>}
+ {schedule.error&&<p className="error">{schedule.error}</p>}
  {error&&<p className="error" role="alert">{error}</p>}
  <div className={styles.sectionHead}><h2>В списке <span className={styles.count}>{masters.filter(m=>!techFilter||m.repairTech?.includes(techFilter)).length}</span></h2><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Обновить</button></div>
  {!masters.length&&!error&&<div className={`panel ${styles.empty}`}>Мастеров пока нет</div>}
  <div className={`${styles.cards} ${layout.grid}`}>{masters.filter(m=>!techFilter||m.repairTech?.includes(techFilter)).map(m=>{const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC'].includes(o.status));return <section className={`panel ${styles.card} ${styles.masterCard} ${layout.card}`} key={m.id}>
  <div className={`${styles.masterHead} ${layout.identity}`}><span className={styles.avatar} aria-hidden="true">{m.user.fullName.trim().slice(0,1).toUpperCase()}</span><div><h3>{m.user.fullName}</h3>{m.user.phone&&<a href={phoneHref(m.user.phone)}>{formatRuPhoneDisplay(m.user.phone)}</a>}</div><span className={styles.count}>{active.filter(o=>o.status!=='IN_PROGRESS_SD').length} в работе · СД {active.filter(o=>o.status==='IN_PROGRESS_SD').length}</span></div>
+ <div style={{color:schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking===false?"var(--muted)":"var(--ink)"}}>{workLabel(schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking)}</div><WorkSchedule masterId={m.id} days={schedule.days} dates={dates}/>
  {!logistic&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:8}}><span>Средний чек <strong>{(m.averageCheck||0).toLocaleString('ru-RU',{maximumFractionDigits:0})} ₽</strong></span><span className="muted">Закрыто {m.completedOrders||0}</span></div>}
  <div className={styles.masterTech} aria-label="Ремонтирует">{m.repairTech?.length?m.repairTech.map(code=><span className="badge" key={code} title={TECH.find(([key])=>key===code)?.[1]||code}>{code}</span>):<span className="muted">Техника не указана</span>}</div>
  {owner&&<div style={{marginTop:8}}>К сдаче <strong>{(cash.find(c=>c.masterId===m.id)?.remaining||0).toLocaleString('ru-RU')} ₽</strong></div>}
@@ -62,7 +68,8 @@ export default function MastersPage(){
  {!active.length?<p className="muted">Нет актуальных заявок</p>:['regular','sd'].map(group=>{const rows=active.filter(o=>(o.status==='IN_PROGRESS_SD')===(group==='sd')).sort((a,b)=>(a.scheduledAt||'9999').localeCompare(b.scheduledAt||'9999'));return rows.length>0&&<div key={group}><h4>{group==='sd'?'СД':'Назначены и в работе'} · {rows.length}</h4><div style={{display:'grid',gap:8}}>{rows.map(o=><Link key={o.id} href={'/orders/'+o.id} style={{display:'grid',gap:4,padding:'10px 0',borderBottom:'1px solid var(--border)',overflowWrap:'anywhere'}}><strong>№ {o.publicId} · {o.client.name}</strong><span>{o.address}</span><span className="muted">{STATUS_LABELS[o.status]||o.status} · {o.scheduledAt?new Date(o.scheduledAt).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'Время не назначено'}</span>{group==='sd'&&<span>Срок СД: {o.sdDueAt?new Date(o.sdDueAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан'}{o.sdDueAt&&new Date(o.sdDueAt)<new Date()?' · просрочено':''}</span>}</Link>)}</div></div>})}
  </div>
  </details>
- {owner&&<details className={styles.masterSettings}><summary>Настройки мастера</summary>
+ {owner&&<MasterAccess id={m.id}/>}
+ {owner&&<details className={styles.masterSettings}><summary>Настройки мастера</summary><button type="button" className="btn secondary" disabled={groupBusy===m.id} onClick={async()=>{setGroupBusy(m.id);setError('');try{await api(`/bot/masters/${m.id}/schedule-request`,{method:'POST'});setNotice('Запрос графика отправлен мастеру')}catch(e){setError(e instanceof Error?e.message:'Не удалось отправить запрос')}finally{setGroupBusy('')}}}>Запросить график в Telegram</button>
  {m.address&&<p className={styles.address}>{m.address}</p>}
  <div className={styles.telegram}><span className={groups[m.id]?styles.connected:styles.disconnected}>{groups[m.id]?'Группа: '+groups[m.id]!.title:'Группа для заявок не подключена'}</span><button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>connectGroup(m.id)}>{groups[m.id]?'Сменить группу':'Подключить группу'}</button>{groups[m.id]&&<button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>disconnectGroup(m.id)}>Отключить группу</button>}</div>
  {commands[m.id]&&<div className={styles.linkBox}><label htmlFor={'group-'+m.id}>Добавьте бота в группу мастера и отправьте туда эту команду от администратора группы.</label><input id={'group-'+m.id} readOnly value={commands[m.id]} onFocus={e=>e.target.select()}/><button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(commands[m.id])}catch{window.prompt('Команда для группы',commands[m.id])}}}>Скопировать команду</button><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Проверить подключение</button></div>}

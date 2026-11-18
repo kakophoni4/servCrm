@@ -1,6 +1,7 @@
 'use client';
 
 import styles from './DeskLists.module.css';
+import {TECH} from '@/components/TechPicker';
 import {isScheduledToday} from '@/lib/order-date';
 
 import Link from 'next/link';
@@ -18,6 +19,7 @@ import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
 
 type OrderRow = {
+  typeTech?: string | null;
   sdDueFrom?: string | null;
   sdDueAt?: string | null;
   isPersonal?: boolean;
@@ -82,6 +84,7 @@ export function OrdersPanel() {
   const router = useRouter();
   const [view,setView]=useState('today');
   const [query,setQuery]=useState('');
+  const [tech,setTech]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [, setCities] = useState<City[]>([]);
   const [cityFilter] = useState('');
@@ -130,7 +133,7 @@ export function OrdersPanel() {
 
   const search=query.trim().toLowerCase();
   const phoneSearch=query.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7');
-  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='today'&&isScheduledToday(o.scheduledAt,now))||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&([o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(search)||(phoneSearch.length>=3&&o.client.phoneNormalized.includes(phoneSearch)))}).sort((a,b)=>view==='today'?new Date(a.scheduledAt!).getTime()-new Date(b.scheduledAt!).getTime():0);
+  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (!tech || (tech==='Другое' ? Boolean(o.typeTech)&&!TECH.some(([code])=>code!=='Другое'&&code===o.typeTech) : o.typeTech===tech))&&(view==='all'||(view==='today'&&isScheduledToday(o.scheduledAt,now))||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&o.status==='DONE')||(view==='cancelled'&&['REFUSAL','CANCELLED_CC'].includes(o.status)))&&([o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(search)||(phoneSearch.length>=3&&o.client.phoneNormalized.includes(phoneSearch)))}).sort((a,b)=>view==='today'?new Date(a.scheduledAt!).getTime()-new Date(b.scheduledAt!).getTime():0);
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
@@ -146,7 +149,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>setView(value)}>{label}</button>)}</div></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые'],['cancelled','Отменённые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>setView(value)}>{label}</button>)}</div><label htmlFor="orders-tech">Техника</label><select id="orders-tech" value={tech} onChange={e=>setTech(e.target.value)}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
@@ -172,7 +175,7 @@ export function OrdersPanel() {
                   <span className={styles.orderMaster}>{o.isPersonal ? 'Выполняю сам' : o.master?.user.fullName ? `Мастер: ${o.master.user.fullName}` : 'Без мастера'}</span>
                 </div>
                 <div className={styles.orderFoot}>
-                  <span>№ {o.publicId}</span>
+                  <span>№ {o.publicId}</span>{o.typeTech&&<span>{o.typeTech}</span>}
                   <span>{formatRuPhoneDisplay(o.client.phoneNormalized)}</span>
                   {urgent && <span className="urgent-pill">срочно</span>}
                   {o.isClaim && <span className="badge badge-warn">претензия</span>}

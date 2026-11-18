@@ -1,0 +1,7 @@
+ 'use client';
+import {useEffect,useState} from 'react';import {api,getStoredUser} from '@/lib/api';
+export type InboxRow={orderId:string;publicId:string;clientName:string;lastMessage:{id:string;body:string;createdAt:string;user:{id:string;fullName:string;role:string}}};
+const key=(id:string)=>`crm-discussion-seen:${getStoredUser()?.id}:${id}`;
+export function markDiscussionRead(orderId:string,messageId:string){if(document.hidden)return;localStorage.setItem(key(orderId),messageId);window.dispatchEvent(new Event('crm-discussion-read'))}
+export function isUnread(row:InboxRow){return !!row.lastMessage&&row.lastMessage.user.id!==getStoredUser()?.id&&localStorage.getItem(key(row.orderId))!==row.lastMessage.id}
+export function useInbox(enabled=true){const [rows,setRows]=useState<InboxRow[]>([]),[error,setError]=useState(''),[revision,setRevision]=useState(0);useEffect(()=>{if(!enabled)return;let active=true,running=false;const c=new AbortController();async function load(){if(document.hidden||running)return;running=true;try{const result=await api<InboxRow[]>('/master-portal/inbox',{signal:c.signal});if(active){setRows(result);setError('')}}catch(e){if(active)setError(e instanceof Error?e.message:'Ошибка загрузки')}finally{running=false}}const seen=()=>setRevision(v=>v+1);void load();const t=setInterval(load,15000);window.addEventListener('crm-discussion-read',seen);return()=>{active=false;c.abort();clearInterval(t);window.removeEventListener('crm-discussion-read',seen)}},[enabled]);return {rows,error,unread:rows.filter(isUnread).length,revision}}

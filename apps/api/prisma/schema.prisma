@@ -184,6 +184,7 @@ model SalaryCategory {
 }
 
 model User {
+  masterWebEnabled Boolean @default(false) @map("master_web_enabled")
   id                 String     @id @default(cuid())
   login              String     @unique
   passwordHash       String     @map("password_hash")
@@ -235,6 +236,7 @@ model BranchDirector {
 }
 
 model Master {
+  workSchedule MasterWeekday[]
   repairTech String[] @default([]) @map("repair_tech")
   address String?
   id        String     @id @default(cuid())
@@ -605,4 +607,25 @@ model AppSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+model MasterWeekday {
+  masterId String @map("master_id")
+  weekday Int
+  isWorking Boolean @map("is_working")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  master Master @relation(fields:[masterId], references:[id], onDelete:Cascade)
+  @@id([masterId,weekday])
+  @@map("master_weekdays")
+}
+
+model OrderDiscussionMessage {
+ id String @id @default(cuid())
+ orderId String @map("order_id")
+ userId String @map("user_id")
+ body String @db.Text
+ createdAt DateTime @default(now()) @map("created_at")
+ @@index([orderId,createdAt])
+ @@index([userId])
+ @@map("order_discussion_messages")
 }

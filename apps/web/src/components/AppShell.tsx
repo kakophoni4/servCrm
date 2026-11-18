@@ -9,6 +9,7 @@ import {
   getStoredUser,
   getToken,
 } from '@/lib/api';
+import {useInbox} from './master/Unread';
 import { ROLE_LABELS } from '@/lib/labels';
 import { hasPermission } from '@/lib/permissions';
 import { NavIcon } from './NavIcons';
@@ -23,6 +24,7 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
+ {href:'/messages',label:'Переписки',roles:['OWNER','ADMIN','DIRECTOR','DISPATCHER']},
  {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
  {href:'/inventory',label:'Запчасти',roles:['OWNER']},
@@ -41,14 +43,15 @@ function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const officeInbox=useInbox(!!user);
 
   useEffect(() => {
     if (!getToken()) {
       router.replace('/login');
       return;
     }
-    setUser(getStoredUser());
-  }, [router]);
+    const stored=getStoredUser();setUser(stored);if(stored?.role==='MASTER'&&!/^\/master(?:\/|$)/.test(pathname)&&pathname!=='/settings/account'&&pathname!=='/messages')router.replace('/master');
+  }, [router,pathname]);
 
   useEffect(() => {
     setNavOpen(false);
@@ -85,7 +88,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const navLinks = NAV.filter((item) => {
+  const master=user.role==='MASTER';
+  const availableNav=master?[{href:'/master',label:'Мои заявки'},{href:'/messages',label:'Переписка'},{href:'/settings/account',label:'Аккаунт'}]:NAV;
+  const navLinks = availableNav.filter((item) => {
     if (item.roles && !item.roles.includes(user.role)) return false;
     if (
       item.anyOf?.length &&
@@ -111,7 +116,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         onClick={() => setNavOpen(false)}
       >
         <NavIcon href={item.href} className="nav-icon" />
-        <span>{item.label}</span>{item.href==='/avito'&&unread.ids.length>0&&<span className="avito-unread-count" aria-label="Непрочитанные чаты">{unread.ids.length}{unread.hasMore?'+':''}</span>}
+        <span>{item.label}</span>{item.href==='/messages'&&officeInbox.unread>0&&<span className="avito-unread-count">{officeInbox.unread}</span>}{item.href==='/avito'&&unread.ids.length>0&&<span className="avito-unread-count" aria-label="Непрочитанные чаты">{unread.ids.length}{unread.hasMore?'+':''}</span>}
       </Link>
     );
   });
