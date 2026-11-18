@@ -1,6 +1,7 @@
 import {PageQuery} from '../orders/paging';
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Param,
@@ -21,6 +22,10 @@ import { ClientsService } from './clients.service';
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
+
+  @Delete(':id')
+  @Roles(Role.OWNER)
+  remove(@Param('id') id:string){return this.clients.remove(id);}
 
   @Get('paged')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)

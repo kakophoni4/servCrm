@@ -1490,6 +1490,16 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return this.notifyMasterOrderNotice(masterId,publicId,address,'Заявка снята');
   }
 
+  async notifyOrderCancelled(orderId:string) {
+    const order=await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}}}});
+    if(!order)return null;
+    const destination=await this.getOrderDestination(orderId);
+    const chatId=destination?.chatId||order.master?.user.telegramId;
+    if(!chatId)return null;
+    const title=order.status===OrderStatus.REFUSAL?'Отказ по заявке':'Заявка отменена';
+    return this.sendMessage(chatId,[title+' · '+order.publicId,'Клиент: '+order.client.name,'Адрес: '+order.address].join('\n'));
+  }
+
   async notifyMasterOrderNotice(masterId:string,publicId:string,address:string|null|undefined,title:string) {
     const group=await this.getMasterGroup(masterId);
     const master=group?null:await this.prisma.master.findUnique({where:{id:masterId},include:{user:true}});

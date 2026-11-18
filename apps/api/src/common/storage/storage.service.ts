@@ -30,6 +30,7 @@ const ALLOWED_EXT = new Set([
   '.webp',
   '.gif',
   '.heic',
+  '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.opus', '.webm', '.mp4', '.flac',
 ]);
 
 @Injectable()

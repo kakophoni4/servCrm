@@ -62,19 +62,21 @@ export class OrdersService {
 
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q),filter=q.filter||'all';
-    if(!['today','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
+    if(!['today','tomorrow','sd','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
     const allowed=await this.branch.allowedCityIds(userId,role);
     const where:Prisma.OrderWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
     if(filter==='today')where.scheduledAt=moscowToday();
     if(filter==='active'||filter==='unassigned')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC']};
-    if(filter==='unassigned')where.masterId=null;
+    if(filter==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
+    if(filter==='sd')where.status='IN_PROGRESS_SD';
+    if(filter==='unassigned'){where.masterId=null;where.isPersonal=false;where.isServiceCenter=false;}
     if(filter==='personal')where.isPersonal=true;
     if(filter==='center')where.isServiceCenter=true;
     if(filter==='closed')where.status='DONE';
     if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC']};
     if(q.tech)where.typeTech=q.tech==='Другое'?{notIn:['ХД','СМ','ПММ','ТВ','ПК','']}:q.tech;
     if(search){const text={contains:search,mode:'insensitive' as const};const digits=search.replace(/\D/g,'');where.OR=[{publicId:text},{address:text},{client:{name:text}},{master:{user:{fullName:text}}}];if(digits.length>=3)where.OR.push({client:{phoneNormalized:{contains:digits}}});}
-    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:filter==='today'?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
+    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:['today','tomorrow'].includes(filter)?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
     return pageResult(items,total,page,limit);
   }
 
@@ -684,8 +686,8 @@ export class OrdersService {
       try{const sent=await this.bot.notifyOrderRescheduled(id);telegramDelivery=sent?.ok?'sent':'failed';}catch{telegramDelivery='failed';}
     }
 
-    if(result.masterId && existing.status!==nextStatus && (nextStatus===OrderStatus.REFUSAL || nextStatus===OrderStatus.CANCELLED_CC)){
-      await this.bot.notifyMasterOrderNotice(result.masterId,result.publicId,result.address,'Заявка отменена').catch(()=>undefined);
+    if(existing.status!==nextStatus && (nextStatus===OrderStatus.REFUSAL || nextStatus===OrderStatus.CANCELLED_CC)){
+      await this.bot.notifyOrderCancelled(id).catch(()=>undefined);
     }
 
     if (becameDone) {

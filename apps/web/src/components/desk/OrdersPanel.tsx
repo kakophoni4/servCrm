@@ -79,7 +79,6 @@ export function OrdersPanel() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const user = getStoredUser();
-  const isOwner = (user?.role ?? '') === 'OWNER';
   const canRead = hasPermission(
     user?.role ?? '',
     user?.permissions,
@@ -115,15 +114,9 @@ export function OrdersPanel() {
 
   return (
     <section className={`desk-panel ${styles.list} ${styles.orders}`}>
-      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые'],['cancelled','Отменённые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>{setView(value);setPage(1)}}>{label}</button>)}</div><label htmlFor="orders-tech">Техника</label><select id="orders-tech" value={tech} onChange={e=>{setTech(e.target.value);setPage(1)}}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['tomorrow','Завтра'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['sd','СД'],['closed','Закрытые'],['cancelled','Отменённые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>{setView(value);setPage(1)}}>{label}</button>)}</div><label htmlFor="orders-tech">Техника</label><select id="orders-tech" value={tech} onChange={e=>{setTech(e.target.value);setPage(1)}}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
-        {!loading && !error && !user?.cityId && !isOwner ? (
-          <p className="error">
-            Филиал не назначен - список заявок пуст. Укажите филиал сотруднику в
-            Управление CRM → Сотрудники.
-          </p>
-        ) : null}
         {!loading && !error ? (
           <>
           <p className="muted">Найдено: {total}</p>

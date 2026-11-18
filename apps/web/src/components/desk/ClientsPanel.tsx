@@ -28,11 +28,13 @@ export function ClientsPanel() {
   );
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState('');
+  const [revision,setRevision]=useState(0);const [deleting,setDeleting]=useState('');
+  async function removeClient(c:Client){if(!window.confirm(`Удалить клиента «${c.name}»? Это действие нельзя отменить.`))return;setDeleting(c.id);setError('');try{await api('/clients/'+c.id,{method:'DELETE'});setPage(p=>clients.length===1?Math.max(1,p-1):p);setRevision(n=>n+1)}catch(e){setError(e instanceof Error?e.message:'Не удалось удалить')}finally{setDeleting('')}}
   const [query,setQuery]=useState('');
   const [loading,setLoading]=useState(true);
   const [page,setPage]=useState(1),[total,setTotal]=useState(0),[totalPages,setTotalPages]=useState(0);
 
-  useEffect(()=>{if(!canRead)return;const c=new AbortController();setLoading(true);setError('');setClients([]);const timer=setTimeout(()=>{api<{items:Client[];total:number;totalPages:number}>(`/clients/paged?${new URLSearchParams({q:query,page:String(page),limit:'30'})}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setClients(r.items);setTotal(r.total);setTotalPages(r.totalPages)}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,page]);
+  useEffect(()=>{if(!canRead)return;const c=new AbortController();setLoading(true);setError('');setClients([]);const timer=setTimeout(()=>{api<{items:Client[];total:number;totalPages:number}>(`/clients/paged?${new URLSearchParams({q:query,page:String(page),limit:'30'})}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setClients(r.items);setTotal(r.total);setTotalPages(r.totalPages)}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,page,revision]);
 
   function go(id: string) {
     router.push(`/clients/${id}`);
@@ -58,6 +60,7 @@ export function ClientsPanel() {
               <a href={phoneHref(c.phoneNormalized)} className={styles.clientPhone} aria-label={`Позвонить: ${c.name}`}>{formatRuPhoneDisplay(c.phoneNormalized)}</a>
               <Link href={`/clients/${c.id}#history`} className={styles.clientHistory} aria-label={`История заявок: ${c.name}`}>История <span aria-hidden="true">›</span></Link>
             </div>
+            {user?.role==='OWNER'&&<button type="button" className="btn secondary" style={{justifySelf:'end',minHeight:36}} disabled={deleting===c.id} onClick={()=>void removeClient(c)}>Удалить</button>}
           </article>)}
           {!visible.length && !error && !loading && <p className={styles.orderEmpty}>Клиенты не найдены.</p>}
         </div>
@@ -67,7 +70,7 @@ export function ClientsPanel() {
               <tr>
                 <th>Клиент</th>
                 <th>Телефон</th>
-                <th className="desk-col-center">Заявок</th>
+                <th className="desk-col-center">Заявок</th>{user?.role==='OWNER'&&<th>Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -98,6 +101,7 @@ export function ClientsPanel() {
                   <td className="desk-col-center" data-label="Заявок">
                     <span className="desk-count">{c._count.orders}</span>
                   </td>
+                  {user?.role==='OWNER'&&<td><button type="button" className="btn secondary" disabled={deleting===c.id} onClick={e=>{e.stopPropagation();void removeClient(c)}} onKeyDown={e=>e.stopPropagation()}>Удалить</button></td>}
                 </tr>
               ))}
               {visible.length === 0 && !error && !loading ? (

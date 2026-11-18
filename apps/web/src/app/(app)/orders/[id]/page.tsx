@@ -1,4 +1,5 @@
 'use client';
+import {OrderAudio,isAudioDocument} from '@/components/orders/OrderAudio';
 import {Discussion} from '@/components/master/Discussion';
 import {useWorkSchedule,moscowDate} from '@/components/masters/WorkSchedule';
 import '@/components/desk/ReadableWorkflows.css';
@@ -555,7 +556,7 @@ export default function OrderDetailPage() {
   }
 
   const docGroups = useMemo((): DocGroup[] => {
-    const docs = (order?.documents ?? []).filter((d) => !d.pendingReview);
+    const docs = (order?.documents ?? []).filter((d) => !d.pendingReview&&!isAudioDocument(d));
     const byKind = new Map<string, OrderDocument[]>();
     for (const d of docs) {
       const list = byKind.get(d.kind) ?? [];
@@ -1083,6 +1084,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
+          {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}
           {admin && !logistic ? (
           <MobileFold title={`Фото и документы${pendingDocs.length ? ` · новых: ${pendingDocs.length}` : ''}`} className="panel order-docs-panel">

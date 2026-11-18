@@ -1,6 +1,7 @@
 import {PageQuery,pageInput,pageResult} from '../orders/paging';
 import {
   ForbiddenException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,6 +16,18 @@ export class ClientsService {
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,
   ) {}
+
+  async remove(id:string) {
+    try {
+      return await this.prisma.$transaction(async tx=>{
+        const client=await tx.client.findUnique({where:{id},include:{_count:{select:{orders:true}}}});
+        if(!client)throw new NotFoundException('Клиент не найден');
+        if(client._count.orders)throw new BadRequestException('У клиента есть заявки. Сначала удалите ошибочные заявки из его истории.');
+        await tx.client.delete({where:{id}});
+        return {deleted:true};
+      });
+    } catch(e){if(e instanceof Prisma.PrismaClientKnownRequestError&&e.code==='P2003')throw new BadRequestException('У клиента появилась заявка. Обновите список.');throw e;}
+  }
 
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q);const allowed=await this.branch.allowedCityIds(userId,role);

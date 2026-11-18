@@ -93,16 +93,17 @@ export class ReportsService {
     const end=to?new Date(new Date(to+'T00:00:00+04:00').getTime()+86400000):null;
     const where=Prisma.sql`o.status='DONE' AND o.completed_at IS NOT NULL ${start?Prisma.sql`AND o.completed_at >= ${start}`:Prisma.empty} ${end?Prisma.sql`AND o.completed_at < ${end}`:Prisma.empty}`;
     const sums=Prisma.sql`COUNT(*)::int AS count,COALESCE(SUM(p.paid),0)::text AS paid,COALESCE(SUM(p.parts_cost),0)::text AS parts,COALESCE(SUM(p.master_salary),0)::text AS salary,COALESCE(SUM(COALESCE(p.owner_net,p.to_company,0)),0)::text AS owner,COALESCE(SUM(p.reinvest_amount),0)::text AS reinvest`;
-    const [total,byMaster,tech,masters]=await this.prisma.$transaction([
+    const [total,byMaster,tech,masters,channels]=await this.prisma.$transaction([
       this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT ${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where}`),
-      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT COALESCE(o.master_id,'') AS id,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY o.master_id`),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT CASE WHEN o.master_id IS NOT NULL THEN o.master_id WHEN o.is_service_center THEN 'center' WHEN o.is_personal THEN 'personal' ELSE 'unassigned' END AS id,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY 1`),
       this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT COALESCE(NULLIF(trim(o.type_tech),''),'Не указана') AS type,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY COALESCE(NULLIF(trim(o.type_tech),''),'Не указана') ORDER BY type`),
-      this.prisma.master.findMany({select:{id:true,user:{select:{fullName:true}}},orderBy:{createdAt:'desc'}})
+      this.prisma.master.findMany({select:{id:true,user:{select:{fullName:true}}},orderBy:{createdAt:'desc'}}),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT CASE WHEN o.is_service_center THEN 'СЦ' WHEN o.is_personal THEN 'Личные' ELSE 'Выездные' END AS name,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY 1 ORDER BY 1`)
     ],{isolationLevel:'RepeatableRead'});
     const zero={count:0,paid:'0',parts:'0',salary:'0',owner:'0',reinvest:'0'};
     const rows=masters.map(m=>({...zero,...byMaster.find(r=>r.id===m.id),id:m.id,name:m.user.fullName}));
-    const personal=byMaster.find(r=>r.id==='');if(personal)rows.push({...personal,name:'Личные / без мастера'});
-    return {total:total[0],masters:rows,tech};
+    for(const [id,name] of [['personal','Личные'],['center','СЦ без мастера'],['unassigned','Без мастера']]){const row=byMaster.find(r=>r.id===id);if(row)rows.push({...row,name});}
+    return {total:total[0],masters:rows,tech,channels:channels||[]};
   }
 
   constructor(

@@ -20,4 +20,12 @@ describe('Assignment notices',()=>{
     await service.notifyMasterOrderNotice('m','123','Улица 1','Заявка отменена');
     expect(send).toHaveBeenCalledWith('private','Заявка отменена · 123\nАдрес: Улица 1');
   });
+  it.each(['owner-group','center-group','master-group'])('sends cancellation to actual order destination %s',async chatId=>{
+    const order={publicId:'123',address:'Улица 1',status:'CANCELLED_CC',client:{name:'Клиент'},master:{user:{telegramId:'private'}}};
+    const service=new BotService({order:{findUnique:jest.fn().mockResolvedValue(order)}} as any,{} as any,{} as any,{} as any,{} as any,{} as any);
+    jest.spyOn(service as any,'getOrderDestination').mockResolvedValue({chatId});
+    const send=jest.spyOn(service,'sendMessage').mockResolvedValue({ok:true} as any);
+    await service.notifyOrderCancelled('order');
+    expect(send).toHaveBeenCalledWith(chatId,'Заявка отменена · 123\nКлиент: Клиент\nАдрес: Улица 1');expect(send).toHaveBeenCalledTimes(1);
+  });
 });

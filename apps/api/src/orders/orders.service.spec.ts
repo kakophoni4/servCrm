@@ -57,6 +57,7 @@ describe('OrdersService', () => {
     notifyMasterOrder: jest.Mock;
     notifyMasterStatusChanged: jest.Mock;
     notifyMasterOrderNotice: jest.Mock;
+    notifyOrderCancelled: jest.Mock;
     ackOrderNotify: jest.Mock;
   };
   let branch: { allowedCityIds: jest.Mock };
@@ -192,6 +193,7 @@ describe('OrdersService', () => {
       notifyMasterOrder: jest.fn().mockResolvedValue(undefined),
       notifyMasterStatusChanged: jest.fn().mockResolvedValue(undefined),
       notifyMasterOrderNotice: jest.fn().mockResolvedValue(undefined),
+      notifyOrderCancelled: jest.fn().mockResolvedValue(undefined),
       ackOrderNotify: jest.fn().mockResolvedValue(undefined),
     };
     branch = { allowedCityIds: jest.fn().mockResolvedValue(['A']) };

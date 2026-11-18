@@ -54,7 +54,7 @@ export class DocumentsController {
   @Post()
   @Roles(...STAFF)
   @RequirePermissions('documents.write')
-  @UseInterceptors(FilesInterceptor('files', 30))
+  @UseInterceptors(FilesInterceptor('files', 30, {limits:{fileSize:50*1024*1024}}))
   upload(
     @Param('orderId') orderId: string,
     @Query('kind') kind: DocKind,
