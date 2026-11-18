@@ -13,10 +13,9 @@ export function OrderParts({id,status}:{id:string;status:string}){
  const change=(i:number,v:Partial<Line>)=>{setSaved(false);setItems(items.map((x,n)=>n===i?{...x,...v}:x))};
  return <MobileFold title={`Запчасти со склада${items.length?' · '+items.reduce((s,x)=>s+(x.quantity||0),0):''}`} className="panel">
  <div className={styles.rows}>
- <p className="muted">{status==='DONE'?'Изменения сразу скорректируют остатки склада.':'Выбери детали и сохрани подбор. Списание произойдёт при закрытии заявки.'}</p>
  {error&&<p className="error" role="alert">{error}</p>}
  {!loaded&&!error&&<p>Загрузка...</p>}
- {loaded&&!parts.length&&<p>Склад пока пуст. <Link href="/inventory">Добавить запчасти</Link></p>}
+ {loaded&&!parts.length&&<p>Нет запчастей. <Link href="/inventory">Добавить запчасти</Link></p>}
  {items.map((item,i)=><div className={styles.row} key={i}>
  <select aria-label={`Запчасть ${i+1}`} disabled={busy} value={item.partId} onChange={e=>change(i,{partId:e.target.value})}><option value="">Выбрать запчасть</option>{parts.filter(p=>p.id===item.partId||!items.some(x=>x.partId===p.id)).map(p=><option key={p.id} value={p.id}>{p.category?p.category+' · ':''}{p.name} · осталось {p.quantity}</option>)}</select>
  <input aria-label={`Количество ${i+1}`} type="number" inputMode="numeric" min="1" max="1000000" disabled={busy} value={item.quantity||''} onChange={e=>change(i,{quantity:Number(e.target.value)})}/>

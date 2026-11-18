@@ -109,6 +109,8 @@ function IconShares({ className }: IconProps) {
 }
 
 const BY_HREF: Record<string, (p: IconProps) => ReactNode> = {
+  '/inventory': ({className}) => <Svg className={className}><path d="m12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9M7.5 5.5l9 5" /></Svg>,
+  '/users': IconMasters,
   '/masters': IconMasters,
   '/settings/bot': IconTelegram,
   '/settings/salary': IconShares,

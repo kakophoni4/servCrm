@@ -7,6 +7,8 @@ const { SalaryService } = require('../dist/salary/salary.service');
 const { SettlementsService } = require('../dist/settlements/settlements.service');
 assert(['localhost', '127.0.0.1', '[::1]'].includes(new URL(process.env.DATABASE_URL).hostname), 'Local database required');
 const p = new PrismaClient();
+const {InventoryService}=require('../dist/inventory/inventory.service');
+const inventory=new InventoryService(p);const stockIds=[];
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const uploadRoot=fs.mkdtempSync(path.join(os.tmpdir(),'crm-doc-flow-'));
 process.env.UPLOAD_DIR=uploadRoot;
@@ -217,8 +219,18 @@ async function close(id, text, expected) {
     await svc.masterByTelegram(telegramId);
     console.log('PASS partner binding, both chat actions, revocation before confirmation, restricted master group, dual owner/master identity');
     console.log('PASS owner binding, personal owner-only actions, SD without master 30/70, center assigned master and owner actions');
-    const direct=await createOrder(); await reachAddress(direct);
+    const stock=(await inventory.create({name:tag,category:'Test stock',quantity:10,minimum:2})).id;stockIds.push(stock);
+    const stockQuantity=async()=>Number((await p.$queryRaw`SELECT quantity FROM stock_parts WHERE id=${stock}`)[0].quantity);
+    const direct=await createOrder();
+    await inventory.save(direct,[{partId:stock,quantity:3}]);assert.equal(await stockQuantity(),10);
+    await reachAddress(direct);
     await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});
+    assert.equal(await stockQuantity(),7);
+    await p.order.update({where:{id:direct},data:{status:'IN_PROGRESS'}});assert.equal(await stockQuantity(),10);
+    await close(direct,'12000 1000',{paid:12000,prepay:0,partsCost:1000,workSum:11000,masterSalary:5500,toCompany:5500,reinvestAmount:2750,ownerNet:2750});assert.equal(await stockQuantity(),7);
+    await inventory.save(direct,[{partId:stock,quantity:3}]);assert.equal(await stockQuantity(),7);
+    console.log('PASS inventory via actual Telegram callback handlers: 10 -> select 3 -> close and duplicate clicks 7 -> reopen 10 -> reclose 7 -> repeated save 7');
+
     console.log('PASS direct: accept -> at address -> left -> close; 5500 / 2750 / 2750');
     const sd=await createOrder(); await reachAddress(sd);
     await click(`gs:${sd}:IN_PROGRESS_SD`); await reply('5000 пред\nСрок 5-7 дней');
@@ -378,6 +390,7 @@ async function close(id, text, expected) {
   } finally {
     await p.cashTx.deleteMany({where:{orderId:{in:ids}}});
     await p.order.deleteMany({where:{id:{in:ids}}});
+    for(const id of stockIds){await p.$executeRaw`DELETE FROM stock_moves WHERE part_id=${id}`;await p.$executeRaw`DELETE FROM stock_parts WHERE id=${id}`;}
     await p.appSetting.deleteMany({where:{key:{in:[...settingsKeys]}}});
     if(rule)await p.salaryCategory.delete({where:{id:rule.id}});
     if(master){await p.masterSettlement.deleteMany({where:{masterId:master.id}});await p.master.delete({where:{id:master.id}});}
