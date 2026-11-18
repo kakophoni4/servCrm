@@ -1867,6 +1867,51 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
+  async masterMonthlyReport(masterId:string,now=new Date()) {
+    const master=await this.prisma.master.findUniqueOrThrow({where:{id:masterId},include:{user:true}});
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'numeric'}).formatToParts(now);
+    const year=Number(parts.find(p=>p.type==='year')!.value),month=Number(parts.find(p=>p.type==='month')!.value);
+    const start=new Date(Date.UTC(year,month-1,1)-3*3600000),end=new Date(Date.UTC(year,month,1)-3*3600000);
+    const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,status:OrderStatus.DONE,completedAt:{gte:start,lt:end}},include:{payment:true}});
+    const total=orders.reduce((n,o)=>n+Number(o.payment?.paid||0),0),earned=orders.reduce((n,o)=>n+Number(o.payment?.masterSalary||0),0);
+    const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
+    return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow',month:'long',year:'numeric'}),'Мастер: '+master.user.fullName,'Выполнено заявок: '+orders.length,'Средний чек: '+money(orders.length?total/orders.length:0),'Заработано: '+money(earned)].join('\n');
+  }
+
+  async masterActiveReport(masterId:string) {
+    const master=await this.prisma.master.findUniqueOrThrow({where:{id:masterId},include:{user:true}});
+    const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,status:{in:[OrderStatus.NOT_SCHEDULED,OrderStatus.WAITING,OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]}},include:{client:true},orderBy:[{scheduledAt:{sort:'asc',nulls:'last'}},{createdAt:'asc'},{id:'asc'}]});
+    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...orders.flatMap(o=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.comment?['Описание: '+o.comment]:[]),''])].join('\n').trim();
+  }
+
+  private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
+    if(!msg.from?.id||!msg.chat?.id)return;
+    const telegramId=String(msg.from.id),chatId=String(msg.chat.id);
+    const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+    const ids:string[]=[];
+    if(owner){
+      for(const m of await this.prisma.master.findMany({where:{status:UserStatus.ACTIVE},select:{id:true}}))if((await this.getMasterGroup(m.id))?.chatId===chatId)ids.push(m.id);
+      if(!ids.length)throw new BadRequestException('Отправьте команду в группу нужного мастера');
+    }else{
+      const master=(await this.masterByTelegram(telegramId)).masterProfile!;
+      if(master.status!==UserStatus.ACTIVE)throw new BadRequestException('Мастер не активен');
+      if(msg.chat.type!=='private'){
+        const own=await this.getMasterGroup(master.id),center=await this.getOrderGroup('center'),common=await this.getOrderGroup();
+        if(![own?.chatId,center?.chatId,...(!own?[common?.chatId]:[])].includes(chatId))throw new BadRequestException('Отправьте команду в свой чат с ботом или группу мастера');
+      }
+      ids.push(master.id);
+    }
+    for(const id of ids){
+      const report=statistics?await this.masterMonthlyReport(id):await this.masterActiveReport(id);
+      let chunk='';
+      for(const line of report.split('\n')){
+        if(chunk.length+line.length+1>3500&&chunk){await this.sendMessage(chatId,chunk);chunk='';}
+        for(let offset=0;offset<line.length;offset+=3500){const part=line.slice(offset,offset+3500);if(part.length===3500)await this.sendMessage(chatId,part);else chunk+=(chunk?'\n':'')+part;}
+      }
+      if(chunk)await this.sendMessage(chatId,chunk);
+    }
+  }
+
   private async sendCashReport(msg:TgMessage) {
     if(!msg.from?.id || !msg.chat?.id)return;
     const telegramId=String(msg.from.id),chatId=String(msg.chat.id);
@@ -1919,6 +1964,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
     if(['group','supergroup'].includes(msg.chat?.type || '') && /^\/refresh(?:@\w+)?$/i.test(msg.text?.trim() || '')){
       try{await this.refreshGroupCard(msg);}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось обновить карточку');}
+      return;
+    }
+    const overview=/^\/?(статистика|stats|актуальные|active)(?:@\w+)?$/iu.exec(msg.text?.trim()||'');
+    if(overview){
+      try{await this.sendMasterOverview(msg,/^(статистика|stats)$/iu.test(overview[1]));}catch(e){await this.sendMessage(chatId,e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось получить список. Попробуйте ещё раз');}
       return;
     }
     if(/^\/?(?:касса|kassa)(?:@\w+)?$/iu.test(msg.text?.trim()||'')){
