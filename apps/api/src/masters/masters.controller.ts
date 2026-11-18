@@ -1,3 +1,4 @@
+import {PageQuery} from '../orders/paging';
 import {
   Body,
   Patch,
@@ -52,6 +53,11 @@ class CreateMasterDto {
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class MastersController {
   constructor(private readonly masters: MastersService) {}
+
+  @Get('paged') @Roles(Role.DISPATCHER,Role.ADMIN,Role.DIRECTOR,Role.OWNER) @RequirePermissions('masters.read')
+  paged(@CurrentUser() u:{userId:string;role:Role},@Query() q:PageQuery){return this.masters.paged(u.userId,u.role,q);}
+  @Get(':id/jobs') @Roles(Role.DISPATCHER,Role.ADMIN,Role.DIRECTOR,Role.OWNER) @RequirePermissions('masters.read')
+  jobs(@Param('id') id:string,@CurrentUser() u:{userId:string;role:Role},@Query() q:PageQuery){return this.masters.jobs(id,u.userId,u.role,q);}
 
   @Get('schedule')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)

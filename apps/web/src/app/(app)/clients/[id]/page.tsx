@@ -75,7 +75,7 @@ export default function ClientCardPage() {
           {client.orders.map(o => <Link href={`/orders/${o.id}`} className={styles.clientOrder} key={o.id}>
             <div className={styles.clientHeading}><strong>№ {o.publicId}</strong><span className={`badge ${o.status==='DONE'?'badge-ok':o.status==='WAITING'?styles.waitingBadge:['REFUSAL','CANCELLED_CC'].includes(o.status)?'badge-muted':'badge-work'}`}>{STATUS_LABELS[o.status] ?? o.status}</span></div>
             <div>{o.address || 'Адрес не указан'}</div>
-            <div className={styles.orderFoot}><span>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</span><span>{TYPE_LABELS[o.type] ?? o.type}</span>{o.isClaim && <span className="badge badge-warn">Претензия</span>}</div>
+            <div className={styles.orderFoot}><span>{new Date(o.createdAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})}</span><span>{TYPE_LABELS[o.type] ?? o.type}</span>{o.isClaim && <span className="badge badge-warn">Претензия</span>}</div>
             {o.payment && <div className={styles.historyMoney}><span>Оплачено: {Number(o.payment.paid).toLocaleString('ru-RU')} ₽</span><span>Работы: {Number(o.payment.workSum).toLocaleString('ru-RU')} ₽</span></div>}
           </Link>)}
           {!client.orders.length && <p className={styles.orderEmpty}>Заявок пока нет.</p>}
@@ -117,7 +117,7 @@ export default function ClientCardPage() {
                   <td>{o.address}</td>
                   <td>{o.payment ? `${String(o.payment.paid)} ₽` : '-'}</td>
                   <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '-'}</td>
-                  <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
+                  <td>{new Date(o.createdAt).toLocaleString('ru-RU',{timeZone:'Europe/Samara'})}</td>
                 </tr>
               ))}
               {!client.orders.length&&<tr><td colSpan={7} className="muted">Заявок пока нет.</td></tr>}

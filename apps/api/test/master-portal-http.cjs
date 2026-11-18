@@ -24,6 +24,13 @@ async function main(){
  const ot=await login(owner.login);
  await http('POST',`/master-portal/masters/${m.id}/access`,ot,{login:worker.login,password},201);
  const mt=await login(worker.login),st=await login(staff.login);
+ const masterPage=await http('GET','/masters/paged?page=1&limit=1&q='+encodeURIComponent(prefix),ot,null,200);assert.equal(masterPage.total,2);assert.equal(masterPage.items.length,1);assert.equal(masterPage.totalPages,2);assert.equal(masterPage.items[0].activeCount,1);
+ const jobs=await http('GET',`/masters/${m.id}/jobs?page=1&limit=1`,ot,null,200);assert.equal(jobs.total,1);assert.equal(jobs.items[0].id,ids.orders[0]);
+ const paged=await http('GET','/orders/paged?filter=all&limit=1&q='+encodeURIComponent(prefix),ot,null,200);assert.equal(paged.total,2);assert.equal(paged.items.length,1);assert.equal(paged.totalPages,2);
+ const page2=await http('GET','/orders/paged?filter=all&limit=1&page=2&q='+encodeURIComponent(prefix),ot,null,200);assert.notEqual(page2.items[0].id,paged.items[0].id);
+ const cp=await http('GET','/clients/paged?q='+encodeURIComponent(prefix),ot,null,200);assert.equal(cp.total,1);assert.equal(cp.items[0]._count.orders,2);
+ await http('GET','/orders/paged?limit=101',ot,null,400);
+
  const list=await http('GET','/master-portal/orders',mt,null,200);assert.deepEqual(list.map(o=>o.id),[ids.orders[0]]);
  await http('GET',`/master-portal/orders/${ids.orders[1]}`,mt,null,404);
  for(const route of ['/orders','/clients','/masters','/inventory','/reports/closed','/settings/bot','/avito/chats'])await http('GET',route,mt,null,403);

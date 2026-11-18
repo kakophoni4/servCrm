@@ -1,0 +1,5 @@
+import {BadRequestException} from '@nestjs/common';
+export type PageQuery={page?:string;limit?:string;q?:string;filter?:string;tech?:string;cityId?:string};
+export function pageInput(q:PageQuery){const page=q.page===undefined?1:Number(q.page),limit=q.limit===undefined?30:Number(q.limit);if(!Number.isSafeInteger(page)||page<1||page>1000000||!Number.isSafeInteger(limit)||limit<1||limit>100)throw new BadRequestException('Некорректная страница или размер списка');if(q.q!==undefined&&(typeof q.q!=='string'||q.q.length>200))throw new BadRequestException('Поиск до 200 символов');return {page,limit,search:q.q?.trim()||''};}
+export function pageResult<T>(items:T[],total:number,page:number,limit:number){return {items,total,page,limit,totalPages:Math.max(1,Math.ceil(total/limit))};}
+export function moscowToday(now=new Date()){const key=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);const gte=new Date(key+'T00:00:00+04:00');return {gte,lt:new Date(gte.getTime()+86400000)};}

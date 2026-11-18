@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import {api} from '@/lib/api';
 export type WorkDay={masterId:string;date:string;isWorking:boolean};
-export function moscowDate(date=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)}
+export function moscowDate(date=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)}
 export function workLabel(value:boolean|undefined){return value===true?'✓ В смене':value===false?'Выходной':'График не задан'}
 export function useWorkSchedule(from:string,to=from){const [days,setDays]=useState<WorkDay[]>([]);const [error,setError]=useState('');useEffect(()=>{let alive=true;setDays([]);setError('');api<{days:WorkDay[]}>(`/masters/schedule?from=${from}&to=${to}`).then(r=>{if(alive)setDays(r.days)}).catch(()=>{if(alive)setError('Не удалось загрузить график')});return()=>{alive=false}},[from,to]);return {days,error}}
 export function currentWeek(){const now=new Date(moscowDate()+'T12:00:00Z');now.setUTCDate(now.getUTCDate()-(now.getUTCDay()+6)%7);return Array.from({length:7},(_,i)=>{const d=new Date(now);d.setUTCDate(d.getUTCDate()+i);return d.toISOString().slice(0,10)})}

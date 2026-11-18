@@ -1,9 +1,10 @@
+import {PageQuery,pageInput,pageResult} from '../orders/paging';
 import {
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhone } from '../common/utils/phone';
@@ -14,6 +15,14 @@ export class ClientsService {
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,
   ) {}
+
+  async paged(userId:string,role:Role,q:PageQuery) {
+    const {page,limit,search}=pageInput(q);const allowed=await this.branch.allowedCityIds(userId,role);
+    const where:Prisma.ClientWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
+    if(search){where.OR=[{name:{contains:search,mode:'insensitive'}}];const digits=search.replace(/\D/g,'');if(digits)where.OR.push({phoneNormalized:{contains:digits}});}
+    const [total,items]=await this.prisma.$transaction([this.prisma.client.count({where}),this.prisma.client.findMany({where,skip:(page-1)*limit,take:limit,include:{_count:{select:{orders:true}}},orderBy:[{updatedAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
+    return pageResult(items,total,page,limit);
+  }
 
   async list(
     userId: string,

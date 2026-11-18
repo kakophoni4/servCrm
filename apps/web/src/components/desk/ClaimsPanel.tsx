@@ -55,6 +55,7 @@ export function ClaimsPanel() {
   );
 
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [query,setQuery]=useState(''),[page,setPage]=useState(1),[totalPages,setTotalPages]=useState(0),[total,setTotal]=useState(0),[openTotal,setOpenTotal]=useState(0),[revision,setRevision]=useState(0);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false),[closedView,setClosedView]=useState(false);
   const [error, setError] = useState('');
@@ -72,26 +73,9 @@ export function ClaimsPanel() {
   const [showHits, setShowHits] = useState(false);
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
-  async function load() {
-    if (!canRead) return;
-    const [c, cityList] = await Promise.all([
-      api<Claim[]>('/claims'),
-      canWrite ? api<City[]>('/cities') : Promise.resolve([] as City[]),
-    ]);
-    setClaims(c);
-    if (!form.cityId && cityList[0]) {
-      setForm((f) => ({ ...f, cityId: f.cityId || cityList[0].id }));
-    }
-  }
-
-  useEffect(() => {
-    if (!canRead) return;
-    load().catch((e) => {
-      const msg = e instanceof Error ? e.message : 'Ошибка';
-      if (msg !== 'Недостаточно прав') setError(msg);
-    }).finally(()=>setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRead]);
+  async function load(){setRevision(v=>v+1)}
+  useEffect(()=>{if(!canWrite)return;api<City[]>('/cities').then(c=>{if(c[0])setForm(f=>({...f,cityId:f.cityId||c[0].id}))}).catch(()=>{})},[canWrite]);
+  useEffect(()=>{if(!canRead)return;const c=new AbortController();setLoading(true);setError('');setClaims([]);const timer=setTimeout(()=>{api<{items:Claim[];total:number;totalPages:number;openTotal:number}>(`/claims/paged?${new URLSearchParams({q:query,filter:closedView?'closed':'open',page:String(page),limit:'30'})}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setClaims(r.items);setTotal(r.total);setTotalPages(r.totalPages);setOpenTotal(r.openTotal);if(page>r.totalPages&&page>1)setPage(Math.max(1,r.totalPages))}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,closedView,page,revision]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -177,9 +161,10 @@ export function ClaimsPanel() {
   }
 
   return (
-    <section className={`desk-panel ${styles.list}`}>
+    <section className={`desk-panel ${styles.list} ${styles.claims}`}>
       <div className="desk-panel-body desk-claims">
-        <div className={styles.orderFilters}><button type="button" aria-pressed={!closedView} onClick={()=>setClosedView(false)}>Открытые · {claims.filter(c=>!c.closedAt).length}</button><button type="button" aria-pressed={closedView} onClick={()=>setClosedView(true)}>Закрытые</button>{canWrite&&<button type="button" aria-pressed={showForm} onClick={()=>setShowForm(!showForm)}>{showForm?'Скрыть форму':'Новая претензия'}</button>}</div>
+        <div className={styles.orderFilters}><button type="button" aria-pressed={!closedView} onClick={()=>{setClosedView(false);setPage(1)}}>Открытые · {openTotal}</button><button type="button" aria-pressed={closedView} onClick={()=>{setClosedView(true);setPage(1)}}>Закрытые</button>{canWrite&&<button type="button" aria-pressed={showForm} onClick={()=>setShowForm(!showForm)}>{showForm?'Скрыть форму':'Новая претензия'}</button>}</div>
+        <div className="field"><input aria-label="Поиск претензий" placeholder="Заявка, клиент или телефон" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/></div><p className="muted">Найдено: {total}</p>
         {canWrite && showForm ? (
           <form onSubmit={onCreate} className="panel desk-claims-form">
             <div className="desk-claims-form-head">
@@ -282,7 +267,8 @@ export function ClaimsPanel() {
         {loading&&<p className="muted">Загрузка...</p>}
         {error ? <p className="error desk-claims-error">{error}</p> : null}
 
-        <div className="panel desk-claims-list">
+        <div className={styles.mobileClaims}>{claims.map(c=><article className={styles.claimCard} key={c.id}><div className={styles.claimHeading}><Link href={`/orders/${c.order.id}`}><strong>№ {c.order.publicId}</strong></Link><span className={c.closedAt?'badge badge-muted':'badge badge-warn'}>{c.closedAt?'Закрыта':'Открыта'}</span></div><Link href={`/orders/${c.order.id}`} className={styles.claimClient}>{c.order.client.name}</Link><div className={styles.claimMeta}><span>{CLAIM_TYPES[c.type]??c.type}</span><time dateTime={c.createdAt}>{new Date(c.createdAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit'})}</time></div><div className={styles.claimBottom}><span>Возврат <strong>{formatMoney(c.refundSum)} ₽</strong></span>{!c.closedAt&&canWrite&&<button type="button" className="btn secondary" onClick={()=>closeClaim(c.id).catch(e=>setError(e.message))}>Закрыть</button>}</div></article>)}{!claims.length&&!error&&!loading&&<p className={styles.orderEmpty}>{closedView?'Нет закрытых претензий':'Нет открытых претензий'}</p>}</div>
+        <div className={`panel desk-claims-list ${styles.desktopClaims}`}>
           <div className="table-scroll">
             <table className="table desk-list">
               <thead>
@@ -296,7 +282,7 @@ export function ClaimsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {claims.filter(c=>Boolean(c.closedAt)===closedView).map((c) => {
+                {claims.map((c) => {
                   const closed = Boolean(c.closedAt);
                   return (
                     <tr
@@ -327,7 +313,7 @@ export function ClaimsPanel() {
                       </td>
                       <td className="desk-col-center" data-label="Дата">
                         <span className="desk-cell-sub">
-                          {new Date(c.createdAt).toLocaleDateString('ru-RU', {
+                          {new Date(c.createdAt).toLocaleDateString('ru-RU', {timeZone:'Europe/Samara',
                             day: '2-digit',
                             month: '2-digit',
                             year: 'numeric',
@@ -353,7 +339,7 @@ export function ClaimsPanel() {
                           <button
                             type="button"
                             className="btn secondary"
-                            onClick={() => closeClaim(c.id)}
+                            onClick={() => closeClaim(c.id).catch(e=>setError(e.message))}
                           >
                             Закрыть
                           </button>
@@ -364,7 +350,7 @@ export function ClaimsPanel() {
                     </tr>
                   );
                 })}
-                {claims.filter(c=>Boolean(c.closedAt)===closedView).length === 0 && !error && !loading ? (
+                {claims.length === 0 && !error && !loading ? (
                   <tr>
                     <td colSpan={6} className="muted desk-col-center">
                       {closedView?'Нет закрытых претензий':'Нет открытых претензий'}
@@ -375,6 +361,7 @@ export function ClaimsPanel() {
             </table>
           </div>
         </div>
+        <nav className={styles.pagination} aria-label="Страницы претензий"><button className="btn secondary" disabled={loading||page<=1} onClick={()=>setPage(p=>p-1)}>Назад</button><span>Страница {page} из {Math.max(1,totalPages)}</span><button className="btn secondary" disabled={loading||page>=totalPages} onClick={()=>setPage(p=>p+1)}>Далее</button></nav>
       </div>
     </section>
   );

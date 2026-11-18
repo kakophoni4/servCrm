@@ -34,7 +34,7 @@ function writeDismissedUrgent(ids: Set<string>) {
 
 function formatSchedule(iso?: string | null) {
   if (!iso) return null;
-  return new Date(iso).toLocaleString('ru-RU', {
+  return new Date(iso).toLocaleString('ru-RU', {timeZone:'Europe/Samara',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',

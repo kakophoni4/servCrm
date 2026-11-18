@@ -101,3 +101,34 @@
  .clientHistory { font-size:14px; background:color-mix(in srgb,var(--accent) 8%,var(--panel)); }
  .clientPage > :global(.panel) { padding:16px; }
 }
+
+.pagination { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:16px 0 0; font-size:14px; }
+.pagination button { flex:0 0 auto; min-height:44px; height:auto; }
+.claims :global(.desk-claims) { display:flex; flex-direction:column; gap:16px; align-items:stretch; }
+.claims .orderFilters { flex:0 0 auto; align-items:center; align-content:start; }
+.claims .orderFilters button { flex:0 0 auto; height:auto; min-height:44px; max-height:none; align-self:start; }
+.claims :global(.desk-claims-list) { margin:0; padding:0; border:0; }
+.list :global(.desk-list td) { padding-block:12px; }
+.orders .filters { display:grid; grid-template-columns:minmax(0,1fr) minmax(160px,220px); align-items:center; }
+.orders .filters input { grid-column:1; }
+.orders .filters .orderFilters { grid-column:1/-1; grid-row:2; }
+.orders .filters > label { display:none; }
+.orders .filters select { grid-column:2; grid-row:1; }
+@media(max-width:620px){.orders .filters { grid-template-columns:minmax(0,1fr); }.orders .filters select {grid-column:1;grid-row:2}.orders .filters .orderFilters {grid-row:3}.orderCard,.clientCard {padding:12px;gap:6px}.orderFoot {padding-top:5px}.pagination {gap:8px}.pagination .btn{padding-inline:12px}}
+
+@media(max-width:620px){.orders .filters{grid-template-columns:minmax(0,1fr) 112px}.orders .filters input{grid-column:1;grid-row:1}.orders .filters select{grid-column:2;grid-row:1}.orders .filters .orderFilters{grid-column:1/-1;grid-row:2;gap:5px}.orders .orderFilters button{padding:8px;font-size:14px;min-height:40px}.orders :global(.desk-panel-body){padding:10px}.orders .filters{margin-bottom:8px}.orders .mobileOrders{gap:7px}}
+
+.mobileClaims { display:none; }
+@media(max-width:620px){
+ .claims .desktopClaims { display:none; }
+ .mobileClaims { display:grid; gap:10px; }
+ .claimCard { padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--panel); display:grid; gap:6px; min-width:0; }
+ .claimHeading,.claimMeta,.claimBottom { display:flex; align-items:center; justify-content:space-between; gap:8px 12px; }
+ .claimHeading { font-size:14px; }
+ .claimClient { font-size:16px; font-weight:600; overflow-wrap:anywhere; }
+ .claimMeta { font-size:14px; color:var(--muted); align-items:baseline; }
+ .claimMeta time { white-space:nowrap; }
+ .claimBottom { font-size:14px; flex-wrap:wrap; }
+ .claimBottom button { padding:8px 12px; min-height:44px; }
+ .claimHeading :global(.badge) { font-size:13px; }
+}

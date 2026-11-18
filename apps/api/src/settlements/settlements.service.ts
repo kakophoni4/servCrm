@@ -52,14 +52,14 @@ export class SettlementsService {
   }
 
   async ownerCashReport(now=new Date()) {
-    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
     const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
-    const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-3*3600000),end=new Date(start.getTime()+86400000);
+    const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-4*3600000),end=new Date(start.getTime()+86400000);
     const orders=await this.prisma.order.findMany({where:{status:OrderStatus.DONE,completedAt:{gte:start,lt:end},OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}]},include:{payment:true}});
     const sum=(field:'paid'|'partsCost'|'reinvestAmount'|'ownerNet')=>orders.reduce((total,o)=>total+Number(o.payment?.[field]||0),0);
     const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
     return [
-      'Моя касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),
+      'Моя касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}),
       'Личные заявки и СЦ без мастера',
       'Выполнено: '+orders.length,
       'Получено: '+money(sum('paid')),
@@ -74,7 +74,7 @@ export class SettlementsService {
     if(!master)throw new NotFoundException('Мастер не найден');
     const balance=await this.cashBalance(masterId);
     const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
-    return ['Касса '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}),'Мастер: '+master.user.fullName,'','К сдаче: '+money(balance.remaining),'',...balance.unpaid.flatMap(e=>[e.kind==='order'?'ID заказа: '+e.publicId:'Штраф',e.address,new Date(e.date).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'})+' - '+money(e.remaining),'']),...(balance.credit?['Переплата: '+money(balance.credit)]:[])].join('\n').trim();
+    return ['Касса '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}),'Мастер: '+master.user.fullName,'','К сдаче: '+money(balance.remaining),'',...balance.unpaid.flatMap(e=>[e.kind==='order'?'ID заказа: '+e.publicId:'Штраф',e.address,new Date(e.date).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})+' - '+money(e.remaining),'']),...(balance.credit?['Переплата: '+money(balance.credit)]:[])].join('\n').trim();
   }
 
   async cashBalances() {

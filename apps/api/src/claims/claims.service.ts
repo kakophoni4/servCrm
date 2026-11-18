@@ -1,9 +1,11 @@
+import {PageQuery,pageInput,pageResult} from '../orders/paging';
 import {
   ForbiddenException,
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ClaimType, Role } from '@prisma/client';
+import { Prisma, ClaimType, Role } from '@prisma/client';
 import { BotService } from '../bot/bot.service';
 import { BranchScopeService } from '../common/branch/branch-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +17,15 @@ export class ClaimsService {
     private readonly branch: BranchScopeService,
     private readonly bot: BotService,
   ) {}
+
+  async paged(userId:string,role:Role,q:PageQuery) {
+    const {page,limit,search}=pageInput(q),filter=q.filter||'open';if(!['open','closed','all'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
+    const allowed=await this.branch.allowedCityIds(userId,role),cityId=this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId));
+    const where:Prisma.ClaimWhereInput={cityId};if(filter==='open')where.closedAt=null;if(filter==='closed')where.closedAt={not:null};
+    if(search){const text={contains:search,mode:'insensitive' as const};where.OR=[{order:{publicId:text}},{order:{address:text}},{order:{client:{name:text}}}];const digits=search.replace(/\D/g,'');if(digits)where.OR.push({order:{client:{phoneNormalized:{contains:digits}}}});}
+    const [total,items,openTotal]=await this.prisma.$transaction([this.prisma.claim.count({where}),this.prisma.claim.findMany({where,skip:(page-1)*limit,take:limit,include:{order:{include:{client:true}},city:true},orderBy:[{createdAt:'desc'},{id:'desc'}]}),this.prisma.claim.count({where:{cityId,closedAt:null}})],{isolationLevel:'RepeatableRead'});
+    return {...pageResult(items,total,page,limit),openTotal};
+  }
 
   async list(userId: string, role: Role, requestedCityId?: string) {
     const allowed = await this.branch.allowedCityIds(userId, role);

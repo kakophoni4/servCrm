@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  Prisma,
   CashDirection,
   CashExpenseBasis,
   CashIncomeBasis,
@@ -85,6 +86,25 @@ function emptyAgg(cityId: string | null, cityName: string): CityAgg {
 
 @Injectable()
 export class ReportsService {
+  async summary(from?:string,to?:string){
+    const valid=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
+    if((from&&!valid(from))||(to&&!valid(to))||(from&&to&&from>to))throw new BadRequestException('Проверьте период');
+    const start=from?new Date(from+'T00:00:00+04:00'):null;
+    const end=to?new Date(new Date(to+'T00:00:00+04:00').getTime()+86400000):null;
+    const where=Prisma.sql`o.status='DONE' AND o.completed_at IS NOT NULL ${start?Prisma.sql`AND o.completed_at >= ${start}`:Prisma.empty} ${end?Prisma.sql`AND o.completed_at < ${end}`:Prisma.empty}`;
+    const sums=Prisma.sql`COUNT(*)::int AS count,COALESCE(SUM(p.paid),0)::text AS paid,COALESCE(SUM(p.parts_cost),0)::text AS parts,COALESCE(SUM(p.master_salary),0)::text AS salary,COALESCE(SUM(COALESCE(p.owner_net,p.to_company,0)),0)::text AS owner,COALESCE(SUM(p.reinvest_amount),0)::text AS reinvest`;
+    const [total,byMaster,tech,masters]=await this.prisma.$transaction([
+      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT ${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where}`),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT COALESCE(o.master_id,'') AS id,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY o.master_id`),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`SELECT COALESCE(NULLIF(trim(o.type_tech),''),'Не указана') AS type,${sums} FROM orders o LEFT JOIN order_payments p ON p.order_id=o.id WHERE ${where} GROUP BY COALESCE(NULLIF(trim(o.type_tech),''),'Не указана') ORDER BY type`),
+      this.prisma.master.findMany({select:{id:true,user:{select:{fullName:true}}},orderBy:{createdAt:'desc'}})
+    ],{isolationLevel:'RepeatableRead'});
+    const zero={count:0,paid:'0',parts:'0',salary:'0',owner:'0',reinvest:'0'};
+    const rows=masters.map(m=>({...zero,...byMaster.find(r=>r.id===m.id),id:m.id,name:m.user.fullName}));
+    const personal=byMaster.find(r=>r.id==='');if(personal)rows.push({...personal,name:'Личные / без мастера'});
+    return {total:total[0],masters:rows,tech};
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly branch: BranchScopeService,

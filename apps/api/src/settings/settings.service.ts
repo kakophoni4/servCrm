@@ -32,7 +32,7 @@ function payRange(from?: string, to?: string) {
  * Один ключ и для смен (UTC midnight даты), и для закрытия заявок.
  */
 function calendarDateKey(d: Date) {
-  const tz = process.env.APP_TZ || 'Europe/Moscow';
+  const tz = process.env.APP_TZ || 'Europe/Samara';
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric',

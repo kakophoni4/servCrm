@@ -2,7 +2,6 @@
 
 import styles from './DeskLists.module.css';
 import {TECH} from '@/components/TechPicker';
-import {isScheduledToday} from '@/lib/order-date';
 
 import Link from 'next/link';
 import { SdDeadline } from '@/components/SdDeadline';
@@ -40,7 +39,6 @@ type OrderRow = {
   city?: { id: string; name: string } | null;
 };
 
-type City = { id: string; name: string };
 
 const URGENT_MS = 30 * 60 * 1000;
 
@@ -70,11 +68,11 @@ function statusBadgeClass(status: string): string {
 function formatSchedule(iso: string): string {
   const d = new Date(iso);
   const date = d.toLocaleDateString('ru-RU', {
-    day: '2-digit',
+    timeZone:'Europe/Samara',day: '2-digit',
     month: '2-digit',
   });
   const time = d.toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
+    timeZone:'Europe/Samara',hour: '2-digit',
     minute: '2-digit',
   });
   return `${date} · ${time}`;
@@ -86,70 +84,33 @@ export function OrdersPanel() {
   const [query,setQuery]=useState('');
   const [tech,setTech]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [, setCities] = useState<City[]>([]);
-  const [cityFilter] = useState('');
+  const [page,setPage]=useState(1),[total,setTotal]=useState(0),[totalPages,setTotalPages]=useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const user = getStoredUser();
   const isOwner = (user?.role ?? '') === 'OWNER';
-  const canWrite = hasPermission(
-    user?.role ?? '',
-    user?.permissions,
-    'orders.write',
-  );
   const canRead = hasPermission(
     user?.role ?? '',
     user?.permissions,
     'orders.read',
   );
 
-  useEffect(() => {
-    if (!isOwner) return;
-    api<City[]>('/cities')
-      .then(setCities)
-      .catch(() => setCities([]));
-  }, [isOwner]);
-
-  useEffect(() => {
-    if (!canRead) {
-      setLoading(false);
-      setOrders([]);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    const q = cityFilter ? `?cityId=${cityFilter}` : '';
-    api<OrderRow[]>(`/orders${q}`)
-      .then(setOrders)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка'))
-      .finally(() => setLoading(false));
-  }, [cityFilter, canRead]);
+  useEffect(()=>{if(!canRead){setLoading(false);return}const c=new AbortController();setLoading(true);setError('');setOrders([]);const timer=setTimeout(()=>{const q=new URLSearchParams({q:query,filter:view,tech,page:String(page),limit:'30'});api<{items:OrderRow[];total:number;totalPages:number}>(`/orders/paged?${q}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setOrders(r.items);setTotal(r.total);setTotalPages(r.totalPages);if(page>r.totalPages&&r.totalPages>0)setPage(r.totalPages)}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,view,tech,page]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
 
-  const search=query.trim().toLowerCase();
-  const phoneSearch=query.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7');
-  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (!tech || (tech==='Другое' ? Boolean(o.typeTech)&&!TECH.some(([code])=>code!=='Другое'&&code===o.typeTech) : o.typeTech===tech))&&(view==='all'||(view==='today'&&isScheduledToday(o.scheduledAt,now))||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&o.status==='DONE')||(view==='cancelled'&&['REFUSAL','CANCELLED_CC'].includes(o.status)))&&([o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(search)||(phoneSearch.length>=3&&o.client.phoneNormalized.includes(phoneSearch)))}).sort((a,b)=>view==='today'?new Date(a.scheduledAt!).getTime()-new Date(b.scheduledAt!).getTime():0);
+  const visible = orders;
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
 
   return (
     <section className={`desk-panel ${styles.list} ${styles.orders}`}>
-      <div className="desk-panel-head">
-        <div className="desk-panel-actions desk-panel-actions-end">
-          {canWrite ? (
-            <Link className="btn" href="/orders/new">
-              Новая заявка
-            </Link>
-          ) : null}
-        </div>
-      </div>
-      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые'],['cancelled','Отменённые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>setView(value)}>{label}</button>)}</div><label htmlFor="orders-tech">Техника</label><select id="orders-tech" value={tech} onChange={e=>setTech(e.target.value)}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые'],['cancelled','Отменённые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>{setView(value);setPage(1)}}>{label}</button>)}</div><label htmlFor="orders-tech">Техника</label><select id="orders-tech" value={tech} onChange={e=>{setTech(e.target.value);setPage(1)}}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (
@@ -160,7 +121,7 @@ export function OrdersPanel() {
         ) : null}
         {!loading && !error ? (
           <>
-          <p className="muted">Найдено: {visible.length}</p>
+          <p className="muted">Найдено: {total}</p>
           <div className={styles.mobileOrders}>
             {visible.map(o => {
               const urgent = isUrgentUnassigned(o, now);
@@ -285,6 +246,7 @@ export function OrdersPanel() {
               </tbody>
             </table>
           </div>
+          <nav className={styles.pagination} aria-label="Страницы заявок"><button className="btn secondary" disabled={loading||page<=1} onClick={()=>setPage(p=>p-1)}>Назад</button><span>Страница {page} из {Math.max(1,totalPages)}</span><button className="btn secondary" disabled={loading||page>=totalPages} onClick={()=>setPage(p=>p+1)}>Далее</button></nav>
           </>
         ) : null}
       </div>

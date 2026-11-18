@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');const {BotService}=require('../dist/bot/bot.service');const bot=Object.create(BotService.prototype);let filter,sent=[];
+bot.prisma={user:{findFirst:async({where})=>where.telegramId==='1'?{id:'owner'}:null,findMany:async()=>[{id:'owner'}]},order:{findMany:async q=>{filter=q.where;return[]}},master:{findMany:async()=>[]}};
+bot.settings={get:async key=>key==='owner.partner.owner'?JSON.stringify({telegramId:2}):null};bot.getOrderGroup=async kind=>({chatId:kind==='owner'?'100':kind==='center'?'200':'300'});bot.masterByTelegram=async()=>{throw Error('not a master')};bot.sendMessage=async(id,text)=>sent.push({id,text});
+(async()=>{
+ for(const order of [{isPersonal:true,isServiceCenter:false,masterId:null},{isPersonal:false,isServiceCenter:true,masterId:'m'},{isPersonal:false,isServiceCenter:true,masterId:null}]){assert.equal((await bot.groupActor(order,'2')).isOwner,true);await assert.rejects(()=>bot.groupActor(order,'3'));}
+ await assert.rejects(()=>bot.groupActor({isPersonal:false,isServiceCenter:false,masterId:'m'},'2'));assert.equal((await bot.groupActor({isPersonal:false,isServiceCenter:false,masterId:'m'},'1')).isOwner,true);
+ for(const id of [1,2])for(const chat of [100,200])for(const stats of [false,true]){sent=[];await bot.sendMasterOverview({from:{id},chat:{id:chat,type:'group'}},stats);assert.equal(sent.length,1);assert.deepEqual(filter.OR,[{isPersonal:true},{isServiceCenter:true,masterId:null}]);assert(sent[0].text.includes(stats?'Статистика':'Актуальные'));}
+ await assert.rejects(()=>bot.sendMasterOverview({from:{id:2},chat:{id:300,type:'group'}},false));await assert.rejects(()=>bot.sendMasterOverview({from:{id:3},chat:{id:200,type:'group'}},true));
+ sent=[];bot.getOrderDestination=async()=>({chatId:'100'});bot.groupOrderCard=async()=>({order:{publicId:'123',scheduledAt:new Date('2026-11-19T06:00:00Z')}});bot.prisma.appSetting={findMany:async()=>[]};await bot.notifyOrderRescheduled('o');assert(sent[0].text.includes('10:00'));assert(!sent[0].text.includes('09:00'));
+ console.log('PASS owner/partner: both personal and SC controls, numeric partner id, no unrelated group access, personal+SCwithoutmaster overview and stats, strangers denied');
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -30,16 +30,9 @@ export function ClientsPanel() {
   const [error, setError] = useState('');
   const [query,setQuery]=useState('');
   const [loading,setLoading]=useState(true);
+  const [page,setPage]=useState(1),[total,setTotal]=useState(0),[totalPages,setTotalPages]=useState(0);
 
-  useEffect(() => {
-    if (!canRead) return;
-    api<Client[]>('/clients')
-      .then(setClients)
-      .catch((e) => {
-        const msg = e instanceof Error ? e.message : 'Ошибка';
-        if (msg !== 'Недостаточно прав') setError(msg);
-      }).finally(()=>setLoading(false));
-  }, [canRead]);
+  useEffect(()=>{if(!canRead)return;const c=new AbortController();setLoading(true);setError('');setClients([]);const timer=setTimeout(()=>{api<{items:Client[];total:number;totalPages:number}>(`/clients/paged?${new URLSearchParams({q:query,page:String(page),limit:'30'})}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setClients(r.items);setTotal(r.total);setTotalPages(r.totalPages)}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,page]);
 
   function go(id: string) {
     router.push(`/clients/${id}`);
@@ -47,12 +40,12 @@ export function ClientsPanel() {
 
   if (!canRead) return null;
 
-  const search=query.trim().toLowerCase(),digits=query.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7');
-  const visible=clients.filter(c=>c.name.toLowerCase().includes(search)||c.phoneNormalized.includes(search)||(digits.length>=3&&c.phoneNormalized.includes(digits)));
+  const visible=clients;
   return (
     <section className={`desk-panel ${styles.list} ${styles.clients}`}>
       <div className="desk-panel-body">
-        <div className="field"><input aria-label="Поиск клиентов" placeholder="Имя или телефон" value={query} onChange={e=>setQuery(e.target.value)}/></div>
+        <div className="field"><input aria-label="Поиск клиентов" placeholder="Имя или телефон" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/></div>
+        <p className="muted">Найдено: {total}</p>
         {loading&&<p className="muted">Загрузка...</p>}
         {error ? <p className="error">{error}</p> : null}
         <div className={styles.mobileClients}>
@@ -117,6 +110,7 @@ export function ClientsPanel() {
             </tbody>
           </table>
         </div>
+        <nav className={styles.pagination} aria-label="Страницы клиентов"><button className="btn secondary" disabled={loading||page<=1} onClick={()=>setPage(p=>p-1)}>Назад</button><span>Страница {page} из {Math.max(1,totalPages)}</span><button className="btn secondary" disabled={loading||page>=totalPages} onClick={()=>setPage(p=>p+1)}>Далее</button></nav>
       </div>
     </section>
   );

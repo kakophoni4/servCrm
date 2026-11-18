@@ -4,6 +4,16 @@ import {PrismaService} from '../prisma/prisma.service';
 @Injectable() export class InventoryService {
  constructor(private readonly db:PrismaService){}
  list(){return this.db.$queryRaw`SELECT p.*,COALESCE((SELECT SUM(u.quantity)::int FROM stock_usage u JOIN orders o ON o.id=u.order_id WHERE u.part_id=p.id AND o.status::text NOT IN ('DONE','REFUSAL','CANCELLED_CC')),0) AS planned FROM stock_parts p WHERE p.active ORDER BY p.category,p.name`;}
+ async paged(q:string,group:string,low:boolean,pageInput:string){
+  const page=Number(pageInput);if(!Number.isSafeInteger(page)||page<1||page>1000000||q.length>200||group.length>80)throw new BadRequestException('Некорректный фильтр');
+  const pattern='%'+q.trim().replace(/[\\%_]/g,'\\$&')+'%';const category=group.trim().toLocaleLowerCase('ru');const offset=(page-1)*30;
+  const [items,counts,groups,lowCount]=await Promise.all([
+   this.db.$queryRaw`SELECT p.*,COALESCE((SELECT SUM(u.quantity)::int FROM stock_usage u JOIN orders o ON o.id=u.order_id WHERE u.part_id=p.id AND o.status::text NOT IN ('DONE','REFUSAL','CANCELLED_CC')),0) AS planned FROM stock_parts p WHERE p.active AND (p.name||' '||p.category) ILIKE ${pattern} AND (${category}='' OR lower(COALESCE(NULLIF(trim(p.category),''),'Без группы'))=${category}) AND (${low}=false OR p.quantity<=p.minimum) ORDER BY p.category,p.name,p.id LIMIT 30 OFFSET ${offset}`,
+   this.db.$queryRaw<{total:number}[]>`SELECT COUNT(*)::int AS total FROM stock_parts p WHERE p.active AND (p.name||' '||p.category) ILIKE ${pattern} AND (${category}='' OR lower(COALESCE(NULLIF(trim(p.category),''),'Без группы'))=${category}) AND (${low}=false OR p.quantity<=p.minimum)`,
+   this.db.$queryRaw<{name:string}[]>`SELECT DISTINCT COALESCE(NULLIF(trim(category),''),'Без группы') AS name FROM stock_parts WHERE active ORDER BY name`,
+   this.db.$queryRaw<{total:number}[]>`SELECT COUNT(*)::int AS total FROM stock_parts WHERE active AND quantity<=minimum`
+  ]);const total=counts[0].total;return {items,total,page,totalPages:Math.ceil(total/30),groups:groups.map(g=>g.name),lowTotal:lowCount[0].total};
+ }
  history(){return this.db.$queryRaw`SELECT m.*,p.name FROM stock_moves m JOIN stock_parts p ON p.id=m.part_id ORDER BY m.created_at DESC,m.id DESC LIMIT 100`;}
  async edit(id:string,d:{name:string;category:string;minimum:number}){
   if(!d.name.trim())throw new BadRequestException('Укажите название');

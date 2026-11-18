@@ -1,3 +1,4 @@
+import {PageQuery,pageInput,pageResult,moscowToday} from './paging';
 import {
   BadRequestException,
   ForbiddenException,
@@ -58,6 +59,24 @@ export class OrdersService {
     claims: true,
     documents: true,
   } satisfies Prisma.OrderInclude;
+
+  async paged(userId:string,role:Role,q:PageQuery) {
+    const {page,limit,search}=pageInput(q),filter=q.filter||'all';
+    if(!['today','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
+    const allowed=await this.branch.allowedCityIds(userId,role);
+    const where:Prisma.OrderWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
+    if(filter==='today')where.scheduledAt=moscowToday();
+    if(filter==='active'||filter==='unassigned')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC']};
+    if(filter==='unassigned')where.masterId=null;
+    if(filter==='personal')where.isPersonal=true;
+    if(filter==='center')where.isServiceCenter=true;
+    if(filter==='closed')where.status='DONE';
+    if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC']};
+    if(q.tech)where.typeTech=q.tech==='Другое'?{notIn:['ХД','СМ','ПММ','ТВ','ПК','']}:q.tech;
+    if(search){const text={contains:search,mode:'insensitive' as const};const digits=search.replace(/\D/g,'');where.OR=[{publicId:text},{address:text},{client:{name:text}},{master:{user:{fullName:text}}}];if(digits.length>=3)where.OR.push({client:{phoneNormalized:{contains:digits}}});}
+    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:filter==='today'?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
+    return pageResult(items,total,page,limit);
+  }
 
   async list(userId: string, role: Role, cityId?: string) {
     const allowed = await this.branch.allowedCityIds(userId, role);

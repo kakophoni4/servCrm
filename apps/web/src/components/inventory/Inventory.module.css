@@ -61,3 +61,5 @@
  .page .group .card > .actions { grid-column:1; grid-row:auto; margin-top:4px; }
  .group .card .quantity { font-size:19px; }
 }
+
+.page .group .card{gap:6px;padding:10px 14px}.page .group .card h3{font-size:16px}.page .groupHead{padding:12px 14px}.page .groupHead h2{font-size:18px}.page .toolbar{gap:8px;padding:12px}.page .toolbar .actions button{padding:8px 10px}.page .toolbar .actions{gap:6px}.page .group .card > .actions{margin-top:0}.page .group .card > .actions button{min-height:40px;padding:8px 12px}

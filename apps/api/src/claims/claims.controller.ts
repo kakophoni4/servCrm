@@ -1,3 +1,4 @@
+import {PageQuery} from '../orders/paging';
 import {
   Body,
   Controller,
@@ -79,6 +80,11 @@ class UpdateClaimDto {
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClaimsController {
   constructor(private readonly claims: ClaimsService) {}
+
+  @Get('paged')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('claims.read')
+  paged(@CurrentUser() user:{userId:string;role:Role},@Query() query:PageQuery) { return this.claims.paged(user.userId,user.role,query); }
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)

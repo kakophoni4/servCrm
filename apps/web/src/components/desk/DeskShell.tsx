@@ -29,7 +29,7 @@ const TABS = [
   },
 ] as const;
 
-export function DeskShell({ children }: { children: React.ReactNode }) {
+export function DeskShell({ children,action }: { children: React.ReactNode;action?:React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = getStoredUser();
@@ -62,7 +62,7 @@ export function DeskShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="desk">
       <div className="desk-top">
-        <h1 className="page-title desk-title">{visibleTabs.find(tab => tab.match(pathname))?.label ?? 'Заявки'}</h1>
+        <div className="desk-heading-row"><h1 className="page-title desk-title">{visibleTabs.find(tab => tab.match(pathname))?.label ?? 'Заявки'}</h1>{pathname==='/orders'&&hasPermission(user?.role||'',user?.permissions,'orders.write')&&<Link className="btn" href="/orders/new">Новая заявка</Link>}{action}</div>
         {visibleTabs.length > 1 ? (
           <nav className="desk-nav" aria-label="Разделы">
             {visibleTabs.map((tab) => {

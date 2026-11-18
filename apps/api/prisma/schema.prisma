@@ -271,6 +271,7 @@ model Client {
   orders      Order[]
 
   @@unique([phoneNormalized])
+  @@index([updatedAt(sort: Desc), id(sort: Desc)], map: "clients_updated_page_idx")
   @@map("clients")
 }
 
@@ -339,6 +340,8 @@ model Order {
   @@index([createdAt])
   @@index([completedAt])
   @@index([masterId, completedAt])
+  @@index([scheduledAt(sort: Desc), id(sort: Desc)], map: "orders_scheduled_page_idx")
+  @@index([masterId, status, scheduledAt(sort: Desc), id(sort: Desc)], map: "orders_master_status_page_idx")
   @@map("orders")
 }
 
@@ -627,5 +630,6 @@ model OrderDiscussionMessage {
  createdAt DateTime @default(now()) @map("created_at")
  @@index([orderId,createdAt])
  @@index([userId])
+ @@index([orderId, createdAt(sort: Desc), id(sort: Desc)], map: "discussion_history_page_idx")
  @@map("order_discussion_messages")
 }

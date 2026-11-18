@@ -7,6 +7,7 @@ import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { type BranchCity } from '@/components/BranchSelect';
+import { orderDateIso } from '@/lib/order-date';
 import { DateTimeField } from '@/components/DateTimeField';
 import { api, getStoredUser } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
@@ -127,13 +128,15 @@ export default function NewOrderPage() {
       setLoading(false);
       return;
     }
-    const scheduledDate = new Date(form.scheduledAt);
+    let scheduledIso='';
+    try { scheduledIso=orderDateIso(form.scheduledAt); } catch { setError('Некорректная дата или время');setLoading(false);return; }
+    const scheduledDate = new Date(scheduledIso);
     if (Number.isNaN(scheduledDate.getTime())) {
       setError('Некорректная дата или время');
       setLoading(false);
       return;
     }
-    const scheduledIso=scheduledDate.toISOString();
+
     try {
       const body = {
         clientName: form.clientName,

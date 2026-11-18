@@ -11,7 +11,7 @@ const s=new MasterPortalService(db,{termsFor:async()=>({masterPct:.5,reinvestPct
  enabled=false;await assert.rejects(()=>s.detail(u,'o'));enabled=true;
  await assert.rejects(()=>s.detail(u,'other'));await assert.rejects(()=>s.document(u,'other','doc'));assert.equal(download,0);
  o.isPersonal=true;await assert.rejects(()=>s.detail(u,'o'));o.isPersonal=false;
- assert.equal((await s.detail(u,'o')).client.phone,'79000000000');assert.equal((await s.detail(u,'o')).masterId,undefined);
+ assert.equal((await s.detail(u,'o')).client.phone,null);assert.equal((await s.detail(u,'o')).masterId,undefined);
  await assert.rejects(()=>s.action(u,'o',{action:'close',version:'2026-11-17T09:00:00Z',paid:11000,partsCost:1000}));
  await assert.rejects(()=>s.action(u,'o',{action:'close',version:date.toISOString(),paid:4000,partsCost:0}));
  cas=false;await assert.rejects(()=>s.action(u,'o',{action:'close',version:date.toISOString(),paid:11000,partsCost:1000}));assert.equal(payment,undefined);assert.equal(cash,undefined);cas=true;

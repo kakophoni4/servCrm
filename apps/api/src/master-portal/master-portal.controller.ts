@@ -16,6 +16,9 @@ export class MasterPortalController {
  constructor(private service:MasterPortalService,private storage:StorageService){}
  @Get('orders') @Roles(Role.MASTER) list(@CurrentUser() u:Actor){return this.service.list(u)}
  @Get('inbox') @Roles(Role.MASTER,Role.OWNER,Role.ADMIN,Role.DIRECTOR,Role.DISPATCHER) inbox(@CurrentUser() u:Actor){return this.service.inbox(u)}
+ @Get('orders/paged') @Roles(Role.MASTER) listPage(@CurrentUser() u:Actor,@Query('closed') closed?:string,@Query('page') page?:string){return this.service.listPage(u,closed==='1',Number(page||1))}
+ @Get('inbox/paged') @Roles(Role.MASTER,Role.OWNER,Role.ADMIN,Role.DIRECTOR,Role.DISPATCHER) inboxPage(@CurrentUser() u:Actor,@Query('q') q?:string,@Query('page') page?:string){return this.service.inboxPage(u,q||'',Number(page||1))}
+ @Get('orders/:id/messages/paged') @Roles(Role.MASTER,Role.OWNER,Role.ADMIN,Role.DIRECTOR,Role.DISPATCHER) messagePage(@CurrentUser() u:Actor,@Param('id') id:string,@Query('before') before?:string){return this.service.messagePage(u,id,before)}
  @Post('masters/:id/access') @Roles(Role.OWNER) access(@Param('id') id:string,@Body() d:AccessDto){return this.service.access(id,d.login,d.password)}
  @Get('orders/:id') @Roles(Role.MASTER) detail(@CurrentUser() u:Actor,@Param('id') id:string){return this.service.detail(u,id)}
  @Post('orders/:id/action') @Roles(Role.MASTER) action(@CurrentUser() u:Actor,@Param('id') id:string,@Body() d:ActionDto){return this.service.action(u,id,d)}

@@ -5,7 +5,8 @@ const MONEY=new Set(['payment','payments','paid','partsCost','prepay','partsYesN
 export function redactStaffMoney(value:any):any {if(!value||typeof value!=='object'||value instanceof Date||value instanceof StreamableFile)return value;if(typeof value.toJSON==='function')return redactStaffMoney(value.toJSON());if(Array.isArray(value))return value.map(redactStaffMoney);return Object.fromEntries(Object.entries(value).filter(([key])=>!MONEY.has(key)).map(([k,v])=>[k,redactStaffMoney(v)]));}
 export function assertStaffAccess(profile:string,method:string,path:string,body:any){
  if(profile==='logistic'&&method!=='GET'&&path.startsWith('/claims'))throw new ForbiddenException('Изменение претензий доступно помощнику или владельцу');
- if((method==='GET'&&['/masters/schedule','/master-portal/inbox'].includes(path))||(['GET','POST'].includes(method)&&/^\/master-portal\/orders\/[^/]+\/messages$/.test(path)))return;
+ if((method==='GET'&&['/masters/schedule','/masters/paged','/master-portal/inbox','/master-portal/inbox/paged'].includes(path))||(['GET','POST'].includes(method)&&/^\/master-portal\/orders\/[^/]+\/messages(?:\/paged)?$/.test(path)))return;
+ if(method==='GET'&&/^\/masters\/[^/]+\/jobs$/.test(path))return;
  const read=method==='GET';
  const allowed=read?/^\/(auth\/me|orders(?:\/[^/]+)?|clients(?:\/[^/]+)?|masters|partners|cities(?:\/age-categories)?|claims(?:\/[^/]+)?)$/.test(path):/^\/(auth\/change-password|orders(?:\/[^/]+)?|orders\/[^/]+\/(repeat|warranty)|clients\/[^/]+\/comment|claims(?:\/[^/]+)?)$/.test(path);
  const docs=profile==='assistant'&&/^\/orders\/[^/]+\/documents(?:\/|$)/.test(path)&&method!=='DELETE';

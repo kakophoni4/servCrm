@@ -76,7 +76,7 @@ describe('USER_STATUS_LABELS', () => {
 describe('DOC_KIND_LABELS', () => {
   it('маппит виды документов', () => {
     expect(DOC_KIND_LABELS.RECEIPT_SERVICE).toBe('Чек за услугу');
-    expect(DOC_KIND_LABELS.CONTRACT).toBe('Договор');
+    expect(DOC_KIND_LABELS.CONTRACT).toBe('Акт / договор');
     expect(DOC_KIND_LABELS.RECEIPT_PARTS).toBe('Чек за комплектующие / расходы');
     expect(DOC_KIND_LABELS.PARTS_PHOTO).toBe('Фото запчастей и комплектующих');
     expect(DOC_KIND_LABELS.RECEIPT_SD).toBe('Сохранная расписка');

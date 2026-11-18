@@ -1,3 +1,4 @@
+import {PageQuery} from '../orders/paging';
 import {
   Body,
   Controller,
@@ -20,6 +21,11 @@ import { ClientsService } from './clients.service';
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
+
+  @Get('paged')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('clients.read')
+  paged(@CurrentUser() user:{userId:string;role:Role},@Query() query:PageQuery) { return this.clients.paged(user.userId,user.role,query); }
 
   @Get()
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)

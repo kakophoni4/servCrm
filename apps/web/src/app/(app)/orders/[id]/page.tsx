@@ -13,6 +13,7 @@ import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { BranchSelect } from '@/components/BranchSelect';
+import { orderDateInput,orderDateIso } from '@/lib/order-date';
 import { DateTimeField } from '@/components/DateTimeField';
 import {
   api,
@@ -144,14 +145,6 @@ function guessMimeFromName(fileName: string): string {
   return 'application/octet-stream';
 }
 
-function toLocalInput(iso?: string | null) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function shortFileName(name: string, max = 28): string {
   if (name.length <= max) return name;
   const dot = name.lastIndexOf('.');
@@ -211,7 +204,7 @@ export default function OrderDetailPage() {
   const [address, setAddress] = useState('');
   const [typeTech, setTypeTech] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
-  const masterSchedule=useWorkSchedule(scheduledAt?moscowDate(new Date(scheduledAt)):moscowDate());
+  const masterSchedule=useWorkSchedule(scheduledAt?scheduledAt.slice(0,10):moscowDate());
   const [paid, setPaid] = useState('0');
   const [partsCost, setPartsCost] = useState('');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
@@ -252,7 +245,7 @@ export default function OrderDetailPage() {
     setMasterId(data.masterId ?? '');
     setAddress(data.address ?? '');
     setTypeTech(data.typeTech ?? '');
-    setScheduledAt(toLocalInput(data.scheduledAt));
+    setScheduledAt(orderDateInput(data.scheduledAt));
     if (keepPaid != null) {
       setPaid(keepPaid);
     } else {
@@ -453,7 +446,7 @@ export default function OrderDetailPage() {
         body.address = address;
         body.typeTech = typeTech || null;
         body.scheduledAt = scheduledAt
-          ? new Date(scheduledAt).toISOString()
+          ? orderDateIso(scheduledAt)
           : null;
         if(!logistic){body.paid = Number(paid);body.partsCost = Number(partsCost);}
         body.isProfile = isProfile;
@@ -740,7 +733,7 @@ export default function OrderDetailPage() {
   const selectedLabel = fileNamesLabel(docFiles);
 
   const scheduledLabel = order.scheduledAt
-    ? new Date(order.scheduledAt).toLocaleString('ru-RU', {
+    ? new Date(order.scheduledAt).toLocaleString('ru-RU', {timeZone:'Europe/Samara',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -800,7 +793,7 @@ export default function OrderDetailPage() {
 
           <div className="order-mobile-overview">
             <div className="order-overview-line"><strong>{isServiceCenter ? 'Привезут в СЦ' : address || 'Адрес не указан'}</strong></div>
-            <div className="order-overview-line"><span>{scheduledAt ? new Date(scheduledAt).toLocaleString('ru-RU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Время не назначено'}</span><span>{typeTech || 'Техника не указана'}</span></div>
+            <div className="order-overview-line"><span>{scheduledAt ? new Date(orderDateIso(scheduledAt)).toLocaleString('ru-RU', {timeZone:'Europe/Samara',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Время не назначено'}</span><span>{typeTech || 'Техника не указана'}</span></div>
             {order.comment?.trim() && <p>{order.comment}</p>}
             {adminComment.trim() && <p className="muted">{adminComment}</p>}
           </div>
@@ -1135,7 +1128,7 @@ export default function OrderDetailPage() {
                               {d.fileName}
                             </span>
                             <span className="muted">
-                              {new Date(d.createdAt).toLocaleString('ru-RU', {
+                              {new Date(d.createdAt).toLocaleString('ru-RU', {timeZone:'Europe/Samara',
                                 day: '2-digit',
                                 month: '2-digit',
                                 hour: '2-digit',
@@ -1192,7 +1185,7 @@ export default function OrderDetailPage() {
                       ) : null}
                       <span className="muted docs-list-date">
                         {g.latestAt
-                          ? new Date(g.latestAt).toLocaleDateString('ru-RU')
+                          ? new Date(g.latestAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})
                           : '-'}
                       </span>
                     </div>
@@ -1383,7 +1376,7 @@ export default function OrderDetailPage() {
                       <td data-label="Тип">{TYPE_LABELS[o.type]}</td>
                       <td data-label="Статус">{STATUS_LABELS[o.status]}</td>
                       <td>
-                        {new Date(o.createdAt).toLocaleDateString('ru-RU')}
+                        {new Date(o.createdAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})}
                       </td>
                     </tr>
                   ))}

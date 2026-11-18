@@ -1,3 +1,4 @@
+import {masterContactVisible} from '../common/utils/master-contact';
 import {
   BadRequestException,
   Inject,
@@ -590,12 +591,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       } | null;
     },
   ) {
+    const stored=await this.prisma.order.findUnique({where:{id:order.id}});
+    const visible=stored && masterContactVisible(stored,await this.settings.get('bot.orders.accepted.'+order.id));
     const paid = Number(order.payment?.paid ?? 0);
     const partsCost = Number(order.payment?.partsCost ?? 0);
     const lines = [
       `Заявка ${order.publicId}`,
       `Клиент: ${order.client.name}`,
-      `Тел: ${order.client.phoneNormalized}`,
+      ...(visible?[`Тел: ${order.client.phoneNormalized}`]:[]),
       `Адрес: ${order.address}`,
     ];
     if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
@@ -606,7 +609,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       lines.push(`Комментарий администратора: ${order.adminComment.trim()}`);
     }
     if (order.scheduledAt) {
-      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
+      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara'})}`);
     }
     lines.push(`Статус: ${STATUS_LABELS[order.status] ?? order.status}`);
     if (paid > 0 || partsCost > 0) {
@@ -614,7 +617,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       lines.push(`Запчасти: ${partsCost.toLocaleString('ru-RU')} ₽`);
     }
 
-    const statusBtns = this.buttonsForStatus(order.status).map((b) => ({
+    const statusBtns = !visible ? [{text:'Принять',callback_data:'ma:'+order.id}] : this.buttonsForStatus(order.status).map((b) => ({
       text: b.label,
       callback_data: `s:${order.id}:${b.status}`,
     }));
@@ -926,22 +929,21 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(saved.orderId!==orderId || String(saved.chatId)!==group.chatId)continue;
       await this.telegram('editMessageText',{chat_id:group.chatId,message_id:saved.messageId,text:card.text,entities:card.entities,reply_markup:card.reply_markup}).catch(()=>undefined);
     }
-    return this.sendMessage(group.chatId,'Заявка '+card.order.publicId+(when?' перенесена на '+when.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):': время визита снято'));
+    return this.sendMessage(group.chatId,'Заявка '+card.order.publicId+(when?' перенесена на '+when.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):': время визита снято'));
+  }
+
+  private async ownerOrPartner(telegramId:string) {
+    const owner=await this.prisma.user.findFirst({where:{telegramId:String(telegramId),role:Role.OWNER,status:UserStatus.ACTIVE}});
+    if(owner)return {id:owner.id,partner:false};
+    const owners=await this.prisma.user.findMany({where:{role:Role.OWNER,status:UserStatus.ACTIVE},select:{id:true}});
+    for(const account of owners){const raw=await this.settings.get('owner.partner.'+account.id);if(!raw)continue;try{const grant=JSON.parse(raw);if(grant.telegramId!=null&&String(grant.telegramId)===String(telegramId))return {id:account.id,partner:true};}catch{}}
+    return null;
   }
 
   private async groupActor(order: {masterId:string|null;isPersonal:boolean;isServiceCenter:boolean}, telegramId:string) {
-    const account=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
-    if(account)return {id:account.id,isOwner:true};
-    if(order.isPersonal || order.isServiceCenter || !order.masterId){
-      const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
-      if(owner)return {id:owner.id,isOwner:true};
-      const owners=await this.prisma.user.findMany({where:{role:Role.OWNER,status:UserStatus.ACTIVE},select:{id:true}});
-      for(const account of owners){
-        const grant=await this.settings.get('owner.partner.'+account.id);
-        if(grant && JSON.parse(grant).telegramId===telegramId)return {id:account.id,isOwner:true};
-      }
-      if(order.isPersonal || !order.masterId)throw new BadRequestException('Нет доступа. В CRM откройте Telegram → Мой Telegram или Напарник, перейдите по своей ссылке и нажмите «Запустить»');
-    }
+    const account=await this.ownerOrPartner(telegramId);
+    if(account&&(!account.partner||order.isPersonal||order.isServiceCenter||!order.masterId))return {id:account.id,isOwner:true};
+    if(order.isPersonal||!order.masterId)throw new BadRequestException('Нет доступа. Подключите Telegram через ссылку владельца или напарника в CRM');
     const user=await this.masterByTelegram(telegramId);
     if(user.masterProfile!.id!==order.masterId)throw new BadRequestException('Эта заявка назначена другому мастеру');
     return {id:user.id,isOwner:false};
@@ -1103,7 +1105,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         let terms:ReturnType<typeof parseSdReply>;
         try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await consumePrompt();return true;}
         Object.assign(flow,terms,{sdStart:new Date().toISOString(),sdFrom:sdDeadline(terms.minDays).toISOString(),sdDue:sdDeadline(terms.maxDays).toISOString()});
-        summary=`Сохранить срок заявки ${card.order.publicId}?\nПредоплата всего: ${terms.prepay} ₽\nСрок: ${terms.minDays}-${terms.maxDays} дней\nДо ${sdDeadline(terms.maxDays).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'})}`;
+        summary=`Сохранить срок заявки ${card.order.publicId}?\nПредоплата всего: ${terms.prepay} ₽\nСрок: ${terms.minDays}-${terms.maxDays} дней\nДо ${sdDeadline(terms.maxDays).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})}`;
       }
       flow.inputMessageId=msg.message_id;
       flow.summary=summary;
@@ -1204,9 +1206,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = [
       'Заявка '+order.publicId,
       'ФИО: '+order.client.name,
-      'Телефон: '+order.client.phoneNormalized.replace(/^\+?7/, '+7'),
+      masterContactVisible(order,accepted?order.masterId:null)?'Телефон: '+order.client.phoneNormalized.replace(/^\+?7/, '+7'):'',
       'Адрес: '+order.address,
-      'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
+      'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
       'Техника: '+(order.typeTech || 'не указана'),
       order.isPersonal || !order.masterId?'Исполнитель: владелец':'Мастер: '+(order.master?.user.fullName || 'не назначен'),
       order.isServiceCenter?'Привезут в СЦ':'',
@@ -1214,7 +1216,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.comment ? 'Примечание: '+order.comment : '',
       order.adminComment ? 'Комментарий: '+order.adminComment : '',
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
-      order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}) : '',
+      order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Всего: '+paid+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Чистыми: '+(paid-partsCost)+' ₽' : '',
@@ -1417,7 +1419,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   /** Отправка назначенной заявки в личный чат мастера. */
   async notifyMasterOrder(masterId: string, orderId: string, resetAcceptance = false) {
-    if (resetAcceptance) await this.prisma.appSetting.deleteMany({where:{key:'bot.orders.accepted.'+orderId}});
+    if (resetAcceptance) await this.settings.set('bot.orders.accepted.'+orderId,'pending:'+masterId);
     const config = await this.settings.getBotConfig();
     if (!config.hasToken || !config.enabled) return null;
     const master = await this.prisma.master.findUnique({
@@ -1451,7 +1453,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     let sent: Awaited<ReturnType<BotService['sendMessage']>> = null;
     if (telegramId) {
       await this.clearMasterOrderCard(orderId);
-      sent = await this.sendMessage(telegramId,text,{entities});
+      const acceptedValue=await this.settings.get('bot.orders.accepted.'+orderId);
+      sent = await this.sendMessage(telegramId,text,{entities,...(!masterContactVisible(order,acceptedValue)?{reply_markup:{inline_keyboard:[[{text:'Принять',callback_data:'ma:'+orderId}]]}}:{})});
     }
     if (sent?.ok && sent.result?.message_id) await this.prisma.order.update({where:{id:orderId},data:{masterTgChatId:telegramId,masterTgMessageId:sent.result.message_id}});
     return {...sent,ok:!!sent?.ok,groupSent};
@@ -1722,7 +1725,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (order.city?.name) lines.push(`Филиал: ${order.city.name}`);
     if (order.typeTech) lines.push(`Техника: ${order.typeTech}`);
     if (order.scheduledAt) {
-      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU')}`);
+      lines.push(`Визит: ${order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara'})}`);
     }
     lines.push('Назначьте мастера в CRM.');
     return lines.join('\n');
@@ -1869,33 +1872,48 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   async masterMonthlyReport(masterId:string,now=new Date()) {
     const master=await this.prisma.master.findUniqueOrThrow({where:{id:masterId},include:{user:true}});
-    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'numeric'}).formatToParts(now);
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'numeric'}).formatToParts(now);
     const year=Number(parts.find(p=>p.type==='year')!.value),month=Number(parts.find(p=>p.type==='month')!.value);
-    const start=new Date(Date.UTC(year,month-1,1)-3*3600000),end=new Date(Date.UTC(year,month,1)-3*3600000);
+    const start=new Date(Date.UTC(year,month-1,1)-4*3600000),end=new Date(Date.UTC(year,month,1)-4*3600000);
     const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,status:OrderStatus.DONE,completedAt:{gte:start,lt:end}},include:{payment:true}});
     const total=orders.reduce((n,o)=>n+Number(o.payment?.paid||0),0),earned=orders.reduce((n,o)=>n+Number(o.payment?.masterSalary||0),0);
     const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
-    return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow',month:'long',year:'numeric'}),'Мастер: '+master.user.fullName,'Выполнено заявок: '+orders.length,'Средний чек: '+money(orders.length?total/orders.length:0),'Заработано: '+money(earned)].join('\n');
+    return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),'Мастер: '+master.user.fullName,'Выполнено заявок: '+orders.length,'Средний чек: '+money(orders.length?total/orders.length:0),'Заработано: '+money(earned)].join('\n');
   }
 
   async masterActiveReport(masterId:string) {
     const master=await this.prisma.master.findUniqueOrThrow({where:{id:masterId},include:{user:true}});
     const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,status:{in:[OrderStatus.NOT_SCHEDULED,OrderStatus.WAITING,OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]}},include:{client:true},orderBy:[{scheduledAt:{sort:'asc',nulls:'last'}},{createdAt:'asc'},{id:'asc'}]});
     if(!orders.length)return 'Актуальные заявки · '+master.user.fullName+'\nНет актуальных заявок';
-    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const acceptedRows=await this.prisma.appSetting.findMany({where:{key:{in:orders.map(o=>'bot.orders.accepted.'+o.id)}}});
+    const acceptedValues=new Map(acceptedRows.map(r=>[r.key,r.value]));
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+o.client.phoneNormalized.replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
     return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
+  }
+
+  async ownerOverviewReport(statistics:boolean) {
+    const now=new Date(),p=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit'}).formatToParts(now);
+    const year=Number(p.find(p=>p.type==='year')!.value),month=Number(p.find(p=>p.type==='month')!.value);
+    const orders=await this.prisma.order.findMany({where:{OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}],...(statistics?{status:OrderStatus.DONE,completedAt:{gte:new Date(Date.UTC(year,month-1,1)-4*3600000),lt:new Date(Date.UTC(year,month,1)-4*3600000)}}:{status:{in:MASTER_ACTIVE_STATUSES}})},include:{client:true,payment:true},orderBy:[{scheduledAt:'asc'},{id:'asc'}]});
+    if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),'Личные и СЦ без мастера','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
+    const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    return ['Актуальные · личные и СЦ без мастера','Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
   }
 
   private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
     if(!msg.from?.id||!msg.chat?.id)return;
     const telegramId=String(msg.from.id),chatId=String(msg.chat.id);
-    const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+    const owner=await this.ownerOrPartner(telegramId);
+    const ownerGroup=await this.getOrderGroup('owner'),centerGroup=await this.getOrderGroup('center');
+    const ownReport=!!owner&&(ownerGroup?.chatId===chatId||centerGroup?.chatId===chatId||(!owner.partner&&msg.chat.type==='private'));
+    if(owner?.partner&&!ownReport)throw new BadRequestException('Команда доступна напарнику в личной группе владельца и группе СЦ');
     const ids:string[]=[];
-    if(owner){
+    if(owner&&!ownReport){
       for(const m of await this.prisma.master.findMany({where:{status:UserStatus.ACTIVE},select:{id:true}}))if((await this.getMasterGroup(m.id))?.chatId===chatId)ids.push(m.id);
       if(!ids.length)throw new BadRequestException('Отправьте команду в группу нужного мастера');
-    }else{
+    }else if(!ownReport){
       const master=(await this.masterByTelegram(telegramId)).masterProfile!;
       if(master.status!==UserStatus.ACTIVE)throw new BadRequestException('Мастер не активен');
       if(msg.chat.type!=='private'){
@@ -1904,8 +1922,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       }
       ids.push(master.id);
     }
-    for(const id of ids){
-      const report=statistics?await this.masterMonthlyReport(id):await this.masterActiveReport(id);
+    const reports=ownReport?[await this.ownerOverviewReport(statistics)]:await Promise.all(ids.map(id=>statistics?this.masterMonthlyReport(id):this.masterActiveReport(id)));
+    for(const report of reports){
       let chunk='';
       for(const line of report.split('\n')){
         if(!line.length){if(chunk)chunk+='\n';continue;}
@@ -2935,6 +2953,24 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       });
       await this.clearEphemeral(chatId);
       await this.sendDocKindPrompt(chatId, orderId, next);
+      return;
+    }
+
+    if (data.startsWith('ma:')) {
+      try {
+        const user=await this.masterByTelegram(telegramId),id=data.slice(3);
+        await this.prisma.$transaction(async tx=>{
+          const current=await tx.order.findFirst({where:{id,masterId:user.masterProfile!.id,isPersonal:false}});
+          if(!current)throw new BadRequestException('Заявка недоступна');
+          const changed=await tx.order.updateMany({where:{id,masterId:current.masterId,updatedAt:current.updatedAt},data:{notifyAckedAt:new Date()}});
+          if(!changed.count)throw new BadRequestException('Заявка изменилась');
+          const key='bot.orders.accepted.'+id,value=current.masterId!;
+          await tx.appSetting.upsert({where:{key},create:{key,value},update:{value}});
+        });
+        const order=await this.prisma.order.findUniqueOrThrow({where:{id},include:{client:true,payment:true}});
+        await this.sendMasterOrderCard(chatId,order);
+        await this.refreshSavedDocumentCards(id).catch(()=>undefined);
+      } catch { await this.sendMessage(chatId,'Не удалось принять заявку. Обновите список.'); }
       return;
     }
 

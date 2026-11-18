@@ -29,7 +29,7 @@ export function parseSdReply(text:string) {
   return {prepay:amount(m[1]),minDays,maxDays};
 }
 export function sdDeadline(days:number, now=new Date()) {
-  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
   const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
-  return new Date(Date.UTC(value('year'),value('month')-1,value('day')+days,20,59,59,999));
+  return new Date(Date.UTC(value('year'),value('month')-1,value('day')+days,19,59,59,999));
 }

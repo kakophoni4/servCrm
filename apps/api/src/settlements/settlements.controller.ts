@@ -80,7 +80,7 @@ export class SettlementsController {
   @Get('cash')
   @Roles(Role.OWNER)
   @RequirePermissions('settlements.read')
-  cash() { return this.settlements.cashBalances(); }
+  async cash(@Query('masterId') masterId?:string) { return masterId ? [await this.settlements.cashBalance(masterId)] : this.settlements.cashBalances(); }
 
   @Post('cash-receipt')
   @Roles(Role.OWNER)

@@ -1,4 +1,5 @@
 'use client';
+import {orderDay} from '@/lib/order-date';
 
 type Props = {
   value: string;
@@ -10,14 +11,6 @@ type Props = {
   /** «Сегодня» / «Завтра» - только при создании заявки */
   showQuickPicks?: boolean;
 };
-
-function pad(n: number) {
-  return String(n).padStart(2, '0');
-}
-
-function localDateKey(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 function splitValue(value: string): { date: string; time: string } {
   if (!value) return { date: '', time: '' };
@@ -53,10 +46,7 @@ export function DateTimeField({
   }
 
   function pickDay(offset: number) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + offset);
-    setDate(localDateKey(d));
+    setDate(orderDay(offset));
   }
 
   return (

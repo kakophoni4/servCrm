@@ -15,6 +15,10 @@ import { ReportsService } from './reports.service';
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
+  @Get('summary')
+  @Roles(Role.OWNER)
+  summary(@Query('from') from?:string,@Query('to') to?:string){return this.reports.summary(from,to);}
+
   @Get('closed')
   closed(
     @CurrentUser() user: { userId: string; role: Role },
