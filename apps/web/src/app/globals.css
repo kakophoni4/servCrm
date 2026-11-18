@@ -5110,3 +5110,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
 
 .sd-deadline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px; border-radius: 9px; border: 1px solid color-mix(in srgb,var(--warn) 35%,var(--line)); background: color-mix(in srgb,var(--warn) 10%,var(--panel)); color: var(--warn); font-size: 12px; line-height: 1.4; }
 .sd-deadline.overdue { border-color: color-mix(in srgb,var(--danger) 40%,var(--line)); background: color-mix(in srgb,var(--danger) 9%,var(--panel)); color: var(--danger); }
+
+@media (max-width: 600px) {
+ .desk-nav { display: flex; flex-wrap: wrap; width: 100%; }
+ .desk-nav-link { flex: 1 1 auto; min-width: 0; padding: 10px 6px; font-size: 12px; white-space: nowrap; }
+}

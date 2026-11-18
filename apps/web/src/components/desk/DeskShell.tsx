@@ -13,6 +13,7 @@ const TABS = [
     permission: 'orders.read',
     match: (p: string) => p === '/orders' || p.startsWith('/orders/'),
   },
+  {href:'/masters',label:'Мастера',permission:'masters.read',match:(p:string)=>p==='/masters'},
   {
     href: '/clients',
     label: 'Клиенты',
