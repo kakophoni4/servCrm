@@ -143,7 +143,7 @@ export function OrdersPanel() {
                 <div className={styles.orderFoot}>
                   <span>№ {o.publicId}</span>{o.typeTech&&<span>{o.typeTech}</span>}
                   <span>{formatRuPhoneDisplay(o.client.phoneNormalized)}</span>
-                  
+
                   {o.isClaim && <span className="badge badge-warn">претензия</span>}
                   {o.type === 'WARRANTY' && <span className="badge">Гарантия</span>}
                 </div>
