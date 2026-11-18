@@ -1897,9 +1897,12 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const year=Number(p.find(p=>p.type==='year')!.value),month=Number(p.find(p=>p.type==='month')!.value);
     const orders=await this.prisma.order.findMany({where:{OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}],...(statistics?{status:OrderStatus.DONE,completedAt:{gte:new Date(Date.UTC(year,month-1,1)-4*3600000),lt:new Date(Date.UTC(year,month,1)-4*3600000)}}:{status:{in:MASTER_ACTIVE_STATUSES}})},include:{client:true,payment:true},orderBy:[{scheduledAt:'asc'},{id:'asc'}]});
     if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),'Личные и СЦ без мастера','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
-    const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
     const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
-    return ['Актуальные · личные и СЦ без мастера','Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
+    const section=(title:string,items:typeof orders)=>{
+      const regular=items.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=items.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
+      return [title+' · '+items.length,'',...(!items.length?['Нет актуальных заявок','']:[]),...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])];
+    };
+    return ['Актуальные заявки','Всего: '+orders.length,'',...section('Личные',orders.filter(o=>o.isPersonal)),...section('СЦ без мастера',orders.filter(o=>!o.isPersonal&&o.isServiceCenter))].join('\n').trim();
   }
 
   private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
