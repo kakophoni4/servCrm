@@ -65,6 +65,16 @@ export default function NewOrderPage() {
       );
   }, []);
 
+  useEffect(()=>{
+    const chatId=new URLSearchParams(window.location.search).get('avitoChat');
+    if(!chatId||getStoredUser()?.role!=='OWNER')return;
+    const abort=new AbortController();
+    api<{clientName:string;comment:string}>('/avito/draft/'+encodeURIComponent(chatId),{signal:abort.signal})
+      .then(draft=>{if(!abort.signal.aborted)setForm(f=>({...f,clientName:f.clientName||draft.clientName||'',comment:f.comment||draft.comment||'',sourceKind:'OUR',sourceOur:'AVITO'}))})
+      .catch(e=>{if(!abort.signal.aborted)setError(e instanceof Error?e.message:'Не удалось загрузить данные Авито')});
+    return()=>abort.abort();
+  },[]);
+
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }

@@ -1,4 +1,5 @@
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import {AvitoModule} from './avito/avito.module';
 import {InventoryModule} from './inventory/inventory.module';
 import { StaffAccessInterceptor } from './common/staff-access.interceptor';
 import { Module } from '@nestjs/common';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
+    AvitoModule,
     InventoryModule,
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,

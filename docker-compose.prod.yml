@@ -29,8 +29,10 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       APP_ENC_KEY: ${APP_ENC_KEY:-}
       BASE_URL: ${BASE_URL:-}
+      AVITO_CREDENTIALS_FILE: /run/secrets/avito.json
     volumes:
       - uploads:/data/uploads
+      - ${AVITO_SECRETS_DIR:-./secrets}:/run/secrets:ro
     depends_on:
       db:
         condition: service_healthy

@@ -25,6 +25,7 @@ const NAV: NavItem[] = [
  {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
  {href:'/inventory',label:'Запчасти',roles:['OWNER']},
+ {href:'/avito',label:'Авито',roles:['OWNER']},
  {href:'/reports',label:'Финансы',roles:['OWNER']},
  {href:'/settings/bot',label:'Telegram',roles:['OWNER']},
  {href:'/settings/salary',label:'Проценты и доли',roles:['OWNER']},
