@@ -11,6 +11,9 @@ class SendMessageDto {@Transform(({value})=>typeof value==='string'?value.trim()
 @Controller('avito') @UseGuards(JwtAuthGuard,RolesGuard) @Roles(Role.OWNER)
 export class AvitoController {
  constructor(private readonly avito:AvitoService){}
+ @Get('unread') unread(){return this.avito.unread();}
+ @Post('chats/:id/read') read(@Param('id') id:string){return this.avito.markRead(id);}
+ @Get('voices/:id') voice(@Param('id') id:string){return this.avito.voice(id);}
  @Get('profile') profile(){return this.avito.profile();}
  @Get('chats') chats(@Query() q:PageQuery){return this.avito.chats(q.offset||0);}
  @Get('chats/:id/messages') messages(@Param('id') id:string,@Query() q:PageQuery){return this.avito.messages(id,q.offset||0);}

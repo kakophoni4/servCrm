@@ -5123,3 +5123,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
  .desk-nav { display: flex; flex-wrap: wrap; width: 100%; }
  .desk-nav-link { flex: 1 1 auto; min-width: 0; padding: 10px 6px; font-size: 12px; white-space: nowrap; }
 }
+
+.avito-unread-count { margin-left:auto; min-width:22px; padding:2px 6px; border-radius:20px; background:var(--accent); color:var(--panel); font-size:11px; text-align:center; font-weight:700; }
+.nav-toggle { position:relative; }
+.avito-menu-dot { position:absolute; right:3px; top:3px; width:8px; height:8px; border-radius:50%; background:var(--accent); }

@@ -50,3 +50,11 @@ Send only on the user's explicit send action. Do not automatically retry ambiguo
 Set `AVITO_SECRETS_DIR` in the production compose `.env` to a server-only directory containing `avito.json` with `client_id` and `client_secret`. Directory mode 0700, file 0600. Compose mounts it read-only at `/run/secrets`. The API reads `AVITO_CREDENTIALS_FILE`; credentials and access tokens are never sent to the web client. Do not commit the directory. No database migration is needed.
 
 Validation: `node apps/api/test/avito-check.cjs`, `node apps/api/test/avito-stats-check.cjs`, and the local-database-only `staff-http-check.cjs`. The first two use mock transport. Production smoke checks may read profile/chats/messages/draft/stats but must not send test messages to customers.
+
+## Media and unread chats (2026-11-18)
+
+Live responses confirmed `image.content.image.sizes` as a size-to-URL map on `*.img.avito.st`, `voice.content.voice.voice_id`, `system.content.text`, and `appCall` with empty content. Chat identifiers can contain `~`.
+
+The preserved combined spec above describes `GET /messenger/v1/accounts/{user_id}/getVoiceFiles?voice_ids=...` returning `voices_urls` (links expire after an hour). Live read confirmed this schema and the `files.avito.ru` host. Voice links are requested on demand; media uses HTTPS Avito-owned hosts only.
+
+`GET /messenger/v2/accounts/{user_id}/chats?unread_only=true&limit=100&offset=0` is confirmed live. Badge shows up to 100 chats and a plus if more exist. The spec describes `POST /messenger/v1/accounts/{user_id}/chats/{chat_id}/read` returning `{ok:true}`; CRM calls it only after messages load in the visible selected chat. Background unread polling does not mark chats read.

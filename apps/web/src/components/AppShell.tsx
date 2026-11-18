@@ -12,6 +12,7 @@ import {
 import { ROLE_LABELS } from '@/lib/labels';
 import { hasPermission } from '@/lib/permissions';
 import { NavIcon } from './NavIcons';
+import {AvitoUnreadProvider,useAvitoUnread} from './avito/Unread';
 
 type NavItem = {
   href: string;
@@ -33,7 +34,9 @@ const NAV: NavItem[] = [
  {href:'/settings/account',label:'Аккаунт'},
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({children}:{children:React.ReactNode}) {return <AvitoUnreadProvider><Shell>{children}</Shell></AvitoUnreadProvider>}
+function Shell({ children }: { children: React.ReactNode }) {
+  const unread=useAvitoUnread();
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -108,7 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         onClick={() => setNavOpen(false)}
       >
         <NavIcon href={item.href} className="nav-icon" />
-        <span>{item.label}</span>
+        <span>{item.label}</span>{item.href==='/avito'&&unread.ids.length>0&&<span className="avito-unread-count" aria-label="Непрочитанные чаты">{unread.ids.length}{unread.hasMore?'+':''}</span>}
       </Link>
     );
   });
@@ -149,6 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="nav-toggle-bar" />
             <span className="nav-toggle-bar" />
             <span className="nav-toggle-bar" />
+            {unread.ids.length>0&&<span className="avito-menu-dot" aria-label="Есть непрочитанные чаты Авито"/>}
           </button>
           <div className="topbar-brand-mobile">СРМ Сервис</div>
           <div className="topbar-spacer" />
