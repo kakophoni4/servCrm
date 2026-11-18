@@ -22,3 +22,20 @@
 .card { gap:7px; padding:14px; }
 .card .actions { justify-content:flex-end; }
 .card .actions button { min-height:40px; font-size:12px; }
+
+.page { font-size:16px; gap:20px; }
+.toolbar { padding:16px; border:1px solid var(--line); background:var(--panel); border-radius:14px; display:grid; gap:12px; }
+.toolbar input { min-height:48px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink); width:100%; min-width:0; box-sizing:border-box; font:inherit; }
+.toolbar .actions { justify-content:flex-start; }
+.page .form label { font-size:14px; line-height:1.5; }
+.page .form input,.page .form select { font-size:16px; }
+.page .card { padding:18px; gap:12px; align-content:start; }
+.page .card h3 { font-size:18px; line-height:1.4; }
+.page .quantity { font-size:26px; }
+.page .card :global(.muted) { font-size:14px; line-height:1.5; }
+.page .card .actions { padding-top:10px; border-top:1px solid var(--line); justify-content:flex-start; }
+.page .card .actions button,.page button { min-height:44px; font-size:14px; }
+.page summary { min-height:44px; display:flex; align-items:center; font-size:15px; cursor:pointer; }
+.historyItem { font-size:15px; line-height:1.5; }
+.historyItem :global(.muted) { font-size:13px; }
+@media(max-width:480px) { .page .card { padding:16px; } .toolbar { padding:12px; } .toolbar .actions { gap:6px; } .page .head { align-items:flex-start; } }

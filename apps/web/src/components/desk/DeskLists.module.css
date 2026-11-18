@@ -2,7 +2,7 @@
 .list :global(.desk-panel-head) { padding: 18px 22px; }
 .list :global(.desk-panel-body) { padding: 20px 22px; }
 .list :global(.desk-list) { width: 100%; table-layout: auto; }
-.list :global(.desk-list th) { font-size: 12px; font-weight: 600; letter-spacing: .02em; white-space: normal; }
+.list :global(.desk-list th) { font-size: 14px; font-weight: 600; letter-spacing: .02em; white-space: normal; }
 .list :global(.desk-list td) { padding: 18px 12px; vertical-align: middle; overflow-wrap: anywhere; }
 .list :global(.desk-cell-main) { white-space: normal; line-height: 1.45; }
 .list :global(.desk-cell-sub) { white-space: normal; line-height: 1.5; }
@@ -12,7 +12,7 @@
 .filters input, .filters select { width: 100%; min-width: 0; }
 .orders .filters { grid-template-columns: minmax(0,1fr); }
 .orderFilters { display: flex; flex-wrap: wrap; gap: 6px; }
-.orderFilters button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.orderFilters button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
 .orderFilters button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 650; }
 .orderFilters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .waitingBadge { color: #c86b24; background: color-mix(in srgb,#e68a3c 14%,var(--panel)); border-color: color-mix(in srgb,#e68a3c 40%,var(--line)); }
@@ -25,7 +25,7 @@
  .list :global(.desk-list tbody tr) { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px; background: var(--panel); }
  .list :global(.desk-list tbody td), .list :global(.desk-claims-list .desk-list tbody tr td) { width: 100%; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 0; border: 0; text-align: right; white-space: normal; }
  .list :global(.desk-list tbody td + td) { border-top: 1px solid var(--line); }
- .list :global(.desk-list td[data-label]::before) { content: attr(data-label); color: var(--muted); font-size: 12px; flex: 0 0 55px; text-align: left; }
+ .list :global(.desk-list td[data-label]::before) { content: attr(data-label); color: var(--muted); font-size: 14px; flex: 0 0 55px; text-align: left; }
  .list :global(.desk-list td > *) { min-width: 0; max-width: 100%; }
  .list :global(.desk-cell-top) { justify-content: flex-end; }
  .list :global(.desk-list td[colspan]) { text-align: center; justify-content: center; padding: 26px 0; }
@@ -52,13 +52,13 @@
  .orderCard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .orderHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
  .orderHeading strong { font-size: 15px; line-height: 1.35; font-weight: 650; overflow-wrap: anywhere; min-width: 0; }
- .orderHeading :global(.badge) { flex-shrink: 0; max-width: 48%; white-space: normal; text-align: center; font-size: 11px; padding: 3px 7px; }
- .orderAddress { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
- .orderSchedule { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; line-height: 1.4; }
+ .orderHeading :global(.badge) { flex-shrink: 0; max-width: 48%; white-space: normal; text-align: center; font-size: 13px; padding: 3px 7px; }
+ .orderAddress { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+ .orderSchedule { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 14px; line-height: 1.4; }
  .orderSchedule > span { min-width: 0; overflow-wrap: anywhere; }
  .orderSchedule > span:first-child { font-variant-numeric: tabular-nums; }
  .orderMaster { color: var(--accent); font-weight: 600; }
- .orderFoot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; line-height: 1.4; color: var(--muted); }
+ .orderFoot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; line-height: 1.4; color: var(--muted); }
  .orderFoot > span { overflow-wrap: anywhere; }
  .urgentCard { border-left: 3px solid var(--warn); }
  .orderEmpty { margin: 0; padding: 24px 12px; text-align: center; color: var(--muted); font-size: 14px; }
@@ -72,14 +72,32 @@
  .clientCard, .clientOrder { display: grid; gap: 5px; border: 1px solid var(--line); padding: 10px 13px; border-radius: 12px; min-width: 0; background: var(--panel); }
  .clientHeading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
  .clientName { font-size: 15px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
- .clientCount { flex-shrink: 0; font-size: 12px; color: var(--muted); white-space: nowrap; }
+ .clientCount { flex-shrink: 0; font-size: 14px; color: var(--muted); white-space: nowrap; }
  .clientCount strong { color: var(--ink); font-variant-numeric: tabular-nums; }
  .clientActions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0 10px; }
- .clientPhone { display: inline-flex; align-items: center; min-height: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
+ .clientPhone { display: inline-flex; align-items: center; min-height: 44px; font-size: 16px; font-variant-numeric: tabular-nums; }
  .clientHistory { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 9px; gap: 7px; font-size: 13px; font-weight: 600; color: var(--accent); border-radius: 8px; }
  .clientHistory:hover { background: color-mix(in srgb,var(--accent) 8%,var(--panel)); }
  .clientPage :global(.page-title) { overflow-wrap: anywhere; }
- .clientOrder { gap: 8px; font-size: 13px; overflow-wrap: anywhere; }
- .clientOrder :global(.badge) { max-width: 50%; white-space: normal; font-size: 11px; }
- .historyMoney { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+ .clientOrder { gap: 8px; font-size: 15px; overflow-wrap: anywhere; }
+ .clientOrder :global(.badge) { max-width: 50%; white-space: normal; font-size: 13px; }
+ .historyMoney { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; }
+}
+
+.clientPage { max-width:1100px; margin-inline:auto; }
+.clientPage > :global(.panel):first-child { border-left:4px solid var(--accent); }
+.clientHeading { flex-wrap:wrap; }
+.list :global(.desk-cell-main) { font-size:16px; font-weight:600; }
+.list :global(.desk-cell-phone), .list :global(.desk-cell-sub) { font-size:14px; }
+.list :global(.desk-id) { font-size:14px; }
+.clientPage :global(.table) { font-size:15px; }
+.clientPage :global(.table th) { font-size:14px; }
+@media(max-width:620px) {
+ .orderCard { gap:10px; padding:14px; }
+ .orderHeading strong,.clientName { font-size:17px; }
+ .orderFoot { padding-top:7px; border-top:1px solid var(--line); }
+ .orderSchedule { font-size:15px; }
+ .clientCard,.clientOrder { padding:14px; gap:8px; }
+ .clientHistory { font-size:14px; background:color-mix(in srgb,var(--accent) 8%,var(--panel)); }
+ .clientPage > :global(.panel) { padding:16px; }
 }

@@ -34,3 +34,16 @@
 .highlight strong { font-size:clamp(26px,4vw,36px); }
 .section > .heading { margin-bottom:14px; }
 .section > .heading h2 { margin:0; }
+
+.page { font-size:16px; line-height:1.5; }
+.filters { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; }
+.filters label { font-size:14px; }
+.filters input { font-size:16px; min-height:46px; }
+.page button { font-size:14px; min-height:44px; }
+.metric > span,.details dt,.tech dt { font-size:14px; }
+.count,.tech > div > span { font-size:14px; }
+.details dd,.tech dd { font-size:17px; }
+.master h3,.tech h3 { font-size:18px; }
+.master { padding:22px; }
+.details { gap:18px; }
+@media(max-width:480px) { .filters { padding:14px; } .metric { padding:14px; } .metric strong { font-size:22px; } .highlight strong { font-size:30px; } .master { padding:16px; } .details { gap:16px 12px; } }

@@ -4902,17 +4902,17 @@ label.file-picker:focus-within,
 
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 /* Shared presentation for the single-owner workspace. */
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 .main { width: 100%; max-width: 1500px; margin-inline: auto; padding: 30px 32px 48px; min-width: 0; }
 .page-title, .order-page-title { font-size: clamp(23px, 2vw, 29px); font-weight: 650; letter-spacing: -.025em; line-height: 1.25; margin-bottom: 24px; }
 .panel { border-radius: 16px; padding: 24px; box-shadow: 0 2px 8px #20151a03; min-width: 0; }
-.btn { min-height: 42px; padding: 10px 16px; font-size: 14px; font-weight: 600; border-radius: 10px; line-height: 1.35; white-space: normal; transition: background .15s, box-shadow .15s; }
+.btn { min-height: 44px; padding: 10px 16px; font-size: 15px; font-weight: 600; border-radius: 10px; line-height: 1.35; white-space: normal; transition: background .15s, box-shadow .15s; }
 .btn:hover:not(:disabled) { filter: brightness(.96); }
 .btn.secondary { background: color-mix(in srgb, var(--muted) 9%, var(--panel)); }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .field { min-width: 0; gap: 7px; }
-.field label { line-height: 1.4; font-size: 13px; font-weight: 500; }
-.field input, .field select, .field textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); padding: 10px 12px; line-height: 1.4; }
+.field label { line-height: 1.4; font-size: 14px; font-weight: 500; }
+.field input, .field select, .field textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); padding: 10px 12px; font-size: 16px; line-height: 1.4; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; flex-shrink: 0; }
 .topbar { min-height: 68px; padding-inline: 32px; }
@@ -4920,7 +4920,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
 .sidebar .brand { display: flex; align-items: center; gap: 11px; font-size: 17px; letter-spacing: -.02em; padding-left: 8px; white-space: nowrap; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 36px; background: #a4444c; color: white; border-radius: 10px; }
 .sidebar nav { gap: 7px; }
-.sidebar a { min-height: 48px; padding: 12px 14px; gap: 13px; border: 1px solid transparent; border-radius: 11px; font-size: 14px; font-weight: 500; }
+.sidebar a { min-height: 48px; padding: 12px 14px; gap: 13px; border: 1px solid transparent; border-radius: 11px; font-size: 15px; font-weight: 500; }
 .sidebar a span { min-width: 0; }
 .sidebar a .nav-icon { width: 20px; height: 20px; opacity: .7; }
 .sidebar a:hover { background: #ffffff06; }

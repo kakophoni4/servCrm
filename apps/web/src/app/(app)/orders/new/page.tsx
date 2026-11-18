@@ -1,4 +1,5 @@
 'use client';
+import '@/components/desk/ReadableWorkflows.css';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';

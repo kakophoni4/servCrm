@@ -1,4 +1,5 @@
 'use client';
+import '@/components/desk/ReadableWorkflows.css';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';

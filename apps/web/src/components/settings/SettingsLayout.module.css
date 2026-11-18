@@ -1,0 +1,65 @@
+.page { display:grid; gap:20px; width:100%; max-width:1100px; min-width:0; font-size:16px; line-height:1.5; }
+.page :global(.page-title) { margin:0; text-align:left; }
+.page :global(.panel) { margin:0; min-width:0; padding:22px; }
+.page :global(.field) { min-width:0; }
+.page :global(.field label),.page label:global(.field) { font-size:14px; }
+.page input:not([type=checkbox]),.page select,.page textarea { font-size:16px; min-height:44px; min-width:0; max-width:100%; }
+.page :global(.btn),.page summary { font-size:15px; min-height:44px; }
+.page summary { align-content:center; }
+.page h2 { font-size:19px; margin:0 0 14px; }
+.page h3 { font-size:17px; }
+.page :global(.muted) { font-size:14px; }
+.telegram :global(.bot-settings) { max-width:none; width:100%; margin:0; text-align:left; }
+.telegram :global(.bot-settings-form) { max-width:none; width:100%; margin:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px 24px; text-align:left; }
+.telegram :global(.bot-settings-head) { grid-column:1/-1; margin:0; padding:0; border:0; text-align:left; }
+.telegram :global(.bot-settings-status) { align-items:flex-start; text-align:left; margin:0; font-size:16px; }
+.telegram :global(.bot-settings-actions) { grid-column:2; grid-row:2; align-self:start; margin:0; }
+.telegram :global(.bot-settings-form) > details,.telegram :global(.bot-settings-form) > p { grid-column:1/-1; }
+.telegram :global(.bot-settings-form) > details { border-top:1px solid var(--line); padding-top:12px; }
+.telegram :global(.bot-settings-masked) { font-size:13px; }
+.telegram :global(.telegram-section) { margin-top:24px; }
+.telegram :global(.telegram-section) > h2 { font-size:19px; }
+.telegram :global(.telegram-grid) { gap:16px; }
+.telegram :global(.group-settings) { font-size:15px; padding:20px; }
+.telegram :global(.group-settings) p { font-size:15px; }
+.telegram :global(.group-settings) h3 { font-size:17px; }
+.account { max-width:880px; }
+.account :global(.account-settings) { display:grid; grid-template-columns:1fr; max-width:none; margin:0; gap:18px; }
+.account :global(.account-card) { width:100%; max-width:none; text-align:left; }
+.account :global(.account-card-head) { text-align:left; }
+.account :global(.account-card-title) { font-size:19px; }
+.account :global(.account-theme-seg) { max-width:480px; }
+.account :global(.account-theme-btn) { font-size:15px; min-height:46px; }
+.profile { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.profile strong { font-size:20px; }
+.staff { max-width:1000px; }
+.staffHeader { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.staffForm { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.staffForm h2,.staffForm > button { grid-column:1/-1; }
+.staffForm > button { justify-self:start; }
+.staffCard { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 20px; align-items:center; }
+.staffCard > strong { font-size:18px; }
+.staffCard > span { grid-column:1; color:var(--muted); font-size:14px; overflow-wrap:anywhere; }
+.staffCard > div { grid-column:2; grid-row:1/3; }
+.staffCard > form { grid-column:1/-1; padding-top:16px; border-top:1px solid var(--line); }
+.salary { max-width:1150px; }
+.salary form { max-width:860px; }
+.ruleShares { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.ruleShares span { display:flex; flex-direction:column; gap:6px; color:var(--muted); font-size:14px; }
+.ruleShares strong { font-size:25px; color:var(--ink); font-variant-numeric:tabular-nums; }
+.login :global(.login-card) { width:min(100%,440px); padding:32px; text-align:left; display:grid; gap:20px; }
+.login :global(.field) { margin:0; }
+.login :global(.field label) { font-size:15px; }
+.login input { min-height:48px; font-size:16px; }
+.login :global(.btn) { min-height:48px; font-size:16px; }
+@media(max-width:650px) {
+ .page { gap:16px; }
+ .page :global(.panel) { padding:16px; }
+ .telegram :global(.bot-settings-form) { grid-template-columns:minmax(0,1fr); }
+ .telegram :global(.bot-settings-actions) { grid-column:1; grid-row:auto; }
+ .telegram :global(.telegram-grid) { grid-template-columns:minmax(0,1fr); }
+ .staffForm,.staffCard { grid-template-columns:minmax(0,1fr); }
+ .staffCard > div { grid-column:1; grid-row:auto; margin-top:8px; }
+ .account :global(.account-theme-btn) { padding:8px; font-size:14px; }
+ .login :global(.login-card) { padding:24px 20px; }
+}

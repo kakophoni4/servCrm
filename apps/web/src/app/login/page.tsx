@@ -1,5 +1,6 @@
 'use client';
 
+import layout from '@/components/settings/SettingsLayout.module.css';
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setSession, AuthUser } from '@/lib/api';
@@ -33,7 +34,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-page">
+    <div className={`login-page ${layout.login}`}>
       <form className="panel login-card" onSubmit={onSubmit}>
         <h1 className="page-title">СРМ Сервис</h1>
         <div className="field">
