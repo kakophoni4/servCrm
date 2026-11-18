@@ -1,6 +1,6 @@
 'use client';
 import {Discussion} from '@/components/master/Discussion';
-import {useWorkSchedule,moscowDate,workLabel} from '@/components/masters/WorkSchedule';
+import {useWorkSchedule,moscowDate} from '@/components/masters/WorkSchedule';
 import '@/components/desk/ReadableWorkflows.css';
 
 import Link from 'next/link';
