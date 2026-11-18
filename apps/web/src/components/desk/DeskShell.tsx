@@ -35,7 +35,7 @@ export function DeskShell({ children }: { children: React.ReactNode }) {
   const visibleTabs = useMemo(() => {
     const role = user?.role ?? '';
     const perms = user?.permissions;
-    return TABS.filter((tab) => hasPermission(role, perms, tab.permission));
+    return TABS.filter((tab) => !(perms?.includes('staff.logistic')&&tab.href==='/claims') && hasPermission(role, perms, tab.permission));
   }, [user?.role, user?.permissions]);
 
   const currentAllowed = visibleTabs.some((t) => t.match(pathname));
@@ -56,6 +56,7 @@ export function DeskShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if(!currentAllowed)return null;
   return (
     <div className="desk">
       <div className="desk-top">

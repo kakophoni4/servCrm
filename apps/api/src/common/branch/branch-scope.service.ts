@@ -22,11 +22,13 @@ export class BranchScopeService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
+        permissions: true,
         cityId: true,
         managedBranches: { select: { cityId: true } },
       },
     });
     if (!user) return [];
+    if(user.permissions.some(p=>p==='staff.logistic'||p==='staff.assistant'))return null;
 
     const ids = new Set<string>();
     if (user.cityId) ids.add(user.cityId);

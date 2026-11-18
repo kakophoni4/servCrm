@@ -1,0 +1,9 @@
+'use client';
+import {useState} from 'react';
+import {useRouter} from 'next/navigation';
+import {api} from '@/lib/api';
+export function DeleteOrder({id,publicId}:{id:string;publicId:string}){
+ const router=useRouter();const [open,setOpen]=useState(false),[confirmation,setConfirmation]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ async function remove(){if(busy||confirmation!==publicId)return;setBusy(true);setError('');try{const result=await api<{cleanupPending:number}>('/orders/'+id,{method:'DELETE',body:JSON.stringify({confirmation})});if(result.cleanupPending)window.alert('Заявка удалена. Часть связанных файлов или сообщений не удалось обновить.');router.replace('/orders')}catch(e){setError(e instanceof Error?e.message:'Не удалось удалить');setBusy(false)}}
+ return <section className="panel" style={{marginTop:16}}>{!open?<button type="button" className="btn secondary" onClick={()=>setOpen(true)}>Удалить ошибочную заявку</button>:<div style={{display:'grid',gap:12}}><strong>Удалить заявку № {publicId}?</strong><p>Заявка, её документы и расчёты будут удалены без возможности восстановления. Клиент останется в базе. Уже принятые от мастера деньги сохранятся.</p><label className="field">Для подтверждения введите номер заявки<input value={confirmation} onChange={e=>setConfirmation(e.target.value)} inputMode="numeric" autoComplete="off" disabled={busy}/></label><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button type="button" className="btn" disabled={busy||confirmation!==publicId} onClick={remove}>{busy?'Удаляем...':'Удалить навсегда'}</button><button type="button" className="btn secondary" disabled={busy} onClick={()=>{setOpen(false);setConfirmation('');setError('')}}>Отмена</button></div>{error&&<p className="error" role="alert">{error}</p>}</div>}</section>;
+}

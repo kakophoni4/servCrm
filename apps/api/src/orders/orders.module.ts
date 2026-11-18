@@ -1,3 +1,4 @@
+import {OrderDeletionController} from './order-deletion.controller';
 import { Module } from '@nestjs/common';
 import { BotModule } from '../bot/bot.module';
 import { DocumentsModule } from '../documents/documents.module';
@@ -8,7 +9,7 @@ import { OrdersService } from './orders.service';
 
 @Module({
   imports: [SalaryModule, DocumentsModule, BotModule, SettlementsModule],
-  controllers: [OrdersController],
+  controllers: [OrdersController,OrderDeletionController],
   providers: [OrdersService],
   exports: [OrdersService],
 })

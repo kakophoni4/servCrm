@@ -24,9 +24,10 @@ type NavItem = {
 const NAV: NavItem[] = [
  {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
- {href:'/settings/bot',label:'Telegram'},
- {href:'/reports',label:'Финансы'},
- {href:'/settings/salary',label:'Проценты и доли'},
+ {href:'/settings/bot',label:'Telegram',roles:['OWNER']},
+ {href:'/reports',label:'Финансы',roles:['OWNER']},
+ {href:'/settings/salary',label:'Проценты и доли',roles:['OWNER']},
+ {href:'/users',label:'Сотрудники',roles:['OWNER']},
  {href:'/settings/account',label:'Аккаунт'},
 ];
 
@@ -153,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="topbar-user-meta">
               <div className="topbar-user-name">{user.fullName}</div>
               <div className="topbar-user-role">
-                {ROLE_LABELS[user.role] ?? user.role}
+                {user.permissions?.includes('staff.logistic')?'Логист':user.permissions?.includes('staff.assistant')?'Помощник':ROLE_LABELS[user.role] ?? user.role}
               </div>
             </div>
             <button

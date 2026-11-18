@@ -1,3 +1,5 @@
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { StaffAccessInterceptor } from './common/staff-access.interceptor';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BranchModule } from './common/branch/branch.module';
@@ -49,5 +51,6 @@ import { UsersModule } from './users/users.module';
     BotModule,
   ],
   controllers: [HealthController],
+  providers:[{provide:APP_INTERCEPTOR,useClass:StaffAccessInterceptor}],
 })
 export class AppModule {}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { SdDeadline } from '@/components/SdDeadline';
+import {DeleteOrder} from '@/components/orders/DeleteOrder';
 import { MobileFold } from '@/components/MobileFold';
 import { TechPicker } from '@/components/TechPicker';
 import { AutoTextarea } from '@/components/AutoTextarea';
@@ -194,6 +195,8 @@ export default function OrderDetailPage() {
   const [cities, setCities] = useState<City[]>([]);
   const [error, setError] = useState('');
   const user = useMemo(() => getStoredUser(), []);
+  const logistic=user?.permissions?.includes('staff.logistic')||false;
+  const staff=logistic||user?.permissions?.includes('staff.assistant');
   const admin = user ? isAdminRole(user.role) : false;
 
   const [status, setStatus] = useState('');
@@ -447,8 +450,7 @@ export default function OrderDetailPage() {
         body.scheduledAt = scheduledAt
           ? new Date(scheduledAt).toISOString()
           : null;
-        body.paid = Number(paid);
-        body.partsCost = Number(partsCost);
+        if(!logistic){body.paid = Number(paid);body.partsCost = Number(partsCost);}
         body.isProfile = isProfile;
         body.comment = comment.trim() || null;
         body.adminComment = adminComment.trim() || null;
@@ -774,7 +776,7 @@ export default function OrderDetailPage() {
             </div>
           </div>
 
-          <SdDeadline status={order.status} from={order.sdDueFrom} due={order.sdDueAt} prepay={order.payment?.prepay ?? 0}/>
+          <SdDeadline status={order.status} from={order.sdDueFrom} due={order.sdDueAt} prepay={logistic?undefined:order.payment?.prepay ?? 0}/>
           <div className="order-client-row">
             <Link
               className="order-client"
@@ -884,7 +886,7 @@ export default function OrderDetailPage() {
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                   >
-                    {STATUSES.map((s) => (
+                    {STATUSES.filter(s=>!logistic||s!=='DONE'||order.status==='DONE').map((s) => (
                       <option key={s} value={s}>
                         {STATUS_LABELS[s]}
                       </option>
@@ -930,7 +932,7 @@ export default function OrderDetailPage() {
                     ))}
                   </select>
                 </div>
-                <div className="field">
+                {!logistic&&<><div className="field">
                   <label>Оплачено, ₽</label>
                   <input
                     value={paid}
@@ -952,6 +954,7 @@ export default function OrderDetailPage() {
                     }}
                   />
                 </div>
+              </>}
               </div>
 
               {order.payment ? (
@@ -989,11 +992,11 @@ export default function OrderDetailPage() {
 
           {error ? <p className="error">{error}</p> : null}
 
-          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{<button type="button" className="btn secondary" disabled={sendingGroup || masterId !== (order.masterId || '') || isPersonal !== order.isPersonal || isServiceCenter !== order.isServiceCenter} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Заявка отправлена в чат.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':isServiceCenter?'Отправить в СЦ':isPersonal || !masterId?'Отправить в мой чат':'Отправить мастеру'}</button>}
+          {delivery && <p role="status">{delivery}</p>}<div className="order-actions">{!staff&&<button type="button" className="btn secondary" disabled={sendingGroup || masterId !== (order.masterId || '') || isPersonal !== order.isPersonal || isServiceCenter !== order.isServiceCenter} onClick={async()=>{setSendingGroup(true);try{const r=await api<{sent:boolean}>(`/bot/orders/${id}/send-master-group`,{method:'POST'});setDelivery(r.sent?'Заявка отправлена в чат.':'Не удалось отправить в группу. Проверьте подключение бота.');}catch(e){setDelivery(e instanceof Error?e.message:'Ошибка отправки');}finally{setSendingGroup(false);}}}>{sendingGroup?'Отправляем…':isServiceCenter?'Отправить в СЦ':isPersonal || !masterId?'Отправить в мой чат':'Отправить мастеру'}</button>}
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
-            {admin ? (
+            {admin && !logistic ? (
               <button
                 className="btn secondary"
                 type="button"
@@ -1081,7 +1084,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
-          {admin ? (
+          {admin && !logistic ? (
           <MobileFold title={`Фото и документы${pendingDocs.length ? ` · новых: ${pendingDocs.length}` : ''}`} className="panel order-docs-panel">
             <h2 className="order-side-title">Фото и документы</h2>
             {pendingDocs.length ? (
@@ -1382,6 +1385,7 @@ export default function OrderDetailPage() {
           </MobileFold>
         </div>
       </div>
+      {user?.role==='OWNER'&&<DeleteOrder id={order.id} publicId={order.publicId}/>}
     </div>
   );
 }
