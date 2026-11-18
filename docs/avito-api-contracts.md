@@ -58,3 +58,5 @@ Live responses confirmed `image.content.image.sizes` as a size-to-URL map on `*.
 The preserved combined spec above describes `GET /messenger/v1/accounts/{user_id}/getVoiceFiles?voice_ids=...` returning `voices_urls` (links expire after an hour). Live read confirmed this schema and the `files.avito.ru` host. Voice links are requested on demand; media uses HTTPS Avito-owned hosts only.
 
 `GET /messenger/v2/accounts/{user_id}/chats?unread_only=true&limit=100&offset=0` is confirmed live. Badge shows up to 100 chats and a plus if more exist. The spec describes `POST /messenger/v1/accounts/{user_id}/chats/{chat_id}/read` returning `{ok:true}`; CRM calls it only after messages load in the visible selected chat. Background unread polling does not mark chats read.
+
+Live read acknowledgement returned HTTP 200 with `{}` rather than documented `{ok:true}`. Both successful shapes are accepted; `{ok:false}` remains an error. Verified against an already-read chat.

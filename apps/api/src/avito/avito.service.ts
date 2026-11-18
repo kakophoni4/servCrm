@@ -71,7 +71,7 @@ export class AvitoService {
   this.unreadPending=(async()=>{const p=await this.profile();const r=await this.request(`/messenger/v2/accounts/${p.id}/chats?unread_only=true&limit=100&offset=0`);if(!Array.isArray(r.chats))throw new BadGatewayException('Не удалось получить непрочитанные чаты');const data={ids:r.chats.map((c:any)=>c.id).filter((id:any)=>typeof id==='string'),hasMore:Boolean(r.meta?.has_more)};this.unreadCache={until:Date.now()+15000,data};return data;})();
   try{return await this.unreadPending;}finally{this.unreadPending=undefined;}
  }
- async markRead(id:string){const chat=this.chatId(id),p=await this.profile();const result=await this.request(`/messenger/v1/accounts/${p.id}/chats/${chat}/read`,{});if(result.ok!==true)throw new BadGatewayException('Не удалось отметить чат прочитанным');this.unreadCache=undefined;return {ok:true};}
+ async markRead(id:string){const chat=this.chatId(id),p=await this.profile();const result=await this.request(`/messenger/v1/accounts/${p.id}/chats/${chat}/read`,{});if(result.ok!==true&&Object.keys(result).length!==0)throw new BadGatewayException('Не удалось отметить чат прочитанным');this.unreadCache=undefined;return {ok:true};}
  async voice(id:string){
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new BadRequestException('Некорректное голосовое сообщение');
   const p=await this.profile(),data=await this.request(`/messenger/v1/accounts/${p.id}/getVoiceFiles?voice_ids=${encodeURIComponent(id)}`);

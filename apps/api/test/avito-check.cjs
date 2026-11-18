@@ -12,7 +12,7 @@ global.fetch=async(url,init)=>{
  requests.push({url,init});
  if(url.endsWith('/token')){auth++;await new Promise(r=>setTimeout(r,10));return response(200,{access_token:'dummy-token',expires_in:86400})}
  if(url.includes('getVoiceFiles'))return response(200,{voices_urls:{voice1:mode==='badvoice'?'https://evil.test/file':'https://files.avito.ru/audio.mp4'}});
- if(url.endsWith('/read'))return response(200,{ok:true});
+ if(url.endsWith('/read'))return response(200,mode==='emptyread'?{}:mode==='badread'?{ok:false}:{ok:true});
  if(url.includes('unread_only=true'))return response(200,{chats:[{id:'abc~def'}],meta:{has_more:false}});
  if(url.endsWith('/self'))return response(200,{id:10,name:'Owner'});
  if(init.method==='POST'&&url.endsWith('/messages')){sends++;if(mode==='timeout')throw new Error('private upstream details');if(mode==='server')return response(503,'private body');if(mode==='forbidden')return response(403,'private body');if(mode==='malformed')return response(200,'private invalid body');return response(200,{id:'sent',created:100,type:'text',content:{text:'Hello'},direction:'out'});}
@@ -26,6 +26,7 @@ global.fetch=async(url,init)=>{
  assert(requests.some(r=>r.url.endsWith('/chats?limit=30&offset=30')));assert(requests.some(r=>r.url.endsWith('/messages/?limit=50&offset=50')));
  await s.messages('abc~def');assert(requests.some(r=>r.url.includes('/abc~def/messages/')));
  const unread=await s.unread();assert.deepEqual(unread.ids,['abc~def']);const count=requests.length;await s.unread();assert.equal(requests.length,count);await s.markRead('abc~def');await s.unread();assert.equal(requests.length,count+2);
+ mode='emptyread';assert.deepEqual(await s.markRead('abc~def'),{ok:true});mode='badread';await assert.rejects(()=>s.markRead('abc~def'));mode='ok';
  assert.equal((await s.voice('voice1')).url,'https://files.avito.ru/audio.mp4');mode='badvoice';await assert.rejects(()=>s.voice('voice1'));mode='ok';await assert.rejects(()=>s.voice('../bad'));
  const draft=await s.draft('abc');assert.equal(draft.clientName,'Client');assert.equal(draft.comment,'Ad\nRepair');assert.equal(draft.phone,undefined);
  await assert.rejects(()=>s.messages('../bad'));await assert.rejects(()=>s.send('abc',' '));await assert.rejects(()=>s.send('abc','x'.repeat(1001)));
