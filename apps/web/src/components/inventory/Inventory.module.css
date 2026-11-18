@@ -18,3 +18,7 @@
 .history { display:grid; gap:12px; padding-top:12px; }
 .historyItem { padding-bottom:10px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 @media(max-width:480px) { .form { grid-template-columns:minmax(0,1fr); } .row { grid-template-columns:minmax(0,1fr) 62px; } .row button { grid-column:1 / -1; justify-self:end; } }
+
+.card { gap:7px; padding:14px; }
+.card .actions { justify-content:flex-end; }
+.card .actions button { min-height:40px; font-size:12px; }

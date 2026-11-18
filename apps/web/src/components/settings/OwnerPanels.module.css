@@ -42,7 +42,9 @@
 
 .masterPageHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .masterPageHead :global(.page-title) { margin: 0; }
-.mobileAdd { display: none; }
+.mobileAdd { display: inline-flex; }
+.masterForm { display: none; }
+.masterForm.formOpen { display: grid; }
 .masterSettings { display: grid; gap: 16px; }
 @media(max-width:600px) {
  .mastersPage { gap: 14px; }

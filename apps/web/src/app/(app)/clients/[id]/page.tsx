@@ -59,8 +59,8 @@ export default function ClientCardPage() {
 
   return (
     <div className={styles.clientPage}>
-      <h1 className="page-title">{client.name}</h1>
       <div className="panel" style={{ marginBottom: 16 }}>
+        <div className={styles.clientHeading}><h1 className="page-title" style={{margin:0}}>{client.name}</h1><span className={styles.clientCount}>Заявок: {client.orders.length}</span></div>
         <p>
           <a href={phoneHref(client.phoneNormalized)}>{formatRuPhoneDisplay(client.phoneNormalized)}</a>
         </p>
@@ -73,7 +73,7 @@ export default function ClientCardPage() {
         <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>История заявок</h2>
         <div className={styles.mobileClients}>
           {client.orders.map(o => <Link href={`/orders/${o.id}`} className={styles.clientOrder} key={o.id}>
-            <div className={styles.clientHeading}><strong>№ {o.publicId}</strong><span className="badge">{STATUS_LABELS[o.status] ?? o.status}</span></div>
+            <div className={styles.clientHeading}><strong>№ {o.publicId}</strong><span className={`badge ${o.status==='DONE'?'badge-ok':o.status==='WAITING'?styles.waitingBadge:['REFUSAL','CANCELLED_CC'].includes(o.status)?'badge-muted':'badge-work'}`}>{STATUS_LABELS[o.status] ?? o.status}</span></div>
             <div>{o.address || 'Адрес не указан'}</div>
             <div className={styles.orderFoot}><span>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</span><span>{TYPE_LABELS[o.type] ?? o.type}</span>{o.isClaim && <span className="badge badge-warn">Претензия</span>}</div>
             {o.payment && <div className={styles.historyMoney}><span>Оплачено: {Number(o.payment.paid).toLocaleString('ru-RU')} ₽</span><span>Работы: {Number(o.payment.workSum).toLocaleString('ru-RU')} ₽</span></div>}
@@ -113,13 +113,14 @@ export default function ClientCardPage() {
                     {o.isClaim ? ' ⚠' : ''}
                   </td>
                   <td>{TYPE_LABELS[o.type]}</td>
-                  <td>{STATUS_LABELS[o.status]}</td>
+                  <td><span className={`badge ${o.status==='DONE'?'badge-ok':o.status==='WAITING'?styles.waitingBadge:['REFUSAL','CANCELLED_CC'].includes(o.status)?'badge-muted':'badge-work'}`}>{STATUS_LABELS[o.status] ?? o.status}</span></td>
                   <td>{o.address}</td>
                   <td>{o.payment ? `${String(o.payment.paid)} ₽` : '-'}</td>
                   <td>{o.payment ? `${String(o.payment.workSum)} ₽` : '-'}</td>
                   <td>{new Date(o.createdAt).toLocaleString('ru-RU')}</td>
                 </tr>
               ))}
+              {!client.orders.length&&<tr><td colSpan={7} className="muted">Заявок пока нет.</td></tr>}
             </tbody>
           </table>
         </div>

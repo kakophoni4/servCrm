@@ -6,10 +6,12 @@ import {useEffect,useState} from 'react';
 import { AccountSettingsPanel } from '@/components/settings/AccountSettingsPanel';
 
 export default function AccountSettingsPage() {
-  const [owner,setOwner]=useState(false);useEffect(()=>setOwner(getStoredUser()?.role==='OWNER'),[]);
+  const [profile,setProfile]=useState<ReturnType<typeof getStoredUser>>(null);
+  const [owner,setOwner]=useState(false);useEffect(()=>{const user=getStoredUser();setOwner(user?.role==='OWNER');setProfile(user)},[]);
   return (
     <div className="settings-page account-page">
       <h1 className="page-title settings-page-title">Аккаунт</h1>
+      {profile&&<div className="panel"><strong>{profile.fullName||profile.login}</strong><div className="muted">{profile.login}</div></div>}
       {owner&&<Link className="btn secondary" href="/users">Сотрудники и доступ</Link>}
       <AccountSettingsPanel />
     </div>

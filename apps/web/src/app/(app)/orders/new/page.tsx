@@ -116,12 +116,13 @@ export default function NewOrderPage() {
       setLoading(false);
       return;
     }
-    const scheduledIso = new Date(form.scheduledAt).toISOString();
-    if (Number.isNaN(Date.parse(scheduledIso))) {
-      setError('Некорректное время по заказу');
+    const scheduledDate = new Date(form.scheduledAt);
+    if (Number.isNaN(scheduledDate.getTime())) {
+      setError('Некорректная дата или время');
       setLoading(false);
       return;
     }
+    const scheduledIso=scheduledDate.toISOString();
     try {
       const body = {
         clientName: form.clientName,
@@ -196,7 +197,7 @@ export default function NewOrderPage() {
 
         <section className="order-new-section">
           <h2 className="order-new-section-title">Заявка</h2>
-          <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>setForm(f=>({...f,isServiceCenter:e.target.checked,...(e.target.checked?{isPersonal:false}:{})}))}/> Привезут в СЦ - на Авито 30%</label>
+          <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>setForm(f=>({...f,isServiceCenter:e.target.checked,...(e.target.checked?{isPersonal:false}:{})}))}/> Привезут в СЦ</label>
           <div className="order-new-grid order-new-grid-details">
             {!form.isServiceCenter && <div className="field order-new-field-wide">
               <label htmlFor="new-address">Адрес</label>
@@ -223,11 +224,10 @@ export default function NewOrderPage() {
               />
             </div>
             <div className="field order-new-field-wide">
-              <label>Комментарий</label>
+              <label>Неисправность</label>
               <AutoTextarea
                 value={form.comment}
                 onChange={(e) => set('comment', e.target.value)}
-                placeholder="Необязательно"
               />
             </div>
           </div>

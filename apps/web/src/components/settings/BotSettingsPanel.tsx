@@ -137,7 +137,7 @@ export function BotSettingsPanel() {
           <p className="muted">Загрузка…</p>
         )}
 
-        <div className="field">
+        <details open={!config?.hasToken}><summary style={{cursor:'pointer',fontWeight:600,marginBottom:12}}>Настройки бота</summary><div className="field">
           <label>Токен бота</label>
           <input
             type="password"
@@ -162,13 +162,12 @@ export function BotSettingsPanel() {
           Бот включён
         </label>
 
+        <button className="btn" type="submit" disabled={saving}>{saving?'Сохраняем...':'Сохранить'}</button></details>
         {error ? <p className="error">{error}</p> : null}
         {msg ? <p className="bot-settings-msg">{msg}</p> : null}
 
         <div className="bot-settings-actions">
-          <button className="btn" type="submit" disabled={saving}>
-            {saving ? 'Сохранение…' : 'Сохранить'}
-          </button>
+
           <button
             className="btn secondary"
             type="button"
@@ -187,10 +186,8 @@ export function BotSettingsPanel() {
           </p>
         ) : null}
       </form>
-      <OwnerTelegramPanel />
-      <GroupSettingsPanel kind="owner" />
-      <GroupSettingsPanel kind="center" />
-      <GroupSettingsPanel />
+      <section className="telegram-section"><h2>Аккаунты</h2><div className="telegram-grid"><OwnerTelegramPanel /></div></section>
+      <section className="telegram-section"><h2>Чаты для заявок</h2><div className="telegram-grid"><GroupSettingsPanel kind="owner" /><GroupSettingsPanel kind="center" /><GroupSettingsPanel /></div></section>
     </div>
   );
 }

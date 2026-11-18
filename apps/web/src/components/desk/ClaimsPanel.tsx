@@ -4,7 +4,6 @@ import styles from './DeskLists.module.css';
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { BranchSelect } from '@/components/BranchSelect';
 import { api, getStoredUser } from '@/lib/api';
 import { formatRuPhoneDisplay } from '@/lib/phone';
 import { hasPermission } from '@/lib/permissions';
@@ -56,7 +55,8 @@ export function ClaimsPanel() {
   );
 
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [cities, setCities] = useState<City[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [showForm,setShowForm]=useState(false),[closedView,setClosedView]=useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     orderId: '',
@@ -79,7 +79,6 @@ export function ClaimsPanel() {
       canWrite ? api<City[]>('/cities') : Promise.resolve([] as City[]),
     ]);
     setClaims(c);
-    setCities(cityList);
     if (!form.cityId && cityList[0]) {
       setForm((f) => ({ ...f, cityId: f.cityId || cityList[0].id }));
     }
@@ -90,7 +89,7 @@ export function ClaimsPanel() {
     load().catch((e) => {
       const msg = e instanceof Error ? e.message : 'Ошибка';
       if (msg !== 'Недостаточно прав') setError(msg);
-    });
+    }).finally(()=>setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canRead]);
 
@@ -160,6 +159,7 @@ export function ClaimsPanel() {
         }),
       });
       clearOrder();
+      setShowForm(false);
       setForm((f) => ({
         ...f,
         type: 'PRICE_DISSATISFIED',
@@ -179,7 +179,8 @@ export function ClaimsPanel() {
   return (
     <section className={`desk-panel ${styles.list}`}>
       <div className="desk-panel-body desk-claims">
-        {canWrite ? (
+        <div className={styles.orderFilters}><button type="button" aria-pressed={!closedView} onClick={()=>setClosedView(false)}>Открытые · {claims.filter(c=>!c.closedAt).length}</button><button type="button" aria-pressed={closedView} onClick={()=>setClosedView(true)}>Закрытые</button>{canWrite&&<button type="button" aria-pressed={showForm} onClick={()=>setShowForm(!showForm)}>{showForm?'Скрыть форму':'Новая претензия'}</button>}</div>
+        {canWrite && showForm ? (
           <form onSubmit={onCreate} className="panel desk-claims-form">
             <div className="desk-claims-form-head">
               <h2 className="desk-claims-form-title">Новая претензия</h2>
@@ -269,12 +270,7 @@ export function ClaimsPanel() {
                   }
                 />
               </div>
-              <BranchSelect
-                cities={cities}
-                value={form.cityId}
-                onChange={(cityId) => setForm({ ...form, cityId })}
-                allowEmpty
-              />
+
             </div>
 
             <button className="btn desk-claims-form-submit" type="submit">
@@ -283,6 +279,7 @@ export function ClaimsPanel() {
           </form>
         ) : null}
 
+        {loading&&<p className="muted">Загрузка...</p>}
         {error ? <p className="error desk-claims-error">{error}</p> : null}
 
         <div className="panel desk-claims-list">
@@ -299,7 +296,7 @@ export function ClaimsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {claims.map((c) => {
+                {claims.filter(c=>Boolean(c.closedAt)===closedView).map((c) => {
                   const closed = Boolean(c.closedAt);
                   return (
                     <tr
@@ -319,7 +316,7 @@ export function ClaimsPanel() {
                           </div>
                           <div className="desk-cell-sub">
                             {c.order.client.name}
-                            {c.city?.name ? ` · ${c.city.name}` : ''}
+
                           </div>
                         </div>
                       </td>
@@ -367,10 +364,10 @@ export function ClaimsPanel() {
                     </tr>
                   );
                 })}
-                {claims.length === 0 && !error ? (
+                {claims.filter(c=>Boolean(c.closedAt)===closedView).length === 0 && !error && !loading ? (
                   <tr>
                     <td colSpan={6} className="muted desk-col-center">
-                      Претензий пока нет.
+                      {closedView?'Нет закрытых претензий':'Нет открытых претензий'}
                     </td>
                   </tr>
                 ) : null}

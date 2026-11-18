@@ -128,7 +128,9 @@ export function OrdersPanel() {
     return () => clearInterval(timer);
   }, []);
 
-  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='today'&&isScheduledToday(o.scheduledAt,now))||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&[o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(query.toLowerCase())});
+  const search=query.trim().toLowerCase();
+  const phoneSearch=query.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7');
+  const visible = orders.filter(o=>{const closed=['DONE','REFUSAL','CANCELLED_CC'].includes(o.status);return (view==='all'||(view==='today'&&isScheduledToday(o.scheduledAt,now))||(view==='personal'&&o.isPersonal)||(view==='center'&&o.isServiceCenter)||(view==='active'&&!closed)||(view==='unassigned'&&!closed&&!o.master)||(view==='closed'&&closed))&&([o.publicId,o.client.name,o.client.phoneNormalized,o.address,o.master?.user.fullName].join(' ').toLowerCase().includes(search)||(phoneSearch.length>=3&&o.client.phoneNormalized.includes(phoneSearch)))}).sort((a,b)=>view==='today'?new Date(a.scheduledAt!).getTime()-new Date(b.scheduledAt!).getTime():0);
   function go(id: string) {
     router.push(`/orders/${id}`);
   }
@@ -155,6 +157,7 @@ export function OrdersPanel() {
         ) : null}
         {!loading && !error ? (
           <>
+          <p className="muted">Найдено: {visible.length}</p>
           <div className={styles.mobileOrders}>
             {visible.map(o => {
               const urgent = isUrgentUnassigned(o, now);

@@ -25,8 +25,8 @@ const NAV: NavItem[] = [
  {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
  {href:'/inventory',label:'Запчасти',roles:['OWNER']},
- {href:'/settings/bot',label:'Telegram',roles:['OWNER']},
  {href:'/reports',label:'Финансы',roles:['OWNER']},
+ {href:'/settings/bot',label:'Telegram',roles:['OWNER']},
  {href:'/settings/salary',label:'Проценты и доли',roles:['OWNER']},
  {href:'/users',label:'Сотрудники',roles:['OWNER']},
  {href:'/settings/account',label:'Аккаунт'},
@@ -102,7 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Link
         key={item.href}
         href={item.href}
-        className={active ? 'active' : ''}
+        className={[active?'active':'',item.href==='/settings/bot'||(item.href==='/settings/account'&&user.role!=='OWNER')?'nav-settings-start':''].filter(Boolean).join(' ')}
         aria-current={active ? 'page' : undefined}
         onClick={() => setNavOpen(false)}
       >

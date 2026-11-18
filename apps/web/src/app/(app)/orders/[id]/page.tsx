@@ -997,6 +997,7 @@ export default function OrderDetailPage() {
             <button className="btn" type="submit" disabled={doneBlocked}>
               Сохранить
             </button>
+            <details className="order-extra-actions"><summary>Ещё</summary><div>
             {admin && !logistic ? (
               <button
                 className="btn secondary"
@@ -1020,6 +1021,7 @@ export default function OrderDetailPage() {
             >
               Гарантия
             </button>
+            </div></details>
           </div>
         </form>
 

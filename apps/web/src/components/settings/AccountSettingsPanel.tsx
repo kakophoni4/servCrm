@@ -15,6 +15,7 @@ const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
 ];
 
 export function AccountSettingsPanel() {
+  const [passwordOpen,setPasswordOpen]=useState(false);
   const [theme, setTheme] = useState<ThemePref>('system');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -91,10 +92,7 @@ export function AccountSettingsPanel() {
         </div>
       </div>
 
-      <form className="panel account-card" onSubmit={onPassword}>
-        <div className="account-card-head">
-          <h2 className="account-card-title">Сменить пароль</h2>
-        </div>
+      <details className="panel account-card" open={passwordOpen} onToggle={e=>setPasswordOpen(e.currentTarget.open)}><summary style={{cursor:'pointer',fontWeight:650}}>Сменить пароль</summary><form onSubmit={onPassword} style={{paddingTop:16}}>
 
         <div className="field">
           <label htmlFor="account-currentPassword">Текущий пароль</label>
@@ -148,7 +146,8 @@ export function AccountSettingsPanel() {
         >
           {saving ? 'Сохранение…' : 'Сменить пароль'}
         </button>
-      </form>
+        <button type="button" className="btn secondary" disabled={saving} onClick={()=>{setPasswordOpen(false);setCurrentPassword('');setNewPassword('');setNewPassword2('');setError('');setMsg('')}}>Отмена</button>
+      </form></details>
     </div>
   );
 }

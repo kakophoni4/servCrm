@@ -28,6 +28,8 @@ export function ClientsPanel() {
   );
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState('');
+  const [query,setQuery]=useState('');
+  const [loading,setLoading]=useState(true);
 
   useEffect(() => {
     if (!canRead) return;
@@ -36,7 +38,7 @@ export function ClientsPanel() {
       .catch((e) => {
         const msg = e instanceof Error ? e.message : 'Ошибка';
         if (msg !== 'Недостаточно прав') setError(msg);
-      });
+      }).finally(()=>setLoading(false));
   }, [canRead]);
 
   function go(id: string) {
@@ -45,12 +47,16 @@ export function ClientsPanel() {
 
   if (!canRead) return null;
 
+  const search=query.trim().toLowerCase(),digits=query.replace(/\D/g,'').replace(/^8(?=\d{10}$)/,'7');
+  const visible=clients.filter(c=>c.name.toLowerCase().includes(search)||c.phoneNormalized.includes(search)||(digits.length>=3&&c.phoneNormalized.includes(digits)));
   return (
     <section className={`desk-panel ${styles.list} ${styles.clients}`}>
       <div className="desk-panel-body">
+        <div className="field"><input aria-label="Поиск клиентов" placeholder="Имя или телефон" value={query} onChange={e=>setQuery(e.target.value)}/></div>
+        {loading&&<p className="muted">Загрузка...</p>}
         {error ? <p className="error">{error}</p> : null}
         <div className={styles.mobileClients}>
-          {clients.map(c => <article key={c.id} className={styles.clientCard}>
+          {visible.map(c => <article key={c.id} className={styles.clientCard}>
             <div className={styles.clientHeading}>
               <Link href={`/clients/${c.id}`} className={styles.clientName}>{c.name}</Link>
               <span className={styles.clientCount}>Заявок: <strong>{c._count.orders}</strong></span>
@@ -60,7 +66,7 @@ export function ClientsPanel() {
               <Link href={`/clients/${c.id}#history`} className={styles.clientHistory} aria-label={`История заявок: ${c.name}`}>История <span aria-hidden="true">›</span></Link>
             </div>
           </article>)}
-          {!clients.length && !error && <p className={styles.orderEmpty}>Клиентов пока нет.</p>}
+          {!visible.length && !error && !loading && <p className={styles.orderEmpty}>Клиенты не найдены.</p>}
         </div>
         <div className={`table-scroll ${styles.desktopClients}`}>
           <table className="table desk-list">
@@ -68,13 +74,11 @@ export function ClientsPanel() {
               <tr>
                 <th>Клиент</th>
                 <th>Телефон</th>
-                <th className="desk-col-center">Возраст</th>
-                <th className="desk-col-center">Филиал</th>
                 <th className="desk-col-center">Заявок</th>
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {visible.map((c) => (
                 <tr
                   key={c.id}
                   className="row-link"
@@ -98,29 +102,15 @@ export function ClientsPanel() {
                       {formatRuPhoneDisplay(c.phoneNormalized)}
                     </span>
                   </td>
-                  <td className="desk-col-center" data-label="Возраст">
-                    {c.ageCategory?.label ? (
-                      <span className="desk-cell-main">{c.ageCategory.label}</span>
-                    ) : (
-                      <span className="desk-cell-sub">-</span>
-                    )}
-                  </td>
-                  <td className="desk-col-center" data-label="Филиал">
-                    {c.city?.name ? (
-                      <span className="desk-cell-main">{c.city.name}</span>
-                    ) : (
-                      <span className="desk-cell-sub">-</span>
-                    )}
-                  </td>
                   <td className="desk-col-center" data-label="Заявок">
                     <span className="desk-count">{c._count.orders}</span>
                   </td>
                 </tr>
               ))}
-              {clients.length === 0 && !error ? (
+              {visible.length === 0 && !error && !loading ? (
                 <tr>
-                  <td colSpan={5} className="muted desk-col-center">
-                    Клиентов пока нет.
+                  <td colSpan={3} className="muted desk-col-center">
+                    Клиенты не найдены.
                   </td>
                 </tr>
               ) : null}

@@ -43,6 +43,7 @@ export default function LoginPage() {
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             autoComplete="username"
+            autoCapitalize="none" autoCorrect="off" spellCheck={false}
             required
           />
         </div>
@@ -57,7 +58,7 @@ export default function LoginPage() {
             required
           />
         </div>
-        {error ? <p className="error">{error}</p> : null}
+        {error ? <p className="error" role="alert">{error}</p> : null}
         <button className="btn" type="submit" disabled={loading}>
           {loading ? 'Входим…' : 'Войти'}
         </button>
