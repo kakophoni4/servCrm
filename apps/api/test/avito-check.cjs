@@ -28,6 +28,7 @@ global.fetch=async(url,init)=>{
  const unread=await s.unread();assert.deepEqual(unread.ids,['abc~def']);const count=requests.length;await s.unread();assert.equal(requests.length,count);await s.markRead('abc~def');await s.unread();assert.equal(requests.length,count+2);
  mode='emptyread';assert.deepEqual(await s.markRead('abc~def'),{ok:true});mode='badread';await assert.rejects(()=>s.markRead('abc~def'));mode='ok';
  assert.equal((await s.voice('voice1')).url,'https://files.avito.ru/audio.mp4');mode='badvoice';await assert.rejects(()=>s.voice('voice1'));mode='ok';await assert.rejects(()=>s.voice('../bad'));
+ await s.chats(30,true);assert(requests.at(-1).url.endsWith('/chats?limit=30&offset=30&unread_only=true'));
  const draft=await s.draft('abc');assert.equal(draft.clientName,'Client');assert.equal(draft.comment,'Ad\nRepair');assert.equal(draft.phone,undefined);
  await assert.rejects(()=>s.messages('../bad'));await assert.rejects(()=>s.send('abc',' '));await assert.rejects(()=>s.send('abc','x'.repeat(1001)));
  assert.equal((await s.send('abc','  Hello  ')).id,'sent');const sent=requests.at(-1);assert.equal(sent.url,'https://api.avito.ru/messenger/v1/accounts/10/chats/abc/messages');assert.deepEqual(JSON.parse(sent.init.body),{type:'text',message:{text:'Hello'}});assert.equal(sent.init.redirect,'error');assert(sent.init.signal);

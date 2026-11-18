@@ -5127,3 +5127,9 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; f
 .avito-unread-count { margin-left:auto; min-width:22px; padding:2px 6px; border-radius:20px; background:var(--accent); color:var(--panel); font-size:11px; text-align:center; font-weight:700; }
 .nav-toggle { position:relative; }
 .avito-menu-dot { position:absolute; right:3px; top:3px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
+
+.avito-message-toast { position:fixed; right:18px; bottom:20px; z-index:500; display:flex; gap:12px; align-items:flex-start; background:var(--panel); color:var(--ink); border:1px solid var(--accent); box-shadow:0 8px 30px #0003; border-radius:14px; padding:14px 16px; width:min(340px,calc(100vw - 32px)); }
+.avito-message-toast a { color:inherit; text-decoration:none; display:grid; gap:5px; flex:1; min-width:0; overflow-wrap:anywhere; }
+.avito-message-toast strong { font-size:14px; }
+.avito-message-toast span { font-size:12px; color:var(--muted); }
+.avito-message-toast button { border:0; background:none; color:var(--muted); font-size:22px; cursor:pointer; }

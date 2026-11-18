@@ -70,3 +70,29 @@
  .dates label { flex:1 1 130px; }
  .dates input { width:100%; }
 }
+
+.filters { display:flex; padding:8px 10px; gap:6px; }
+.filters button { display:flex; align-items:center; gap:5px; border:0; border-radius:20px; background:var(--bg); color:var(--muted); padding:7px 11px; cursor:pointer; font:inherit; font-size:12px; }
+.filters button[aria-pressed="true"] { background:color-mix(in srgb,var(--accent) 16%,var(--panel)); color:var(--ink); font-weight:600; }
+.filters span { font-size:10px; min-width:16px; border-radius:8px; background:var(--accent); color:var(--bg); text-align:center; }
+.notifications { background:none; border:0; border-bottom:1px solid var(--line); padding:0 12px 9px; color:var(--muted); font-size:11px; text-align:left; cursor:pointer; }
+.hint { margin:8px 12px; font-size:11px; color:var(--muted); }
+.chat { display:flex; gap:10px; padding:12px 8px; }
+.avatar { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; flex-shrink:0; font-weight:600; background:color-mix(in srgb,var(--accent) 16%,var(--panel)); color:var(--accent); }
+.chatInfo { flex:1; min-width:0; display:grid; gap:4px; }
+.chatTitle strong { font-weight:600; }
+.preview { color:var(--ink); opacity:.75; }
+.adTitle { font-size:10px; }
+.chatInfo .time { margin:0; font-size:10px; }
+.messages { background:color-mix(in srgb,var(--bg) 55%,var(--panel)); gap:7px; }
+.message { background:var(--panel); border-radius:12px 12px 12px 3px; line-height:1.45; }
+.outgoing { background:color-mix(in srgb,var(--accent) 17%,var(--panel)); border-radius:12px 12px 3px 12px; }
+.message .time { text-align:right; line-height:1.1; }
+.system { background:transparent; }
+.system .time { text-align:center; }
+.day { align-self:center; font-size:11px; color:var(--muted); padding:4px 10px; background:var(--panel); border-radius:12px; margin:7px 0; }
+.reply textarea { border-radius:18px; }
+.reply button { border-radius:50%; width:40px; height:40px; padding:8px; min-height:40px; display:grid; place-items:center; }
+.emptyList { display:grid; gap:8px; text-align:center; padding:36px 16px; }
+.emptyList strong { font-size:14px; }
+.emptyList span { font-size:12px; color:var(--muted); }

@@ -60,15 +60,16 @@ export class AvitoService {
   this.profilePromise=(async()=>{const data=await this.request('/core/v1/accounts/self');if(!Number.isSafeInteger(data.id)||data.id<=0)throw new BadGatewayException('Некорректный профиль Авито');this.profileValue={id:data.id,name:typeof data.name==='string'?data.name:'',profileUrl:typeof data.profile_url==='string'?data.profile_url:''};this.profileExpiresAt=Date.now()+300000;return this.profileValue;})();
   try{return await this.profilePromise;}finally{this.profilePromise=undefined;}
  }
- async chats(offset=0){const profile=await this.profile();return this.request(`/messenger/v2/accounts/${profile.id}/chats?limit=30&offset=${offset}`);}
+ async chats(offset=0,unreadOnly=false){const profile=await this.profile();return this.request(`/messenger/v2/accounts/${profile.id}/chats?limit=30&offset=${offset}${unreadOnly?'&unread_only=true':''}`);}
  private chatId(id:string){if(!/^[a-zA-Z0-9_~\-]{1,128}$/.test(id))throw new BadRequestException('Некорректный чат Авито');return encodeURIComponent(id);}
+ async chat(id:string){const chat=this.chatId(id),p=await this.profile();return this.request(`/messenger/v2/accounts/${p.id}/chats/${chat}`);}
  async messages(id:string,offset=0){const chat=this.chatId(id),profile=await this.profile();return this.request(`/messenger/v3/accounts/${profile.id}/chats/${chat}/messages/?limit=50&offset=${offset}`);}
- private unreadCache?:{until:number;data:{ids:string[];hasMore:boolean}};
- private unreadPending?:Promise<{ids:string[];hasMore:boolean}>;
+ private unreadCache?:{until:number;data:{ids:string[];hasMore:boolean;entries:{id:string;messageId:string;created:number;name:string;incoming:boolean}[]}};
+ private unreadPending?:Promise<{ids:string[];hasMore:boolean;entries:{id:string;messageId:string;created:number;name:string;incoming:boolean}[]}>;
  async unread(){
   if(this.unreadCache&&this.unreadCache.until>Date.now())return this.unreadCache.data;
   if(this.unreadPending)return this.unreadPending;
-  this.unreadPending=(async()=>{const p=await this.profile();const r=await this.request(`/messenger/v2/accounts/${p.id}/chats?unread_only=true&limit=100&offset=0`);if(!Array.isArray(r.chats))throw new BadGatewayException('Не удалось получить непрочитанные чаты');const data={ids:r.chats.map((c:any)=>c.id).filter((id:any)=>typeof id==='string'),hasMore:Boolean(r.meta?.has_more)};this.unreadCache={until:Date.now()+15000,data};return data;})();
+  this.unreadPending=(async()=>{const p=await this.profile();const r=await this.request(`/messenger/v2/accounts/${p.id}/chats?unread_only=true&limit=100&offset=0`);if(!Array.isArray(r.chats))throw new BadGatewayException('Не удалось получить непрочитанные чаты');const data={ids:r.chats.map((c:any)=>c.id).filter((id:any)=>typeof id==='string'),hasMore:Boolean(r.meta?.has_more),entries:r.chats.map((c:any)=>({id:String(c.id),messageId:String(c.last_message?.id||''),created:Number(c.last_message?.created||0),name:String(c.users?.find((u:any)=>u.id!==p.id)?.name||'Клиент'),incoming:c.last_message?.author_id!==p.id&&c.last_message?.type!=='system'}))};this.unreadCache={until:Date.now()+15000,data};return data;})();
   try{return await this.unreadPending;}finally{this.unreadPending=undefined;}
  }
  async markRead(id:string){const chat=this.chatId(id),p=await this.profile();const result=await this.request(`/messenger/v1/accounts/${p.id}/chats/${chat}/read`,{});if(result.ok!==true&&Object.keys(result).length!==0)throw new BadGatewayException('Не удалось отметить чат прочитанным');this.unreadCache=undefined;return {ok:true};}
