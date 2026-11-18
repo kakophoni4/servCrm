@@ -52,6 +52,7 @@ function isUrgentUnassigned(o: OrderRow, now: number): boolean {
 }
 
 function statusBadgeClass(status: string): string {
+  if (status === 'WAITING') return `badge ${styles.waitingBadge}`;
   if (status === 'DONE') return 'badge badge-ok';
   if (status === 'REFUSAL' || status === 'CANCELLED_CC') return 'badge badge-muted';
   if (
@@ -79,7 +80,7 @@ function formatSchedule(iso: string): string {
 
 export function OrdersPanel() {
   const router = useRouter();
-  const [view,setView]=useState('active');
+  const [view,setView]=useState('today');
   const [query,setQuery]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [, setCities] = useState<City[]>([]);
@@ -143,7 +144,7 @@ export function OrdersPanel() {
           ) : null}
         </div>
       </div>
-      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="Показать заявки" value={view} onChange={e=>setView(e.target.value)}><option value="active">В работе</option><option value="today">На сегодня</option><option value="unassigned">Без мастера</option><option value="closed">Закрытые и отменённые</option><option value="personal">Личные заявки</option><option value="center">СЦ</option><option value="all">Все заявки</option></select></div>
+      <div className="desk-panel-body"><div className={`field ${styles.filters}`}><input aria-label="Поиск заявок" placeholder="Поиск по заявкам" value={query} onChange={e=>setQuery(e.target.value)}/><div className={styles.orderFilters} role="group" aria-label="Показать заявки">{[['today','Сегодня'],['all','Все'],['unassigned','Без мастера'],['active','В работе'],['personal','Личные'],['center','СЦ'],['closed','Закрытые']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>setView(value)}>{label}</button>)}</div></div>
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && !user?.cityId && !isOwner ? (

@@ -10,6 +10,13 @@
 .list :global(.row-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); gap: 12px; margin-bottom: 20px; }
 .filters input, .filters select { width: 100%; min-width: 0; }
+.orders .filters { grid-template-columns: minmax(0,1fr); }
+.orderFilters { display: flex; flex-wrap: wrap; gap: 6px; }
+.orderFilters button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.orderFilters button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 650; }
+.orderFilters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.waitingBadge { color: #c86b24; background: color-mix(in srgb,#e68a3c 14%,var(--panel)); border-color: color-mix(in srgb,#e68a3c 40%,var(--line)); }
+:global([data-theme="dark"]) .waitingBadge { color: #efad73; }
 @media (max-width: 1100px) {
  .list :global(.table-scroll) { overflow: visible; }
  .list :global(.table.desk-list), .list :global(.desk-claims-list .table-scroll .table.desk-list) { min-width: 0; width: 100%; display: block; }
