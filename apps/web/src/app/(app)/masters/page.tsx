@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import {STATUS_LABELS} from '@/lib/labels';
 import {TECH} from '@/components/TechPicker';
 import {MasterCash,CashBalance} from '@/components/masters/MasterCash';
 import { MobileFold } from '@/components/MobileFold';
@@ -8,7 +9,7 @@ import styles from '@/components/settings/OwnerPanels.module.css';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, getStoredUser } from '@/lib/api';
 type Master = {id:string;averageCheck:number;completedOrders:number;repairTech?:string[];address?:string; user:{telegramId?:string|null;fullName:string;phone?:string|null}};
-type Order = {id:string;publicId:string;masterId?:string;status:string;client:{name:string}};
+type Order = {id:string;publicId:string;masterId?:string;status:string;address:string;scheduledAt?:string|null;sdDueAt?:string|null;client:{name:string}};
 export default function MastersPage(){
  const [techFilter,setTechFilter]=useState('');
  const [cash,setCash]=useState<CashBalance[]>([]);
@@ -50,7 +51,9 @@ export default function MastersPage(){
  <div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:8}}><span>Средний чек <strong>{(m.averageCheck||0).toLocaleString('ru-RU',{maximumFractionDigits:0})} ₽</strong></span><span className="muted">Закрыто {m.completedOrders||0}</span></div>
  <div className={styles.masterTech} aria-label="Ремонтирует">{m.repairTech?.length?m.repairTech.map(code=><span className="badge" key={code} title={TECH.find(([key])=>key===code)?.[1]||code}>{code}</span>):<span className="muted">Техника не указана</span>}</div>
  {cash.find(c=>c.masterId===m.id)&&<MasterCash balance={cash.find(c=>c.masterId===m.id)!} onSaved={load}/>}
- {active.length>0&&<MobileFold title={`Открыть заявки · ${active.length}`} className={styles.masterJobs}><div className={styles.jobs}>{active.map(o=><Link key={o.id} href={'/orders/'+o.id}><span>№ {o.publicId}</span><strong>{o.client.name}</strong><span aria-hidden="true">›</span></Link>)}</div></MobileFold>}
+ <MobileFold title={`Актуальные заявки · ${active.length}${active.some(o=>o.status==='IN_PROGRESS_SD')?' · СД '+active.filter(o=>o.status==='IN_PROGRESS_SD').length:''}`} className={styles.masterJobs}>
+ {!active.length?<p className="muted">Нет актуальных заявок</p>:['regular','sd'].map(group=>{const rows=active.filter(o=>(o.status==='IN_PROGRESS_SD')===(group==='sd')).sort((a,b)=>(a.scheduledAt||'9999').localeCompare(b.scheduledAt||'9999'));return rows.length>0&&<div key={group}><h4>{group==='sd'?'СД':'Назначены и в работе'} · {rows.length}</h4><div style={{display:'grid',gap:8}}>{rows.map(o=><Link key={o.id} href={'/orders/'+o.id} style={{display:'grid',gap:4,padding:'10px 0',borderBottom:'1px solid var(--border)',overflowWrap:'anywhere'}}><strong>№ {o.publicId} · {o.client.name}</strong><span>{o.address}</span><span className="muted">{STATUS_LABELS[o.status]||o.status} · {o.scheduledAt?new Date(o.scheduledAt).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'Время не назначено'}</span>{group==='sd'&&<span>Срок СД: {o.sdDueAt?new Date(o.sdDueAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан'}{o.sdDueAt&&new Date(o.sdDueAt)<new Date()?' · просрочено':''}</span>}</Link>)}</div></div>})}
+ </MobileFold>
  <MobileFold title="Настройки мастера" className={styles.masterSettings}>
  {m.address&&<p className={styles.address}>{m.address}</p>}
  <div className={styles.telegram}><span className={groups[m.id]?styles.connected:styles.disconnected}>{groups[m.id]?'Группа: '+groups[m.id]!.title:'Группа для заявок не подключена'}</span><button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>connectGroup(m.id)}>{groups[m.id]?'Сменить группу':'Подключить группу'}</button>{groups[m.id]&&<button className="btn secondary" disabled={groupBusy===m.id} onClick={()=>disconnectGroup(m.id)}>Отключить группу</button>}</div>

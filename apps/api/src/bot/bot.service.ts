@@ -1881,7 +1881,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   async masterActiveReport(masterId:string) {
     const master=await this.prisma.master.findUniqueOrThrow({where:{id:masterId},include:{user:true}});
     const orders=await this.prisma.order.findMany({where:{masterId,isPersonal:false,status:{in:[OrderStatus.NOT_SCHEDULED,OrderStatus.WAITING,OrderStatus.ON_THE_WAY,OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]}},include:{client:true},orderBy:[{scheduledAt:{sort:'asc',nulls:'last'}},{createdAt:'asc'},{id:'asc'}]});
-    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...orders.flatMap(o=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.comment?['Описание: '+o.comment]:[]),''])].join('\n').trim();
+    if(!orders.length)return 'Актуальные заявки · '+master.user.fullName+'\nНет актуальных заявок';
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Moscow'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
+    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,...sd.flatMap(lines)]:[])].join('\n').trim();
   }
 
   private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
