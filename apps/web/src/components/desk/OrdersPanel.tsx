@@ -1,6 +1,7 @@
 'use client';
 
 import styles from './DeskLists.module.css';
+import {isOverdueUnassigned} from '@/lib/unassigned-order';
 import {TECH} from '@/components/TechPicker';
 
 import Link from 'next/link';
@@ -39,17 +40,6 @@ type OrderRow = {
   city?: { id: string; name: string } | null;
 };
 
-
-const URGENT_MS = 30 * 60 * 1000;
-
-function isUrgentUnassigned(o: OrderRow, now: number): boolean {
-  if (o.master) return false;
-  if (!o.scheduledAt) return false;
-  if (['DONE', 'REFUSAL', 'CANCELLED_CC'].includes(o.status)) return false;
-  const t = new Date(o.scheduledAt).getTime();
-  if (Number.isNaN(t)) return false;
-  return t - now <= URGENT_MS;
-}
 
 function statusBadgeClass(status: string): string {
   if (status === 'WAITING') return `badge ${styles.waitingBadge}`;
@@ -96,10 +86,25 @@ export function OrdersPanel() {
     'orders.read',
   );
 
-  useEffect(()=>{if(!canRead){setLoading(false);return}const c=new AbortController();setLoading(true);setError('');setOrders([]);const timer=setTimeout(()=>{const q=new URLSearchParams({q:query,filter:view,tech,page:String(page),limit:'30'});api<{items:OrderRow[];total:number;totalPages:number}>(`/orders/paged?${q}`,{signal:c.signal}).then(r=>{if(!c.signal.aborted){setOrders(r.items);setTotal(r.total);setTotalPages(r.totalPages);if(page>r.totalPages&&r.totalPages>0)setPage(r.totalPages)}}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)})},250);return()=>{clearTimeout(timer);c.abort()}},[canRead,query,view,tech,page]);
+  useEffect(()=>{
+    if(!canRead){setLoading(false);return}
+    const c=new AbortController();let running=false;
+    setLoading(true);setError('');setOrders([]);
+    async function load(){
+      if(running||c.signal.aborted)return;running=true;
+      const q=new URLSearchParams({q:query,filter:view,tech,page:String(page),limit:'30'});
+      try {const r=await api<{items:OrderRow[];total:number;totalPages:number}>(`/orders/paged?${q}`,{signal:c.signal});if(!c.signal.aborted){setOrders(r.items);setTotal(r.total);setTotalPages(r.totalPages);setNow(Date.now());setError('');if(page>r.totalPages&&r.totalPages>0)setPage(r.totalPages)}}
+      catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:'Не удалось обновить заявки')}
+      finally{running=false;if(!c.signal.aborted)setLoading(false)}
+    }
+    const timer=setTimeout(load,250),refresh=setInterval(()=>{if(!document.hidden)void load()},30000);
+    const resume=()=>{if(!document.hidden){setNow(Date.now());void load()}};
+    document.addEventListener('visibilitychange',resume);
+    return()=>{clearTimeout(timer);clearInterval(refresh);document.removeEventListener('visibilitychange',resume);c.abort()}
+  },[canRead,query,view,tech,page]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -124,7 +129,7 @@ export function OrdersPanel() {
           <p className="muted">Найдено: {total}</p>
           <div className={styles.mobileOrders}>
             {visible.map(o => {
-              const urgent = isUrgentUnassigned(o, now);
+              const urgent = isOverdueUnassigned(o, now);
               return <Link key={o.id} href={`/orders/${o.id}`} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
                 <div className={styles.orderHeading}>
                   <strong>{o.client.name}</strong>
@@ -133,12 +138,12 @@ export function OrdersPanel() {
                 <SdDeadline status={o.status} from={o.sdDueFrom} due={o.sdDueAt}/><div className={styles.orderAddress}>{o.isServiceCenter ? 'Привезут в СЦ' : o.address || 'Адрес не указан'}</div>
                 <div className={styles.orderSchedule}>
                   <span>{o.scheduledAt ? formatSchedule(o.scheduledAt) : 'Время не назначено'}</span>
-                  <span className={styles.orderMaster}>{o.isPersonal ? 'Выполняю сам' : o.master?.user.fullName ? `Мастер: ${o.master.user.fullName}` : 'Без мастера'}</span>
+                  <span className={`${styles.orderMaster}${urgent?` ${styles.unassignedAlert}`:''}`} title={urgent?'Мастер не назначен больше 5 минут':undefined}>{o.isPersonal || (o.isServiceCenter&&!o.master) ? 'Выполняю сам' : o.master?.user.fullName ? `Мастер: ${o.master.user.fullName}` : 'Без мастера'}</span>
                 </div>
                 <div className={styles.orderFoot}>
                   <span>№ {o.publicId}</span>{o.typeTech&&<span>{o.typeTech}</span>}
                   <span>{formatRuPhoneDisplay(o.client.phoneNormalized)}</span>
-                  {urgent && <span className="urgent-pill">срочно</span>}
+                  
                   {o.isClaim && <span className="badge badge-warn">претензия</span>}
                   {o.type === 'WARRANTY' && <span className="badge">Гарантия</span>}
                 </div>
@@ -159,7 +164,7 @@ export function OrdersPanel() {
               </thead>
               <tbody>
                 {visible.map((o) => {
-                  const urgent = isUrgentUnassigned(o, now);
+                  const urgent = isOverdueUnassigned(o, now);
                   const source = [
                     SOURCE_KIND_LABELS[o.sourceKind] ?? o.sourceKind,
                     o.sourceOur
@@ -189,7 +194,7 @@ export function OrdersPanel() {
                           <div className="desk-cell-top">
                             <span className="desk-id">{o.publicId}</span>
                             {urgent ? (
-                              <span className="urgent-pill">срочно</span>
+                              <span className="desk-cell-sub">Больше 5 мин. без мастера</span>
                             ) : null}
                             {o.isClaim ? (
                               <span className="badge badge-warn">претензия</span>
@@ -230,7 +235,7 @@ export function OrdersPanel() {
                             {o.master.user.fullName}
                           </span>
                         ) : (
-                          <span className="desk-cell-sub">Не назначен</span>
+                          <span className={urgent?styles.unassignedAlert:'desk-cell-sub'} title={urgent?'Мастер не назначен больше 5 минут':undefined}>{o.isPersonal||o.isServiceCenter?'Выполняю сам':'Без мастера'}</span>
                         )}
                       </td>
                     </tr>

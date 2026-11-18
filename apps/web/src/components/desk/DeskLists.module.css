@@ -132,3 +132,8 @@
  .claimBottom button { padding:8px 12px; min-height:44px; }
  .claimHeading :global(.badge) { font-size:13px; }
 }
+
+.unassignedAlert{display:inline-flex;align-items:center;gap:6px;border:1px solid #d77e32;border-radius:7px;padding:3px 7px;color:var(--ink);font-size:14px;font-weight:650;background:color-mix(in srgb,#e49344 14%,var(--panel));animation:unassignedPulse 2.4s ease-in-out infinite}
+.unassignedAlert::before{content:'';width:7px;height:7px;background:#dc883a;border-radius:50%;flex-shrink:0}
+@keyframes unassignedPulse{0%,100%{box-shadow:0 0 0 0 transparent;background:color-mix(in srgb,#e49344 12%,var(--panel))}50%{box-shadow:0 0 0 3px color-mix(in srgb,#e49344 22%,transparent);background:color-mix(in srgb,#e49344 30%,var(--panel))}}
+@media(prefers-reduced-motion:reduce){.unassignedAlert{animation:none;background:color-mix(in srgb,#e49344 24%,var(--panel))}}
