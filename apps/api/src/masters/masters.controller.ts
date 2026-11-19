@@ -1,6 +1,7 @@
 import {PageQuery} from '../orders/paging';
 import {
   Body,
+  Delete,
   Patch,
   Controller,
   Get,
@@ -81,6 +82,9 @@ export class MastersController {
   create(@Body() dto: CreateMasterDto) {
     return this.masters.create(dto);
   }
+
+  @Delete(':id') @Roles(Role.OWNER) @RequirePermissions('masters.write')
+  remove(@Param('id') id:string,@Body() body:{confirmation:string}){return this.masters.remove(id,body.confirmation);}
 
   @Patch(':id')
   @Roles(Role.OWNER)

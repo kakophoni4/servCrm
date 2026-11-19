@@ -23,6 +23,20 @@ export class MastersService {
     return new Map(ids.map(id=>{const own=rows.filter(r=>r.masterId===id);return [id,own.some(r=>r.status==='ON_THE_WAY')?'На адресе':own.some(r=>r.status==='IN_PROGRESS')?'В работе':own.some(r=>r.status==='IN_PROGRESS_SD')?'Ремонт СД':own.length?'Есть назначенные заявки':'Свободен'];}));
   }
 
+  async remove(id:string,confirmation:string){
+    return this.prisma.$transaction(async tx=>{
+      const master=await tx.master.findUnique({where:{id},include:{user:true,_count:{select:{orders:true,settlements:true,cashFines:true}}}});
+      if(!master)throw new NotFoundException('Мастер не найден');
+      if(confirmation!==master.user.fullName)throw new BadRequestException('Введите имя мастера для подтверждения');
+      if(master._count.orders||master._count.cashFines||await tx.masterSettlement.count({where:{masterId:id,OR:[{amount:{gt:0}},{paidAmount:{gt:0}}]}}))throw new BadRequestException('У мастера есть заявки или финансовая история. Удалите ошибочные записи либо уберите мастера из активных.');
+      await tx.user.update({where:{id:master.userId},data:{status:UserStatus.FIRED,telegramId:null,firedAt:new Date()}});
+      await tx.masterSettlement.deleteMany({where:{masterId:id}});
+      await tx.master.delete({where:{id}});
+      await tx.appSetting.deleteMany({where:{key:{contains:id}}});
+      return {deleted:true};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  }
+
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q);const allowed=await this.branch.allowedCityIds(userId,role),cityIds=this.branch.resolveCityIds(allowed,q.cityId);
     const where:Prisma.MasterWhereInput={status:'ACTIVE',cityId:this.branch.cityWhere(cityIds),...(q.tech?{repairTech:{has:q.tech}}:{}),...(search?{user:{OR:[{fullName:{contains:search,mode:'insensitive'}},{phone:{contains:search.replace(/\D/g,'')||search}}]}}:{})};

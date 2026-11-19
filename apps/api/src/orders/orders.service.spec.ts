@@ -269,7 +269,7 @@ describe('OrdersService', () => {
       ).rejects.toThrow('Укажите время по заказу');
     });
 
-    it('sets status WAITING when scheduledAt is provided by OWNER', async () => {
+    it('sets status NOT_SCHEDULED when scheduledAt is provided by OWNER', async () => {
       setupCreateTransaction();
       const scheduledAt = '2026-07-20T10:00:00.000Z';
       const dto = { ...baseCreateDto(), scheduledAt };
@@ -279,7 +279,7 @@ describe('OrdersService', () => {
       expect(txMock.order.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: OrderStatus.WAITING,
+            status: OrderStatus.NOT_SCHEDULED,
             scheduledAt: new Date(scheduledAt),
           }),
         }),
@@ -296,7 +296,7 @@ describe('OrdersService', () => {
       expect(txMock.order.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: OrderStatus.WAITING,
+            status: OrderStatus.NOT_SCHEDULED,
             scheduledAt: new Date(scheduledAt),
           }),
         }),

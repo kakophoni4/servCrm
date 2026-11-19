@@ -2,10 +2,14 @@
 import {FormEvent,useState} from 'react';
 import Link from 'next/link';
 import {api} from '@/lib/api';
-export type CashBalance={masterId:string;due:number;paid:number;remaining:number;credit:number;unpaid?:{id:string;publicId:string|null;address:string;date:string;remaining:number;kind:string}[]};
+export type CashBalance={adjusted?:number;corrections?:{id:string;amount:number;at:string}[];masterId:string;due:number;paid:number;remaining:number;credit:number;unpaid?:{id:string;publicId:string|null;address:string;date:string;remaining:number;kind:string}[]};
 const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
 export function MasterCash({balance,onSaved}:{balance:CashBalance;onSaved:()=>Promise<void>}){
+ const [receipts,setReceipts]=useState<{id:string;paidAmount:string;createdAt:string}[]>([]),[history,setHistory]=useState(false);
+ async function loadReceipts(){try{setReceipts(await api('/settlements/cash-receipts?masterId='+balance.masterId))}catch(e){setError(e instanceof Error?e.message:'Не удалось загрузить историю')}}
+ async function editReceipt(r:typeof receipts[number],remove=false){const raw=remove?'0':window.prompt('Правильная сумма полученных денег, ₽',String(r.paidAmount));if(raw===null)return;const value=Number(raw.replace(',','.'));if(!Number.isFinite(value)||value<0){setError('Проверьте сумму');return}if(!window.confirm(remove?'Удалить отметку о сдаче денег? Долг будет пересчитан.':`Изменить платёж с ${money(Number(r.paidAmount))} на ${money(value)}?`))return;setBusy(true);setError('');try{await api('/settlements/cash-receipts/'+r.id,{method:'PATCH',body:JSON.stringify({amount:value,expected:Number(r.paidAmount)})});await onSaved();await loadReceipts()}catch(e){setError(e instanceof Error?e.message:'Не удалось изменить')}finally{setBusy(false)}}
  const [open,setOpen]=useState(false),[amount,setAmount]=useState(''),[requestId,setRequestId]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ async function correction(id?:string){if(!window.confirm(id?'Отменить корректировку и вернуть долг?':`Сбросить ошибочный долг ${money(balance.remaining)}? Это не сдача денег. Заявки сохранятся.`))return;setBusy(true);setError('');try{await api(id?'/settlements/cash-correction-undo':'/settlements/cash-reset-errors',{method:'POST',body:JSON.stringify(id?{id}:{masterId:balance.masterId,expected:balance.remaining,requestId:crypto.randomUUID()})});await onSaved()}catch(e){setError(e instanceof Error?e.message:'Не удалось изменить')}finally{setBusy(false)}}
  async function save(e:FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError('');try{await api('/settlements/cash-receipt',{method:'POST',body:JSON.stringify({masterId:balance.masterId,amount:Number(amount.replace(',','.')),requestId})});setOpen(false);await onSaved()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}finally{setBusy(false)}}
  return <div style={{padding:'12px 0',borderTop:'1px solid var(--border)',display:'grid',gap:8}}>
  <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}><span>К сдаче <strong>{money(balance.remaining)}</strong></span><span className="muted">Сдано {money(balance.paid)}</span></div>
@@ -15,6 +19,9 @@ export function MasterCash({balance,onSaved}:{balance:CashBalance;onSaved:()=>Pr
  <label className="field">Получено, ₽<input aria-label="Получено от мастера" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} disabled={busy}/></label>
  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button className="btn" disabled={busy}>{busy?'Сохраняем...':'Подтвердить получение'}</button><button type="button" className="btn secondary" disabled={busy} onClick={()=>setOpen(false)}>Отмена</button></div>
  </form>}
+ {balance.remaining>0&&<button className="btn secondary" disabled={busy} onClick={()=>void correction()}>Сбросить ошибочный долг</button>}
+ {!!balance.corrections?.length&&<details><summary>Корректировки долга</summary>{balance.corrections.map(c=><div key={c.id} style={{padding:'8px 0'}}><span>{money(c.amount)} · {new Date(c.at).toLocaleDateString('ru-RU')}</span><button className="btn secondary" disabled={busy} onClick={()=>void correction(c.id)}>Отменить корректировку</button></div>)}</details>}
+ <details open={history} onToggle={e=>{setHistory(e.currentTarget.open);if(e.currentTarget.open)void loadReceipts()}}><summary>История сдачи денег</summary>{receipts.map(r=><div key={r.id} style={{padding:'10px 0',borderBottom:'1px solid var(--line)'}}><strong>{money(Number(r.paidAmount))}</strong><span> · {new Date(r.createdAt).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})}</span><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button className="btn secondary" disabled={busy} onClick={()=>void editReceipt(r)}>Изменить</button><button className="btn secondary" disabled={busy} onClick={()=>void editReceipt(r,true)}>Удалить</button></div></div>)}{history&&!receipts.length&&<p className="muted">Нет платежей</p>}</details>
  {error&&<p className="error" role="alert">{error}</p>}
  </div>;
 }

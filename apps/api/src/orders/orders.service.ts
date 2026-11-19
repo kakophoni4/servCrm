@@ -76,6 +76,18 @@ export class OrdersService {
     if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC']};
     if(q.tech)where.typeTech=q.tech==='Другое'?{notIn:['ХД','СМ','ПММ','ТВ','ПК','']}:q.tech;
     if(search){const text={contains:search,mode:'insensitive' as const};const digits=search.replace(/\D/g,'');where.OR=[{publicId:text},{address:text},{client:{name:text}},{master:{user:{fullName:text}}}];if(digits.length>=3)where.OR.push({client:{phoneNormalized:{contains:digits}}});}
+    if(['today','tomorrow'].includes(filter)){
+      return this.prisma.$transaction(async tx=>{
+        const terminal:OrderStatus[]=['DONE','REFUSAL','CANCELLED_CC'];
+        const activeWhere={...where,status:{notIn:terminal}},closedWhere={...where,status:{in:terminal}};
+        const [total,activeCount]=await Promise.all([tx.order.count({where}),tx.order.count({where:activeWhere})]);
+        const skip=(page-1)*limit;
+        const include={client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true};
+        const active=skip<activeCount?await tx.order.findMany({where:activeWhere,skip,take:Math.min(limit,activeCount-skip),include,orderBy:[{scheduledAt:'asc'},{id:'asc'}]}):[];
+        const closed=active.length<limit?await tx.order.findMany({where:closedWhere,skip:Math.max(0,skip-activeCount),take:limit-active.length,include,orderBy:[{scheduledAt:'asc'},{id:'asc'}]}):[];
+        return pageResult([...active,...closed],total,page,limit);
+      },{isolationLevel:'RepeatableRead'});
+    }
     const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:['today','tomorrow'].includes(filter)?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
     return pageResult(items,total,page,limit);
   }
@@ -192,7 +204,7 @@ export class OrdersService {
       throw new BadRequestException('Некорректный телефон');
     }
 
-    const status = OrderStatus.WAITING;
+    const status = OrderStatus.NOT_SCHEDULED;
 
     // Филиал заявки: OWNER выбирает произвольно, остальные — свой филиал.
     let cityId = dto.cityId;
@@ -457,11 +469,12 @@ export class OrdersService {
     if (dto.scheduledAt !== undefined && status === undefined) {
       status = dto.scheduledAt
         ? existing.status === OrderStatus.NOT_SCHEDULED
-          ? OrderStatus.WAITING
+          ? (dto.masterId||existing.masterId?OrderStatus.WAITING:OrderStatus.NOT_SCHEDULED)
           : existing.status
         : OrderStatus.NOT_SCHEDULED;
     }
 
+    if(dto.masterId && existing.status===OrderStatus.NOT_SCHEDULED && (status===undefined||status===OrderStatus.NOT_SCHEDULED))status=OrderStatus.WAITING;
     const nextServiceCenter = dto.isServiceCenter ?? existing.isServiceCenter;
     if (!nextServiceCenter && (dto.address !== undefined || dto.isServiceCenter === false) && !(dto.address ?? existing.address)?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     const centerChanged = dto.isServiceCenter !== undefined && dto.isServiceCenter !== existing.isServiceCenter;

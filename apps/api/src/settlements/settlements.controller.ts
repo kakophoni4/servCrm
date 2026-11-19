@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -76,6 +77,21 @@ class ReceiveCashDto extends PaySettlementDto {
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class SettlementsController {
   constructor(private readonly settlements: SettlementsService) {}
+
+  @Post('cash-reset-errors') @Roles(Role.OWNER) @RequirePermissions('settlements.pay')
+  resetErrors(@Body() body:{masterId:string;expected:number;requestId:string},@CurrentUser() user:{userId:string;role:Role}){return this.settlements.resetErrors(body.masterId,body.expected,body.requestId,user.userId,user.role);}
+  @Post('cash-correction-undo') @Roles(Role.OWNER) @RequirePermissions('settlements.pay')
+  undoCorrection(@Body() body:{id:string},@CurrentUser() user:{userId:string;role:Role}){return this.settlements.undoCorrection(body.id,user.userId,user.role);}
+
+  @Get('cash-receipts')
+  @Roles(Role.OWNER)
+  @RequirePermissions('settlements.read')
+  receipts(@Query('masterId') masterId:string){return this.settlements.receipts(masterId);}
+
+  @Patch('cash-receipts/:id')
+  @Roles(Role.OWNER)
+  @RequirePermissions('settlements.pay')
+  editReceipt(@Param('id') id:string,@Body() body:{amount:number;expected:number},@CurrentUser() user:{userId:string;role:Role}){return this.settlements.editReceipt(id,body.amount,body.expected,user.userId,user.role);}
 
   @Get('cash')
   @Roles(Role.OWNER)

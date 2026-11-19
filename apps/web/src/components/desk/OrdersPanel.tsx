@@ -123,7 +123,7 @@ export function OrdersPanel() {
           <div className={styles.mobileOrders}>
             {visible.map(o => {
               const urgent = isOverdueUnassigned(o, now);
-              return <Link key={o.id} href={`/orders/${o.id}`} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
+              return <Link key={o.id} href={`/orders/${o.id}`} style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC'].includes(o.status)?{opacity:0.55}:undefined} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
                 <div className={styles.orderHeading}>
                   <strong>{o.client.name}</strong>
                   <span className={statusBadgeClass(o.status)}>{STATUS_LABELS[o.status] ?? o.status}</span>
@@ -169,6 +169,7 @@ export function OrdersPanel() {
                   return (
                     <tr
                       key={o.id}
+                      style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC'].includes(o.status)?{opacity:0.55}:undefined}
                       className={
                         urgent ? 'row-link row-urgent' : 'row-link'
                       }

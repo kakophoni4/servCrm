@@ -276,6 +276,8 @@ model Client {
 }
 
 model Order {
+  warrantyMonths Int? @map("warranty_months")
+  sdComment String? @map("sd_comment") @db.Text
   stockUsage StockUsage[]
   sdStartedAt DateTime? @map("sd_started_at")
   sdDueFrom DateTime? @map("sd_due_from")

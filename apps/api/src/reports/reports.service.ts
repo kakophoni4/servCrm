@@ -86,6 +86,16 @@ function emptyAgg(cityId: string | null, cityName: string): CityAgg {
 
 @Injectable()
 export class ReportsService {
+  async details(id:string,from?:string,to?:string,page=1) {
+    if(!id)throw new BadRequestException('Укажите мастера или направление');
+    if(!Number.isInteger(page)||page<1)throw new BadRequestException('Некорректная страница');
+    const valid=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
+    if((from&&!valid(from))||(to&&!valid(to))||(from&&to&&from>to))throw new BadRequestException('Проверьте период');
+    const where:Prisma.OrderWhereInput={status:'DONE',completedAt:{not:null,...(from?{gte:new Date(from+'T00:00:00+04:00')}:{ }),...(to?{lt:new Date(new Date(to+'T00:00:00+04:00').getTime()+86400000)}:{})},...(id==='personal'?{masterId:null,isPersonal:true,isServiceCenter:false}:id==='center'?{masterId:null,isServiceCenter:true}:id==='unassigned'?{masterId:null,isPersonal:false,isServiceCenter:false}:{masterId:id})};
+    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*30,take:30,select:{id:true,publicId:true,address:true,completedAt:true,client:{select:{name:true}},payment:{select:{paid:true,partsCost:true,masterSalary:true,ownerNet:true,reinvestAmount:true}}},orderBy:[{completedAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
+    return {items,total,page,totalPages:Math.max(1,Math.ceil(total/30))};
+  }
+
   async summary(from?:string,to?:string){
     const valid=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
     if((from&&!valid(from))||(to&&!valid(to))||(from&&to&&from>to))throw new BadRequestException('Проверьте период');

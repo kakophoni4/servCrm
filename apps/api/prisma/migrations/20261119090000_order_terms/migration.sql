@@ -1,0 +1,2 @@
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "warranty_months" INTEGER;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "sd_comment" TEXT;

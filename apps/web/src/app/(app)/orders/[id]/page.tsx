@@ -74,6 +74,7 @@ type DocPreview = {
 };
 
 type Order = {
+ warrantyMonths?:number|null;sdComment?:string|null;
   sdDueFrom?: string | null;
   sdDueAt?: string | null;
   isPersonal: boolean;
@@ -1084,6 +1085,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
+          {(order.sdComment||order.warrantyMonths!=null)&&<div className="panel">{order.sdComment&&<p style={{whiteSpace:'pre-wrap'}}>СД: {order.sdComment}</p>}{order.warrantyMonths!=null&&<p>Гарантия: {order.warrantyMonths} мес.</p>}</div>}
           {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}
           {admin && !logistic ? (

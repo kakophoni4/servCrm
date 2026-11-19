@@ -38,29 +38,33 @@ export class SettlementsService {
   ) {}
 
   async cashBalance(masterId:string, db:any=this.prisma) {
-    const [orders,fines,receipts]=await Promise.all([
+    const [orders,fines,receipts,corrections]=await Promise.all([
       db.order.findMany({where:{masterId,isPersonal:false,status:OrderStatus.DONE},include:{payment:true}}),
       db.cashTx.findMany({where:{masterId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.FINE}}),
       db.masterSettlement.aggregate({where:{masterId},_sum:{paidAmount:true}}),
+      db.appSetting.findMany({where:{key:{startsWith:'cash.correction.'+masterId+'.'}}}),
     ]);
     const cents=(v:any)=>Math.round(Number(v||0)*100);
     const entries=[...orders.map((o:any)=>({id:o.id,publicId:o.publicId,address:o.address,date:o.completedAt||o.updatedAt,amount:cents(o.payment?.toCompany),kind:'order'})),...fines.map((f:any)=>({id:f.id,publicId:null,address:f.description||'Штраф',date:f.createdAt,amount:cents(f.amount),kind:'fine'}))].sort((a,b)=>new Date(a.date).getTime()-new Date(b.date).getTime()||a.id.localeCompare(b.id));
+    const activeCorrections=corrections.flatMap((r:any)=>{try{const v=JSON.parse(r.value);return v.active?[{id:r.key,...v}]:[]}catch{return []}});
+    let adjusted=0;
+    for(const entry of entries){const waived=activeCorrections.reduce((n:number,c:any)=>n+(c.items||[]).filter((i:any)=>i.id===entry.id&&i.kind===entry.kind).reduce((n:number,i:any)=>n+cents(i.remaining),0),0);const applied=Math.min(entry.amount,waived);entry.amount-=applied;adjusted+=applied;}
     const due=entries.reduce((sum,e)=>sum+e.amount,0),paid=cents(receipts._sum.paidAmount);
     let available=paid;
     const unpaid=entries.flatMap(e=>{const applied=Math.min(Math.max(available,0),e.amount);available-=applied;const remaining=e.amount-applied;return remaining>0?[{...e,amount:e.amount/100,remaining:remaining/100}]:[]});
-    return {masterId,due:due/100,paid:paid/100,remaining:Math.max(0,due-paid)/100,credit:Math.max(0,paid-due)/100,unpaid};
+    return {masterId,adjusted:adjusted/100,corrections:activeCorrections.map((c:any)=>({id:c.id,amount:c.amount,at:c.at})),due:due/100,paid:paid/100,remaining:Math.max(0,due-paid)/100,credit:Math.max(0,paid-due)/100,unpaid};
   }
 
-  async ownerCashReport(now=new Date()) {
+  async ownerCashReport(now=new Date(),kind:'personal'|'center'='personal') {
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
     const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
     const start=new Date(Date.UTC(value('year'),value('month')-1,value('day'))-4*3600000),end=new Date(start.getTime()+86400000);
-    const orders=await this.prisma.order.findMany({where:{status:OrderStatus.DONE,completedAt:{gte:start,lt:end},OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}]},include:{payment:true}});
+    const orders=await this.prisma.order.findMany({where:{status:OrderStatus.DONE,completedAt:{gte:start,lt:end},...(kind==='center'?{isServiceCenter:true}:{isPersonal:true,isServiceCenter:false})},include:{payment:true}});
     const sum=(field:'paid'|'partsCost'|'reinvestAmount'|'ownerNet')=>orders.reduce((total,o)=>total+Number(o.payment?.[field]||0),0);
     const money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';
     return [
       'Моя касса · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}),
-      'Личные заявки и СЦ без мастера',
+      kind==='center'?'СЦ':'Личные заявки',
       'Выполнено: '+orders.length,
       'Получено: '+money(sum('paid')),
       'Расходы: '+money(sum('partsCost')),
@@ -80,6 +84,51 @@ export class SettlementsService {
   async cashBalances() {
     const masters=await this.prisma.master.findMany({include:{user:true},orderBy:{createdAt:'asc'}});
     return Promise.all(masters.map(async m=>({...await this.cashBalance(m.id),name:m.user.fullName})));
+  }
+
+  async resetErrors(masterId:string,expected:number,requestId:string,userId:string,role:Role){
+    if(role!==Role.OWNER)throw new ForbiddenException('Только владелец');
+    if(!/^[a-zA-Z0-9-]{10,80}$/.test(requestId||''))throw new BadRequestException('Некорректный запрос');
+    const key='cash.correction.'+masterId+'.'+requestId;
+    return this.prisma.$transaction(async tx=>{
+      if(await tx.appSetting.findUnique({where:{key}}))return {ok:true};
+      const balance=await this.cashBalance(masterId,tx);
+      if(balance.remaining!==expected||!expected)throw new BadRequestException('Долг изменился. Обновите кассу.');
+      await tx.appSetting.create({data:{key,value:JSON.stringify({active:true,userId,at:new Date().toISOString(),amount:balance.remaining,items:balance.unpaid.map(e=>({id:e.id,kind:e.kind,remaining:e.remaining}))})}});
+      return {ok:true};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  }
+
+  async undoCorrection(key:string,userId:string,role:Role){
+    if(role!==Role.OWNER||!key.startsWith('cash.correction.'))throw new ForbiddenException('Только владелец');
+    const row=await this.prisma.appSetting.findUnique({where:{key}});if(!row)throw new NotFoundException('Корректировка не найдена');
+    const data=JSON.parse(row.value);await this.prisma.appSetting.updateMany({where:{key,value:row.value},data:{value:JSON.stringify({...data,active:false,undoneBy:userId,undoneAt:new Date().toISOString()})}});return {ok:true};
+  }
+
+  async receipts(masterId:string) {
+    const refs=await this.prisma.appSetting.findMany({where:{key:{startsWith:'cash.receipt.'},value:{contains:masterId}}});
+    const ids=refs.flatMap(r=>{try{const v=JSON.parse(r.value);return v.masterId===masterId&&v.receiptId?[v.receiptId]:[]}catch{return []}});
+    return this.prisma.masterSettlement.findMany({where:{id:{in:ids},masterId,paidAmount:{gt:0}},select:{id:true,paidAmount:true,createdAt:true},orderBy:{createdAt:'desc'},take:100});
+  }
+
+  async editReceipt(id:string,amount:number,expected:number,userId:string,role:Role) {
+    if(role!==Role.OWNER)throw new ForbiddenException('Изменять кассу может только владелец');
+    if(!Number.isFinite(amount)||amount<0||amount>999999999)throw new BadRequestException('Проверьте сумму');
+    amount=Math.round(amount*100)/100;
+    return this.prisma.$transaction(async tx=>{
+      const row=await tx.masterSettlement.findUnique({where:{id}});
+      if(!row)throw new NotFoundException('Платёж не найден');
+      if(Number(row.paidAmount)!==expected)throw new BadRequestException('Платёж изменился. Обновите историю.');
+      const refs=await tx.appSetting.findMany({where:{key:{startsWith:'cash.receipt.'},value:{contains:id}}});
+      const ref=refs.find(r=>{try{return JSON.parse(r.value).receiptId===id}catch{return false}});
+      if(!ref)throw new BadRequestException('Этот платёж нельзя изменить здесь');
+      const balance=await this.cashBalance(row.masterId,tx);
+      if(amount>Math.max(0,Math.round((balance.due-balance.paid+Number(row.paidAmount))*100)/100))throw new BadRequestException('Сумма превышает долг мастера');
+      await tx.appSetting.create({data:{key:'cash.adjustment.'+id+'.'+Date.now(),value:JSON.stringify({userId,before:Number(row.paidAmount),after:amount,at:new Date().toISOString()})}});
+      await tx.masterSettlement.update({where:{id},data:{amount,paidAmount:amount}});
+      await tx.appSetting.update({where:{key:ref.key},data:{value:JSON.stringify({...JSON.parse(ref.value),amount})}});
+      return {ok:true};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
   }
 
   async receiveCash(input:{masterId:string;amount:number;requestId:string},userId:string,role:Role) {

@@ -949,10 +949,19 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return {id:user.id,isOwner:false};
   }
 
+  private async clearFlowPrompts(flow:Pick<GroupFlow,'orderId'|'chatId'|'telegramId'>) {
+    const rows=await this.prisma.appSetting.findMany({where:{key:{startsWith:`bot.flow.reply.${flow.chatId}.`}}});
+    for(const row of rows){let saved:GroupFlow;try{saved=JSON.parse(row.value)}catch{continue}if(saved.orderId!==flow.orderId||saved.telegramId!==flow.telegramId)continue;
+      const messageId=Number(row.key.split('.').pop());
+      await this.deleteMessage(flow.chatId,messageId).catch(()=>undefined);
+      await this.prisma.appSetting.deleteMany({where:{key:row.key,value:row.value}});
+    }
+  }
+
   private async groupFlowPrompt(flow: GroupFlow, replyTo?: number, error?: string) {
     const prompt = flow.kind==='close'
-      ? 'Закрытие заявки. Ответьте двумя суммами: получено всего (включая предоплату) и расходы. Например: 11000 1000'
-      : 'Укажите предоплату и срок ремонта. Например:\n5000 пред\nСрок 5-7 дней';
+      ? 'Закрытие заявки:\n11000 1000\n6\nПервая строка - всего с клиента и расходы. Вторая - гарантия в месяцах, 0 если без гарантии.'
+      : 'Укажите предоплату, срок и комментарий:\n5000 пред\n5-7 дней\nСогласовано 12000, замена подсветки';
     const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">Введите суммы</a>\n${error ? error+'\n' : ''}${prompt}`,{
       parse_mode:'HTML',reply_markup:{force_reply:true,selective:true},
       ...(replyTo ? {reply_parameters:{message_id:replyTo}} : {}),
@@ -966,6 +975,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const card=await this.groupOrderCard(id);
     await this.groupActor(card.order,String(cq.from!.id));
     if(kind==='sd' ? card.order.status!==OrderStatus.IN_PROGRESS : ![OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(card.order.status as any)) throw new BadRequestException('Статус заявки изменился');
+    await this.clearFlowPrompts({orderId:id,chatId:String(cq.message!.chat!.id),telegramId:String(cq.from!.id)});
     await this.groupFlowPrompt({orderId:id,masterId:card.order.masterId,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
   }
 
@@ -1075,6 +1085,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const consumed=await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
       if(consumed.count)await this.deleteMessage(flow.chatId,replyId).catch(()=>undefined);
     };
+      if(msg.text.trim().toLowerCase()==='отмена') {
+        await consumePrompt();
+        await this.clearFlowPrompts(flow);
+        if(msg.message_id)await this.deleteMessage(flow.chatId,msg.message_id).catch(()=>undefined);return true;
+      }
     try {
       const group=await this.getOrderDestination(flow.orderId);
       if(!group || group.chatId!==flow.chatId)throw new BadRequestException('Группа отключена');
@@ -1082,10 +1097,6 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       const card=await this.groupOrderCard(flow.orderId);
       await this.groupActor(card.order,flow.telegramId);
       if(card.order.masterId!==flow.masterId || card.order.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Нажмите кнопку заявки заново');
-      if(msg.text.trim().toLowerCase()==='отмена') {
-        await consumePrompt();
-        await this.sendMessage(flow.chatId,'Ввод отменён');return true;
-      }
       let summary:string;
       if(flow.kind==='close') {
         let amounts:ReturnType<typeof parseClosingReply>;
@@ -1100,13 +1111,15 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const reinvestPct=card.order.isServiceCenter || ownWork?0.3:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
-        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру: ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
+        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру (${Math.round(base.masterPct*10000)/100}%): ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
+        if(amounts.warrantyMonths!==undefined)summary+='\nГарантия: '+amounts.warrantyMonths+' мес.';
       } else {
         let terms:ReturnType<typeof parseSdReply>;
         try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await consumePrompt();return true;}
         Object.assign(flow,terms,{sdStart:new Date().toISOString(),sdFrom:sdDeadline(terms.minDays).toISOString(),sdDue:sdDeadline(terms.maxDays).toISOString()});
         summary=`Сохранить срок заявки ${card.order.publicId}?\nПредоплата всего: ${terms.prepay} ₽\nСрок: ${terms.minDays}-${terms.maxDays} дней\nДо ${sdDeadline(terms.maxDays).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})}`;
       }
+      if(flow.kind==='sd'&&flow.sdComment)summary+='\nКомментарий СД: '+flow.sdComment;
       flow.inputMessageId=msg.message_id;
       flow.summary=summary;
       const token=randomBytes(8).toString('hex');
@@ -1133,7 +1146,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         await this.prisma.appSetting.deleteMany({where:{key:{startsWith:'bot.file.pending.'+(cq.data || '').slice(3)+'.'}}});
         if(flow.docPromptId)await this.prisma.appSetting.deleteMany({where:{key:`bot.docs.reply.${flow.chatId}.${flow.docPromptId}`}});
         await this.prisma.appSetting.deleteMany({where:{key,value:raw}});
-        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Отменено',reply_markup:{inline_keyboard:[]}});
+        await this.clearFlowPrompts(flow);
+        if(flow.inputMessageId)await this.deleteMessage(flow.chatId,flow.inputMessageId).catch(()=>undefined);
+        if(cq.message?.message_id)await this.deleteMessage(flow.chatId,cq.message.message_id).catch(()=>undefined);
         await answer();return;
       }
       if(flow.expires<Date.now())throw new BadRequestException('Подтверждение истекло. Нажмите кнопку заявки заново');
@@ -1153,8 +1168,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
-          ?{isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
-          :{status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
+          ?{...(flow.warrantyMonths!==undefined?{warrantyMonths:flow.warrantyMonths}:{}),isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          :{sdComment:flow.sdComment||null,status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
         if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
         await tx.orderPayment.upsert({where:{orderId:flow.orderId},create:{orderId:flow.orderId,...payment},update:payment});
@@ -1170,7 +1185,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
           else await tx.cashTx.create({data:{...data,orderId:flow.orderId,direction:CashDirection.INCOME,incomeBasis:CashIncomeBasis.ORDER,createdById:user.id}});
         }
       });
-      if(flow.kind==='close' && flow.inputMessageId)await this.deleteMessage(flow.chatId,flow.inputMessageId).catch(()=>undefined);
+      if(flow.inputMessageId)await this.deleteMessage(flow.chatId,flow.inputMessageId).catch(()=>undefined);
       if(flow.kind==='close')await this.settlements.syncForCompletedOrder(flow.orderId).catch(()=>undefined);
       const fresh=await this.groupOrderCard(flow.orderId);
       await this.rememberGroupCard(flow.orderId,flow.chatId,flow.messageId);
@@ -1179,8 +1194,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         if(cq.message?.message_id)await this.deleteMessage(flow.chatId,cq.message.message_id).catch(()=>undefined);
         await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:'Заявка закрыта',show_alert:false});
       } else {
-        await this.telegram('editMessageText',{chat_id:flow.chatId,message_id:cq.message?.message_id,text:'Срок и предоплата сохранены',reply_markup:{inline_keyboard:[]}});
-        await answer();
+        await this.clearFlowPrompts(flow);
+        if(cq.message?.message_id)await this.deleteMessage(flow.chatId,cq.message.message_id).catch(()=>undefined);
+        await answer('Срок и предоплата сохранены');
       }
     }catch(e){await answer(String(e).includes('Not enough stock:')?'Не хватает запчастей на складе. Попросите владельца проверить остатки в CRM.':e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
@@ -1215,6 +1231,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята' : ''),
       order.comment ? 'Примечание: '+order.comment : '',
       order.adminComment ? 'Комментарий: '+order.adminComment : '',
+      order.sdComment ? 'Комментарий СД: '+order.sdComment : '',
+      order.status===OrderStatus.DONE&&order.warrantyMonths!=null?'Гарантия: '+order.warrantyMonths+' мес.':'',
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
@@ -1948,9 +1966,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private async sendCashReport(msg:TgMessage) {
     if(!msg.from?.id || !msg.chat?.id)return;
     const telegramId=String(msg.from.id),chatId=String(msg.chat.id);
-    const owner=await this.prisma.user.findFirst({where:{telegramId,role:Role.OWNER,status:UserStatus.ACTIVE}});
+    const owner=await this.ownerOrPartner(telegramId);
     let masterIds:string[]=[];
     if(owner){
+      const centerGroup=await this.getOrderGroup('center');
+      if(centerGroup?.chatId===chatId){await this.sendMessage(chatId,await this.settlements.ownerCashReport(new Date(),'center'));return;}
       const ownerGroup=await this.getOrderGroup('owner');
       if(msg.chat.type==='private' || ownerGroup?.chatId===chatId){await this.sendMessage(chatId,await this.settlements.ownerCashReport());return;}
       const masters=await this.prisma.master.findMany({where:{status:UserStatus.ACTIVE},select:{id:true}});
