@@ -21,6 +21,7 @@ export const SOURCE_KIND_LABELS: Record<string, string> = {
 };
 
 export const SOURCE_OUR_LABELS: Record<string, string> = {
+  SITE: 'Сайт',
   AVITO: 'Авито',
   LEAFLET: 'Листовка',
 };

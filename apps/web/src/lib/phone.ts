@@ -33,14 +33,15 @@ export function formatRuPhoneInput(raw: string): string {
   return out;
 }
 
-export function formatRuPhoneDisplay(normalized: string): string {
+export function formatRuPhoneDisplay(normalized: string|null): string {
+  if(!normalized)return 'Телефон не указан';
   const d = digitsPhone(normalized);
   if (d.length < 11) return normalized;
   return formatRuPhoneInput(d);
 }
 
-export function phoneHref(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
+export function phoneHref(raw: string|null): string {
+  const digits = (raw||'').replace(/\D/g, '');
   const normalized = digits.length === 10 ? '7' + digits : digits.length === 11 && digits.startsWith('8') ? '7' + digits.slice(1) : digits;
   return normalized ? 'tel:+' + normalized : 'tel:';
 }

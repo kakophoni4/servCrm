@@ -62,7 +62,7 @@ export class OrdersService {
 
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q),filter=q.filter||'all';
-    if(!['today','tomorrow','sd','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
+    if(!['today','tomorrow','sd','partner','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
     const allowed=await this.branch.allowedCityIds(userId,role);
     const where:Prisma.OrderWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
     if(filter==='today')where.scheduledAt=moscowToday();
@@ -70,6 +70,7 @@ export class OrdersService {
     if(filter==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
     if(filter==='sd')where.status='IN_PROGRESS_SD';
     if(filter==='unassigned'){where.masterId=null;where.isPersonal=false;where.isServiceCenter=false;}
+    if(filter==='partner')where.sourceKind='PARTNER';
     if(filter==='personal')where.isPersonal=true;
     if(filter==='center')where.isServiceCenter=true;
     if(filter==='closed')where.status='DONE';
@@ -200,11 +201,11 @@ export class OrdersService {
     const scheduledAt = new Date(dto.scheduledAt);
 
     const phone = normalizePhone(dto.clientPhone);
-    if (phone.length < 10) {
+    if (phone.length < 10 && !dto.avitoChatId) {
       throw new BadRequestException('Некорректный телефон');
     }
 
-    const status = OrderStatus.NOT_SCHEDULED;
+    const status = dto.isPersonal||dto.isServiceCenter?OrderStatus.WAITING:OrderStatus.NOT_SCHEDULED;
 
     // Филиал заявки: OWNER выбирает произвольно, остальные — свой филиал.
     let cityId = dto.cityId;
@@ -220,15 +221,13 @@ export class OrdersService {
 
     const created = await this.prisma.$transaction(async (tx) => {
       // Ключ клиента — телефон. Имя при повторном обращении обновляем на последнее.
-      let client = await tx.client.findUnique({
-        where: { phoneNormalized: phone },
-      });
+      let client = phone.length>=10?await tx.client.findUnique({where:{phoneNormalized:phone}}):null;
       const returning = Boolean(client);
 
       if (!client) {
         client = await tx.client.create({
           data: {
-            phoneNormalized: phone,
+            phoneNormalized: phone.length>=10?phone:null,
             name,
             ageCategoryId: dto.ageCategoryId,
             cityId,
@@ -273,6 +272,7 @@ export class OrdersService {
           type,
           isPersonal: dto.isPersonal ?? false,
           isServiceCenter: dto.isServiceCenter ?? false,
+          avitoChatId:dto.avitoChatId,avitoItemId:dto.avitoItemId,
           sourceKind: dto.sourceKind,
           sourceOur: dto.sourceKind === SourceKind.OUR ? dto.sourceOur : null,
           partnerId:
@@ -395,6 +395,8 @@ export class OrdersService {
     if (!existing) throw new NotFoundException('Заявка не найдена');
 
     const isAdmin = ADMIN_ROLES.includes(role);
+    if(dto.address!==undefined&&dto.address!==existing.address&&role!==Role.OWNER){const actor=await this.prisma.user.findUnique({where:{id:userId},select:{permissions:true}});if(!actor?.permissions.includes('staff.assistant'))throw new ForbiddenException('Адрес меняет владелец или помощник');}
+    if(dto.clientPhone!==undefined){const phone=normalizePhone(dto.clientPhone);if(phone.length!==11)throw new BadRequestException('Укажите полный номер телефона');await this.prisma.client.update({where:{id:existing.clientId},data:{phoneNormalized:phone}});}
 
     if (dto.masterId !== undefined && !isAdmin) {
       throw new ForbiddenException('Назначать мастера может только админ');
@@ -480,11 +482,12 @@ export class OrdersService {
     const centerChanged = dto.isServiceCenter !== undefined && dto.isServiceCenter !== existing.isServiceCenter;
     const nextPersonal = dto.isPersonal ?? existing.isPersonal;
     if(nextPersonal && nextServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
+    if((dto.isPersonal||dto.isServiceCenter)&&existing.status===OrderStatus.NOT_SCHEDULED)status=OrderStatus.WAITING;
     const nextStatus = status ?? existing.status;
     if (nextPersonal) dto.masterId = null;
     const nextMasterId =
       dto.masterId !== undefined ? dto.masterId || null : existing.masterId;
-    if (nextStatus === OrderStatus.DONE && !nextMasterId && !nextPersonal && !nextServiceCenter) {
+    if (nextStatus === OrderStatus.DONE && !nextMasterId && !nextPersonal && !nextServiceCenter && (dto.sourceKind??existing.sourceKind)!==SourceKind.PARTNER) {
       throw new BadRequestException(
         'Для статуса «Готов» назначьте мастера',
       );
@@ -593,8 +596,9 @@ export class OrdersService {
         if (partsCost > paid) throw new BadRequestException('Запчасти не могут превышать оплату клиента');
         const locked = existing.status === OrderStatus.DONE && !masterChanged && (dto.typeTech === undefined || dto.typeTech === existing.typeTech) && (dto.isPersonal === undefined || dto.isPersonal === existing.isPersonal);
         const terms = locked && existingPayment && !centerChanged ? {masterPct: Number(existingPayment.masterPct), reinvestPct: Number(existingPayment.reinvestPct)} : await this.salary.termsFor(paid - partsCost, dto.typeTech ?? existing.typeTech, nextMasterId);
-        const masterPct = nextPersonal || (nextServiceCenter && !nextMasterId) ? 0 : locked && existingPayment ? Number(existingPayment.masterPct) : terms.masterPct;
-        const reinvestPct = nextServiceCenter ? 0.3 : nextPersonal ? 0.3 : terms.reinvestPct;
+        const partner=(dto.sourceKind??existing.sourceKind)===SourceKind.PARTNER;
+        const masterPct = partner?0.5:nextPersonal || (nextServiceCenter && !nextMasterId) ? 0 : locked && existingPayment ? Number(existingPayment.masterPct) : terms.masterPct;
+        const reinvestPct = partner?0:nextServiceCenter ? 0.3 : nextPersonal ? 0.3 : terms.reinvestPct;
         const base = calcPayment(paid, partsCost, masterPct);
         const reinvestAmount = Math.round(base.toCompany * reinvestPct * 100) / 100;
         const calc = {...base, reinvestPct, reinvestAmount, ownerNet: Math.round((base.toCompany - reinvestAmount)*100)/100};
@@ -748,7 +752,7 @@ export class OrdersService {
     return this.create(
       {
         clientName: source.client.name,
-        clientPhone: source.client.phoneNormalized,
+        clientPhone: source.client.phoneNormalized||'',avitoChatId:source.avitoChatId||undefined,avitoItemId:source.avitoItemId||undefined,
         type: OrderType.REPEAT,
         isServiceCenter: source.isServiceCenter,
         isPersonal: source.isPersonal,

@@ -22,7 +22,7 @@ export function parseClosingReply(text:string) {
   if(lines.length>2 || (warrantyMonths!==undefined&&(!Number.isInteger(warrantyMonths)||warrantyMonths<0||warrantyMonths>120||!lines[1].trim())))throw new Error('Во второй строке укажите гарантию в месяцах: 0, 3, 6 или 12');
   if(!m)throw new Error('Напишите две суммы через пробел, например: 11000 1000');
   const paid=amount(m[1]),partsCost=amount(m[2]);
-  if(paid<=0)throw new Error('Оплата должна быть больше нуля');
+
   return {paid,partsCost,...(warrantyMonths!==undefined?{warrantyMonths}:{})};
 }
 export function parseSdReply(text:string) {

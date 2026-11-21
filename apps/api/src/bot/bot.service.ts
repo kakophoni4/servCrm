@@ -584,7 +584,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       adminComment?: string | null;
       scheduledAt?: Date | null;
       status: OrderStatus;
-      client: { name: string; phoneNormalized: string };
+      client: { name: string; phoneNormalized: string|null };
       payment?: {
         paid?: unknown;
         partsCost?: unknown;
@@ -1107,8 +1107,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         }
         const terms=await this.salary.termsFor(amounts.paid-amounts.partsCost,card.order.typeTech,flow.masterId);
         const ownWork=card.order.isPersonal || !card.order.masterId;
-        const base=calcPayment(amounts.paid,amounts.partsCost,ownWork?0:terms.masterPct);
-        const reinvestPct=card.order.isServiceCenter || ownWork?0.3:terms.reinvestPct;
+        const base=calcPayment(amounts.paid,amounts.partsCost,card.order.sourceKind==='PARTNER'?0.5:ownWork?0:terms.masterPct);
+        const reinvestPct=card.order.sourceKind==='PARTNER'?0:card.order.isServiceCenter || ownWork?0.3:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
         summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру (${Math.round(base.masterPct*10000)/100}%): ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
@@ -1164,7 +1164,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         if(consumed.count!==1)throw new BadRequestException('Уже обработано');
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
         if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
-        if(flow.kind==='close' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
+        if(flow.kind==='close' && current.sourceKind!=='PARTNER' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
@@ -1222,7 +1222,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const text = [
       'Заявка '+order.publicId,
       'ФИО: '+order.client.name,
-      masterContactVisible(order,accepted?order.masterId:null)?'Телефон: '+order.client.phoneNormalized.replace(/^\+?7/, '+7'):'',
+      order.client.phoneNormalized&&masterContactVisible(order,accepted?order.masterId:null)?'Телефон: '+(order.client.phoneNormalized||'').replace(/^\+?7/, '+7'):'',
       'Адрес: '+order.address,
       'Время: '+(order.scheduledAt ? order.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'не указано'),
       'Техника: '+(order.typeTech || 'не указана'),
@@ -1230,6 +1230,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.isServiceCenter?'Привезут в СЦ':'',
       'Статус: '+(STATUS_LABELS[order.status] || order.status)+(accepted && [OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED].includes(order.status as any) ? ' · принята' : ''),
       order.comment ? 'Примечание: '+order.comment : '',
+      'Источник: '+(order.sourceKind==='PARTNER'?'Партнёр':order.sourceOur==='AVITO'?'Авито':order.sourceOur==='LEAFLET'?'Лист':'Сайт'),
+      order.avitoItemId?'Объявление: https://www.avito.ru/'+order.avitoItemId:'',
       order.adminComment ? 'Комментарий: '+order.adminComment : '',
       order.sdComment ? 'Комментарий СД: '+order.sdComment : '',
       order.status===OrderStatus.DONE&&order.warrantyMonths!=null?'Гарантия: '+order.warrantyMonths+' мес.':'',
@@ -1735,7 +1737,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       address: string;
       typeTech?: string | null;
       scheduledAt?: Date | null;
-      client: { name: string; phoneNormalized: string };
+      client: { name: string; phoneNormalized: string|null };
       city?: { name: string } | null;
     },
     escalated: boolean,
@@ -1763,7 +1765,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       refundSum: unknown;
       order: {
         publicId: string;
-        client: { name: string; phoneNormalized: string };
+        client: { name: string; phoneNormalized: string|null };
       };
       city?: { name: string } | null;
     },
@@ -1913,22 +1915,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(!orders.length)return 'Актуальные заявки · '+master.user.fullName+'\nНет актуальных заявок';
     const acceptedRows=await this.prisma.appSetting.findMany({where:{key:{in:orders.map(o=>'bot.orders.accepted.'+o.id)}}});
     const acceptedValues=new Map(acceptedRows.map(r=>[r.key,r.value]));
-    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+o.client.phoneNormalized.replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+(o.client.phoneNormalized||'').replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
     return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
   }
 
-  async ownerOverviewReport(statistics:boolean) {
+  async ownerOverviewReport(statistics:boolean,scope:'personal'|'center'='personal') {
     const now=new Date(),p=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit'}).formatToParts(now);
     const year=Number(p.find(p=>p.type==='year')!.value),month=Number(p.find(p=>p.type==='month')!.value);
-    const orders=await this.prisma.order.findMany({where:{OR:[{isPersonal:true},{isServiceCenter:true,masterId:null}],...(statistics?{status:OrderStatus.DONE,completedAt:{gte:new Date(Date.UTC(year,month-1,1)-4*3600000),lt:new Date(Date.UTC(year,month,1)-4*3600000)}}:{status:{in:MASTER_ACTIVE_STATUSES}})},include:{client:true,payment:true},orderBy:[{scheduledAt:'asc'},{id:'asc'}]});
-    if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),'Личные и СЦ без мастера','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
-    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const orders=await this.prisma.order.findMany({where:{...(scope==='center'?{isServiceCenter:true}:{isPersonal:true,isServiceCenter:false}),...(statistics?{status:OrderStatus.DONE,completedAt:{gte:new Date(Date.UTC(year,month-1,1)-4*3600000),lt:new Date(Date.UTC(year,month,1)-4*3600000)}}:{status:{in:MASTER_ACTIVE_STATUSES}})},include:{client:true,payment:true},orderBy:[{scheduledAt:'asc'},{id:'asc'}]});
+    if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),scope==='center'?'СЦ':'Личные','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,o.client.phoneNormalized?'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''):'Телефон не указан','Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+(STATUS_LABELS[o.status]||o.status),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const section=(title:string,items:typeof orders)=>{
       const regular=items.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=items.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
       return [title+' · '+items.length,'',...(!items.length?['Нет актуальных заявок','']:[]),...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])];
     };
-    return ['Актуальные заявки','Всего: '+orders.length,'',...section('Личные',orders.filter(o=>o.isPersonal)),...section('СЦ без мастера',orders.filter(o=>!o.isPersonal&&o.isServiceCenter))].join('\n').trim();
+    return ['Актуальные заявки','Всего: '+orders.length,'',...(scope==='personal'?section('Личные',orders):section('СЦ',orders))].join('\n').trim();
   }
 
   private async sendMasterOverview(msg:TgMessage,statistics:boolean) {
@@ -1951,7 +1953,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       }
       ids.push(master.id);
     }
-    const reports=ownReport?[await this.ownerOverviewReport(statistics)]:await Promise.all(ids.map(id=>statistics?this.masterMonthlyReport(id):this.masterActiveReport(id)));
+    const reports=ownReport?[await this.ownerOverviewReport(statistics,centerGroup?.chatId===chatId?'center':'personal')]:await Promise.all(ids.map(id=>statistics?this.masterMonthlyReport(id):this.masterActiveReport(id)));
     for(const report of reports){
       let chunk='';
       for(const line of report.split('\n')){
@@ -2729,7 +2731,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true,workSchedule:true}});
     if(!master || master.status!=='ACTIVE' || master.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
     const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+    const today=new Date(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())+'T12:00:00Z');
     const rows=names.map((name,i)=>{
+      const date=new Date(today);date.setUTCDate(date.getUTCDate()+((i+1-(date.getUTCDay()||7)+7)%7));
+      name+=' '+date.toLocaleDateString('ru-RU',{timeZone:'UTC',day:'2-digit',month:'2-digit'});
       const current=master.workSchedule.find(d=>d.weekday===i+1);
       return [{text:`${name}: ${current ? current.isWorking?'Рабочий':'Выходной':'Не задан'}`,callback_data:`wh:${masterId}:${i+1}`}];
     });

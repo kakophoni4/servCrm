@@ -32,6 +32,7 @@ enum SourceKind {
 }
 
 enum SourceOur {
+  SITE
   AVITO
   LEAFLET
 }
@@ -258,7 +259,7 @@ model Master {
 
 model Client {
   id              String   @id @default(cuid())
-  phoneNormalized String   @map("phone_normalized")
+  phoneNormalized String?  @map("phone_normalized")
   name            String
   ageCategoryId   String?  @map("age_category_id")
   cityId          String?  @map("city_id")
@@ -276,6 +277,8 @@ model Client {
 }
 
 model Order {
+  avitoChatId String? @map("avito_chat_id")
+  avitoItemId String? @map("avito_item_id")
   warrantyMonths Int? @map("warranty_months")
   sdComment String? @map("sd_comment") @db.Text
   stockUsage StockUsage[]

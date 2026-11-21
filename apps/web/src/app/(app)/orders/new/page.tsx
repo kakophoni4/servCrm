@@ -33,6 +33,7 @@ export default function NewOrderPage() {
   const [form, setForm] = useState({
     clientName: '',
     clientPhone: '+7 ',
+    avitoItemId:'',
     type: 'NEW',
     isPersonal: false,
     isServiceCenter: false,
@@ -71,8 +72,8 @@ export default function NewOrderPage() {
     const chatId=new URLSearchParams(window.location.search).get('avitoChat');
     if(!chatId||getStoredUser()?.role!=='OWNER')return;
     const abort=new AbortController();
-    api<{clientName:string;comment:string}>('/avito/draft/'+encodeURIComponent(chatId),{signal:abort.signal})
-      .then(draft=>{if(!abort.signal.aborted)setForm(f=>({...f,clientName:f.clientName||draft.clientName||'',comment:f.comment||draft.comment||'',sourceKind:'OUR',sourceOur:'AVITO'}))})
+    api<{clientName:string;comment:string;itemId?:string|number|null}>('/avito/draft/'+encodeURIComponent(chatId),{signal:abort.signal})
+      .then(draft=>{if(!abort.signal.aborted)setForm(f=>({...f,clientName:f.clientName||draft.clientName||'',comment:f.comment||draft.comment||'',avitoItemId:String(draft.itemId||''),sourceKind:'OUR',sourceOur:'AVITO'}))})
       .catch(e=>{if(!abort.signal.aborted)setError(e instanceof Error?e.message:'Не удалось загрузить данные Авито')});
     return()=>abort.abort();
   },[]);
@@ -118,7 +119,7 @@ export default function NewOrderPage() {
     setLoading(true);
     setError('');
     const phoneDigits = digitsPhone(form.clientPhone);
-    if (phoneDigits.length < 11) {
+    if (phoneDigits.length < 11 && !new URLSearchParams(window.location.search).get('avitoChat')) {
       setError('Укажите полный номер телефона');
       setLoading(false);
       return;
@@ -140,7 +141,9 @@ export default function NewOrderPage() {
     try {
       const body = {
         clientName: form.clientName,
-        clientPhone: phoneDigits,
+        clientPhone: phoneDigits.length>=11?phoneDigits:'',
+        avitoChatId:new URLSearchParams(window.location.search).get('avitoChat')||undefined,
+        avitoItemId:form.avitoItemId||undefined,
         type: form.type,
         isPersonal: form.isPersonal,
         isServiceCenter: form.isServiceCenter,
@@ -279,12 +282,12 @@ export default function NewOrderPage() {
                   onChange={(e) => set('sourceOur', e.target.value)}
                 >
                   <option value="AVITO">Авито</option>
-                  <option value="LEAFLET">Листовка</option>
+                  <option value="LEAFLET">Лист</option><option value="SITE">Сайт</option>
                 </select>
               </div>
             ) : (
               <div className="field">
-                <label>Партнёр</label>
+                <label>Партнёр</label>{getStoredUser()?.role==='OWNER'&&<button type="button" className="btn secondary" onClick={async()=>{const name=window.prompt('Имя партнёра');if(!name?.trim())return;try{const p=await api<{id:string;name:string}>('/partners',{method:'POST',body:JSON.stringify({name:name.trim()})});setPartners(v=>[...v.filter(x=>x.id!==p.id),p]);set('partnerId',p.id)}catch(e){setError(e instanceof Error?e.message:'Не удалось добавить')}}}>Добавить партнёра</button>}
                 <select
                   required
                   value={form.partnerId}

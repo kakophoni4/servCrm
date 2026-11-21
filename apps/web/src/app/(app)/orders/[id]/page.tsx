@@ -74,6 +74,8 @@ type DocPreview = {
 };
 
 type Order = {
+ sourceKind?:string;
+ avitoChatId?:string|null;
  warrantyMonths?:number|null;sdComment?:string|null;
   sdDueFrom?: string | null;
   sdDueAt?: string | null;
@@ -421,7 +423,7 @@ export default function OrderDetailPage() {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (status === 'DONE' && !masterId && !isPersonal && !isServiceCenter) {
+    if (status === 'DONE' && !masterId && !isPersonal && !isServiceCenter&&order?.sourceKind!=='PARTNER') {
       setError('Для статуса «Готов» назначьте мастера');
       return;
     }
@@ -445,7 +447,7 @@ export default function OrderDetailPage() {
         body.isPersonal = isPersonal;
         body.isServiceCenter = isServiceCenter;
         body.masterId = masterId || null;
-        body.address = address;
+        if(user?.role==='OWNER'||user?.permissions?.includes('staff.assistant'))body.address = address;
         body.typeTech = typeTech || null;
         body.scheduledAt = scheduledAt
           ? orderDateIso(scheduledAt)
@@ -804,12 +806,12 @@ export default function OrderDetailPage() {
             <MobileFold title="Детали и заметки" className="order-section order-edit-details">
               <div className="order-section-title">Детали</div>
                 <div className="order-options">
-                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>{setIsPersonal(e.target.checked);if(e.target.checked)setIsServiceCenter(false)}}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>{setIsServiceCenter(e.target.checked);if(e.target.checked)setIsPersonal(false)}}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
+                  <label className="service-center-check"><input type="checkbox" checked={isPersonal} onChange={e=>{setIsPersonal(e.target.checked);if(e.target.checked){setIsServiceCenter(false);if(status==='NOT_SCHEDULED')setStatus('WAITING')}}}/> Выполняю сам</label><label className="service-center-check"><input type="checkbox" checked={isServiceCenter} onChange={e=>{setIsServiceCenter(e.target.checked);if(e.target.checked){setIsPersonal(false);if(status==='NOT_SCHEDULED')setStatus('WAITING')}}}/> Привезут в СЦ - на Авито 30%</label></div>              <div className="order-fields-grid">
                 {!isServiceCenter && <div className="field">
                   <label>Адрес</label>
                   <input
                     required
-                    value={address}
+                    disabled={user?.role!=='OWNER'&&!user?.permissions?.includes('staff.assistant')} value={address}
                     onChange={(e) => setAddress(e.target.value)}
                   />
                 </div>}
@@ -922,7 +924,7 @@ export default function OrderDetailPage() {
                     disabled={isPersonal}
                     value={isPersonal ? '' : masterId}
                     onChange={(e) => setMasterId(e.target.value)}
-                    required={status === 'DONE' && !isPersonal && !isServiceCenter}
+                    required={status === 'DONE' && !isPersonal && !isServiceCenter&&order.sourceKind!=='PARTNER'}
                   >
                     <option value="">Не назначен</option>
                     {([{value:true,label:'✅ В смене'},{value:undefined,label:'График не задан'},{value:false,label:'❌ Выходной'}] as const).map(group=>{
@@ -1085,6 +1087,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
+          {order.avitoChatId&&<div className="panel"><a href={'/avito?chat='+encodeURIComponent(order.avitoChatId)}>Открыть чат Авито</a><button type="button" className="btn secondary" onClick={async()=>{const phone=window.prompt('Номер телефона клиента',order.client.phoneNormalized||'');if(phone===null)return;try{await api('/orders/'+id,{method:'PATCH',body:JSON.stringify({clientPhone:phone})});await load()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}}}>Добавить / изменить телефон</button></div>}
           {(order.sdComment||order.warrantyMonths!=null)&&<div className="panel">{order.sdComment&&<p style={{whiteSpace:'pre-wrap'}}>СД: {order.sdComment}</p>}{order.warrantyMonths!=null&&<p>Гарантия: {order.warrantyMonths} мес.</p>}</div>}
           {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}

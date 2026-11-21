@@ -51,6 +51,7 @@ export async function api<T>(
     headers,
   });
 
+  if(res.status===401)throw new Error('Сеанс завершён. Выйдите и войдите в CRM заново.');
   if (!res.ok) {
     let message = `Ошибка ${res.status}`;
     try {
@@ -73,6 +74,7 @@ export async function api<T>(
 }
 
 async function parseError(res: Response): Promise<string> {
+  if(res.status===401)return 'Сеанс завершён. Выйдите и войдите в CRM заново.';
   let message = `Ошибка ${res.status}`;
   try {
     const body = (await res.json()) as { message?: string | string[] };

@@ -11,6 +11,9 @@ import {
 import { OrderStatus, OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class UpdateOrderDto {
+ @IsOptional() @IsString() avitoChatId?:string;
+ @IsOptional() @IsString() avitoItemId?:string;
+ @IsOptional() @IsString() clientPhone?:string;
  @IsOptional() @IsBoolean() isPersonal?: boolean;
  @IsOptional() @IsBoolean() isServiceCenter?: boolean;
   @IsOptional()
