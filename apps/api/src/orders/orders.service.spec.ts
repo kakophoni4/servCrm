@@ -213,6 +213,8 @@ describe('OrdersService', () => {
   });
 
   describe('create', () => {
+    it('creates Avito order without fake phone and retains chat identity',async()=>{setupCreateTransaction();await service.create({...baseCreateDto(),clientPhone:'',avitoChatId:'chat-1',avitoItemId:'item-1'},userId,Role.OWNER);expect(txMock.client.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({phoneNormalized:null})}));expect(txMock.order.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({avitoChatId:'chat-1',avitoItemId:'item-1'})}));});
+    it('owner work starts waiting',async()=>{setupCreateTransaction();await service.create({...baseCreateDto(),isPersonal:true},userId,Role.OWNER);expect(txMock.order.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({status:OrderStatus.WAITING})}));});
     it('accepts a service-center order without address',async()=>{
       setupCreateTransaction();await service.create({...baseCreateDto(),isServiceCenter:true,address:undefined},userId,Role.OWNER);
       expect(txMock.order.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({isServiceCenter:true,address:''})}));
