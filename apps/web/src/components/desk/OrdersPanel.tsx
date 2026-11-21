@@ -12,7 +12,7 @@ import { api, getStoredUser } from '@/lib/api';
 import {
   SOURCE_KIND_LABELS,
   SOURCE_OUR_LABELS,
-  STATUS_LABELS,
+   orderStatusLabel,
   TYPE_LABELS,
 } from '@/lib/labels';
 import { formatRuPhoneDisplay } from '@/lib/phone';
@@ -126,7 +126,7 @@ export function OrdersPanel() {
               return <Link key={o.id} href={`/orders/${o.id}`} style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC'].includes(o.status)?{opacity:0.55}:undefined} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
                 <div className={styles.orderHeading}>
                   <strong>{o.client.name}</strong>
-                  <span className={statusBadgeClass(o.status)}>{STATUS_LABELS[o.status] ?? o.status}</span>
+                  <span className={statusBadgeClass(o.status)}>{orderStatusLabel(o.status,o.isServiceCenter)}</span>
                 </div>
                 <SdDeadline status={o.status} from={o.sdDueFrom} due={o.sdDueAt}/><div className={styles.orderAddress}>{o.isServiceCenter ? 'Привезут в СЦ' : o.address || 'Адрес не указан'}</div>
                 <div className={styles.orderSchedule}>
@@ -220,7 +220,7 @@ export function OrdersPanel() {
                       </td>
                       <td className="desk-col-center" data-label="Статус">
                         <span className={statusBadgeClass(o.status)}>
-                          {STATUS_LABELS[o.status] ?? o.status}
+                          {orderStatusLabel(o.status,o.isServiceCenter)}
                         </span>
                       </td>
                       <td className="desk-col-center" data-label="Мастер">

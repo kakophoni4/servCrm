@@ -6,7 +6,7 @@ describe('Assignment group', () => {
   function setup(telegramId:string|null=null) {
     let pending:string|null=JSON.stringify({hash:createHash('sha256').update(code).digest('hex'),expires:Date.now()+10000});
     const appSetting={findUnique:jest.fn(async()=>pending?{value:pending}:null),deleteMany:jest.fn(async()=>{const count=pending?1:0;pending=null;return {count};}),upsert:jest.fn()};
-    const prisma:any={user:{findFirst:jest.fn(async()=>null)},appSetting,$transaction:jest.fn(async f=>f({appSetting})),master:{findUnique:jest.fn(async()=>({user:{fullName:'Master',telegramId}}))},order:{findUnique:jest.fn(async()=>({id:'o',masterId:'m',status:'WAITING',master:{user:{fullName:'Master'}},publicId:'123',client:{name:'Client',phoneNormalized:'7999'},address:'Address',isPersonal:false})),update:jest.fn()}};
+    const prisma:any={user:{findFirst:jest.fn(async()=>null),findMany:jest.fn(async()=>[])},appSetting,$transaction:jest.fn(async f=>f({appSetting})),master:{findUnique:jest.fn(async()=>({user:{fullName:'Master',telegramId}}))},order:{findUnique:jest.fn(async()=>({id:'o',masterId:'m',status:'WAITING',master:{user:{fullName:'Master'}},publicId:'123',client:{name:'Client',phoneNormalized:'7999'},address:'Address',isPersonal:false})),update:jest.fn()}};
     const settings:any={set:jest.fn(),getBotConfig:jest.fn(async()=>({hasToken:true,enabled:true})),get:jest.fn(async(key:string)=>key==='bot.orders.group'?JSON.stringify({chatId:'-123',title:'Orders'}):null)};
     const svc=new BotService(prisma,{} as any,settings,{} as any,{} as any,{} as any);
     jest.spyOn(svc,'telegram').mockResolvedValue({ok:true,result:{status:'administrator'}});
@@ -24,16 +24,34 @@ describe('Assignment group', () => {
     expect(card.text).toMatch(/Всего: 11700 ₽\nЧистыми: 9400 ₽\nЧек отсутствует ❌$/);
     expect(card.text).not.toMatch(/На Авито|Владельцу/);
   });
-  it('formats labels with safe Telegram entities, Moscow minutes and a phone starting with +7',async()=>{
-    const {svc,prisma}=setup();const order=await prisma.order.findUnique();
+  it('formats labels with safe Telegram entities, Samara minutes and the accepted master contact',async()=>{
+    const {svc,prisma,settings}=setup();const order=await prisma.order.findUnique();
     prisma.order.findUnique.mockResolvedValue({...order,client:{name:'😀 <Иван>',phoneNormalized:'79991234567'},scheduledAt:new Date('2026-11-16T06:00:00Z')});
+    expect((await (svc as any).groupOrderCard('o')).text).not.toContain('Телефон:');
+    settings.get.mockImplementation(async(key:string)=>key==='bot.orders.accepted.o'?'m':null);
     const card=await (svc as any).groupOrderCard('o');
     expect(card.text).toContain('Телефон: +79991234567');
-    expect(card.text).toContain('Время: 16.11, 09:00');
-    expect(card.text).not.toContain('09:00:00');
+    expect(card.text).toContain('Время: 16.11, 10:00');
+    expect(card.text).not.toContain('10:00:00');
     expect(card.text).toContain('😀 <Иван>');
     const labels=card.entities.map((e:{offset:number;length:number})=>card.text.slice(e.offset,e.offset+e.length));
     expect(labels).toEqual(expect.arrayContaining(['Заявка','Статус:','Телефон:']));
+  });
+  it('shows waiting for delivery until a service-center order is accepted',async()=>{
+    const {svc,prisma}=setup();const order=await prisma.order.findUnique();
+    for(const status of ['WAITING','NOT_SCHEDULED']){
+      prisma.order.findUnique.mockResolvedValue({...order,status,isServiceCenter:true});
+      const card=await (svc as any).groupOrderCard('o');
+      expect(card.text).toContain('Статус: Привезёт');
+    }
+  });
+  it('ignores owner work, center work and assigned orders when sending a dispatch reminder',async()=>{
+    const {svc,send,prisma}=setup();const order=await prisma.order.findUnique();
+    for(const fields of [{masterId:null,isPersonal:true},{masterId:null,isServiceCenter:true},{masterId:'m'},{masterId:null,status:'IN_PROGRESS'}]){
+      prisma.order.findUnique.mockResolvedValue({...order,...fields});
+      await (svc as any).escalateOrder('o');
+    }
+    expect(send).not.toHaveBeenCalled();
   });
   it('hides totals until closed, including service-center work with payment entered',async()=>{
     const {svc,prisma}=setup();const order=await prisma.order.findUnique();

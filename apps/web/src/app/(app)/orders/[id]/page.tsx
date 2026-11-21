@@ -26,7 +26,7 @@ import {
   DOC_KIND_LABELS,
   ORDER_UPLOAD_DOC_KINDS,
   SD_UPLOAD_DOC_KIND,
-  STATUS_LABELS,
+  STATUS_LABELS, orderStatusLabel,
   TYPE_LABELS,
   isAdminRole,
   requiredOrderDocKinds,
@@ -101,7 +101,7 @@ type Order = {
   client: {
     id: string;
     name: string;
-    phoneNormalized: string;
+    phoneNormalized: string | null;
     branchComment?: string | null;
     orders: Array<{
       id: string;
@@ -749,7 +749,11 @@ export default function OrderDetailPage() {
   return (
     <div className="order-page">
       <div className="order-mobile-bar">
-        <a className="btn secondary" href={phoneHref(order.client.phoneNormalized)}>Позвонить</a>
+        {order.client.phoneNormalized ? (
+          <a className="btn secondary" href={phoneHref(order.client.phoneNormalized)}>Позвонить</a>
+        ) : order.avitoChatId ? (
+          <a className="btn secondary" href={'/avito?chat=' + encodeURIComponent(order.avitoChatId)}>Чат Авито</a>
+        ) : null}
         <button type="submit" form="order-edit-form" className="btn" disabled={doneBlocked}>Сохранить</button>
       </div>
       <div className="order-page-grid">
@@ -766,7 +770,7 @@ export default function OrderDetailPage() {
             </h1>
             <div className="order-page-badges">
               <span className="badge order-badge-status">
-                {STATUS_LABELS[order.status]}
+                {orderStatusLabel(order.status,order.isServiceCenter)}
               </span>
 
               <span className="badge order-badge-type">
@@ -888,9 +892,9 @@ export default function OrderDetailPage() {
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                   >
-                    {STATUSES.filter(s=>!logistic||s!=='DONE'||order.status==='DONE').map((s) => (
+                    {STATUSES.filter(s=>!isServiceCenter || s!=='NOT_SCHEDULED' || status===s).filter(s=>!logistic||s!=='DONE'||order.status==='DONE').map((s) => (
                       <option key={s} value={s}>
-                        {STATUS_LABELS[s]}
+                        {orderStatusLabel(s,isServiceCenter)}
                       </option>
                     ))}
                   </select>
@@ -1087,7 +1091,7 @@ export default function OrderDetailPage() {
             </form>
           ) : null}
 
-          {order.avitoChatId&&<div className="panel"><a href={'/avito?chat='+encodeURIComponent(order.avitoChatId)}>Открыть чат Авито</a><button type="button" className="btn secondary" onClick={async()=>{const phone=window.prompt('Номер телефона клиента',order.client.phoneNormalized||'');if(phone===null)return;try{await api('/orders/'+id,{method:'PATCH',body:JSON.stringify({clientPhone:phone})});await load()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}}}>Добавить / изменить телефон</button></div>}
+          {order.avitoChatId&&<div className="panel"><a className="btn secondary" href={'/avito?chat='+encodeURIComponent(order.avitoChatId)}>Перейти к клиенту в Авито</a><button type="button" className="btn secondary" onClick={async()=>{const phone=window.prompt('Номер телефона клиента',order.client.phoneNormalized||'');if(phone===null)return;try{await api('/orders/'+id,{method:'PATCH',body:JSON.stringify({clientPhone:phone})});await load()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}}}>Добавить / изменить телефон</button></div>}
           {(order.sdComment||order.warrantyMonths!=null)&&<div className="panel">{order.sdComment&&<p style={{whiteSpace:'pre-wrap'}}>СД: {order.sdComment}</p>}{order.warrantyMonths!=null&&<p>Гарантия: {order.warrantyMonths} мес.</p>}</div>}
           {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}

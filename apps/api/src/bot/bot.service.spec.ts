@@ -296,7 +296,7 @@ describe('BotService', () => {
         NotFoundException,
       );
       await expect(svc.masterByTelegram(telegramId)).rejects.toThrow(
-        'Мастер не найден по telegram id',
+        'Подключить Telegram',
       );
     });
   });
@@ -404,7 +404,7 @@ describe('BotService', () => {
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: '99', text: 'hello' }),
+          body: JSON.stringify({ chat_id: '99', text: 'hello', link_preview_options: { is_disabled: true } }),
         }),
       );
       expect(result).toEqual(apiResponse);

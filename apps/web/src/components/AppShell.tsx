@@ -27,7 +27,7 @@ const NAV: NavItem[] = [
  {href:'/messages',label:'Переписки',roles:['OWNER','ADMIN','DIRECTOR','DISPATCHER']},
  {href:'/orders',label:'Заявки'},
  {href:'/masters',label:'Мастера'},
- {href:'/inventory',label:'Запчасти',roles:['OWNER']},
+ {href:'/inventory',label:'Запчасти',roles:['OWNER','ADMIN']},
  {href:'/avito',label:'Авито',roles:['OWNER']},
  {href:'/reports',label:'Финансы',roles:['OWNER']},
  {href:'/settings/bot',label:'Telegram',roles:['OWNER']},
@@ -91,6 +91,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const master=user.role==='MASTER';
   const availableNav=master?[{href:'/master',label:'Мои заявки'},{href:'/messages',label:'Переписка'},{href:'/settings/account',label:'Аккаунт'}]:NAV;
   const navLinks = availableNav.filter((item) => {
+    if (item.href === '/inventory' && user.role !== 'OWNER' && !user.permissions?.includes('inventory.read')) return false;
     if (item.roles && !item.roles.includes(user.role)) return false;
     if (
       item.anyOf?.length &&

@@ -1,4 +1,4 @@
-import {Body,Controller,Get,Param,Post,Put,Query,UseGuards} from '@nestjs/common';
+import {Body,Controller,ForbiddenException,Req,Get,Param,Post,Put,Query,UseGuards} from '@nestjs/common';
 import {Role} from '@prisma/client';
 import {Type} from 'class-transformer';
 import {ArrayMaxSize,ArrayUnique,IsArray,IsInt,IsString,Max,MaxLength,Min,MinLength,ValidateNested} from 'class-validator';
@@ -29,7 +29,10 @@ class UsageDto {
 @Controller('inventory') @UseGuards(JwtAuthGuard,RolesGuard) @Roles(Role.OWNER)
 export class InventoryController {
  constructor(private readonly stock:InventoryService){}
- @Get('paged') paged(@Query('q') q='',@Query('group') group='',@Query('low') low='',@Query('page') page='1'){return this.stock.paged(q,group,low==='true',page);}
+ @Get('paged') @Roles(Role.OWNER, Role.ADMIN)
+ paged(@Req() req:{user:{role:Role;permissions:string[]}}, @Query('q') q='',@Query('group') group='',@Query('low') low='',@Query('page') page='1'){
+  if(req.user.role !== Role.OWNER && !req.user.permissions.includes('inventory.read')) throw new ForbiddenException('Нет доступа к складу');
+  return this.stock.paged(q,group,low==='true',page);}
  @Get() list(){return this.stock.list();}
  @Post() create(@Body() dto:PartDto){return this.stock.create(dto);}
  @Put(':id') edit(@Param('id') id:string,@Body() dto:PartInfoDto){return this.stock.edit(id,dto);}

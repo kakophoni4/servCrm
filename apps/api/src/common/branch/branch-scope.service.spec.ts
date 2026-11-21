@@ -19,6 +19,7 @@ describe('BranchScopeService', () => {
 
     it('returns own cityId for ADMIN with no managed branches', async () => {
       prisma.user.findUnique.mockResolvedValue({
+        permissions: [],
         cityId: 'A',
         managedBranches: [],
       });
@@ -29,6 +30,7 @@ describe('BranchScopeService', () => {
       expect(prisma.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         select: {
+          permissions: true,
           cityId: true,
           managedBranches: { select: { cityId: true } },
         },
@@ -37,6 +39,7 @@ describe('BranchScopeService', () => {
 
     it('returns cityId plus managed branch cities for DIRECTOR (unique via Set)', async () => {
       prisma.user.findUnique.mockResolvedValue({
+        permissions: [],
         cityId: 'A',
         managedBranches: [{ cityId: 'B' }, { cityId: 'C' }],
       });
@@ -48,6 +51,7 @@ describe('BranchScopeService', () => {
 
     it('returns empty array when user has no cityId and no managed branches', async () => {
       prisma.user.findUnique.mockResolvedValue({
+        permissions: [],
         cityId: null,
         managedBranches: [],
       });

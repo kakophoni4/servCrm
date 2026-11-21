@@ -147,3 +147,8 @@ export function currentMonthRange(): { from: string; to: string } {
   const now = new Date();
   return monthRange(now.getFullYear(), now.getMonth() + 1);
 }
+
+export function orderStatusLabel(status: string, isServiceCenter = false) {
+  if (isServiceCenter && ['WAITING','NOT_SCHEDULED'].includes(status)) return 'Привезёт';
+  return STATUS_LABELS[status] ?? status;
+}

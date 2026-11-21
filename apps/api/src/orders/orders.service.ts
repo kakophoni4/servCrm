@@ -200,8 +200,8 @@ export class OrdersService {
     }
     const scheduledAt = new Date(dto.scheduledAt);
 
-    const phone = normalizePhone(dto.clientPhone);
-    if (phone.length < 10 && !dto.avitoChatId) {
+    const phone = normalizePhone(dto.clientPhone ?? '');
+    if (phone.length !== 11 && (phone || !dto.avitoChatId?.trim())) {
       throw new BadRequestException('Некорректный телефон');
     }
 

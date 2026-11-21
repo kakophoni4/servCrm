@@ -18,9 +18,13 @@ export class CreateOrderDto {
   @IsNotEmpty()
   clientName!: string;
 
+  @ValidateIf((order: CreateOrderDto) =>
+    typeof order.avitoChatId !== 'string' || !order.avitoChatId.trim() ||
+    (order.clientPhone != null && order.clientPhone !== ''),
+  )
   @IsString()
-  @IsNotEmpty()
-  clientPhone!: string;
+  @IsNotEmpty({ message: 'Укажите номер телефона' })
+  clientPhone?: string;
 
   @IsEnum(OrderType)
   type!: OrderType;

@@ -27,6 +27,7 @@ export default function NewOrderPage() {
   const [, setCities] = useState<BranchCity[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [avitoChatId, setAvitoChatId] = useState('');
   const [clientHint, setClientHint] = useState('');
   const phoneLookupSeq = useRef(0);
 
@@ -70,6 +71,7 @@ export default function NewOrderPage() {
 
   useEffect(()=>{
     const chatId=new URLSearchParams(window.location.search).get('avitoChat');
+    setAvitoChatId(chatId || '');
     if(!chatId||getStoredUser()?.role!=='OWNER')return;
     const abort=new AbortController();
     api<{clientName:string;comment:string;itemId?:string|number|null}>('/avito/draft/'+encodeURIComponent(chatId),{signal:abort.signal})
@@ -119,7 +121,7 @@ export default function NewOrderPage() {
     setLoading(true);
     setError('');
     const phoneDigits = digitsPhone(form.clientPhone);
-    if (phoneDigits.length < 11 && !new URLSearchParams(window.location.search).get('avitoChat')) {
+    if (phoneDigits.length < 11 && (!avitoChatId || (phoneDigits !== '7' && phoneDigits !== ''))) {
       setError('Укажите полный номер телефона');
       setLoading(false);
       return;
@@ -142,7 +144,7 @@ export default function NewOrderPage() {
       const body = {
         clientName: form.clientName,
         clientPhone: phoneDigits.length>=11?phoneDigits:'',
-        avitoChatId:new URLSearchParams(window.location.search).get('avitoChat')||undefined,
+        avitoChatId: avitoChatId || undefined,
         avitoItemId:form.avitoItemId||undefined,
         type: form.type,
         isPersonal: form.isPersonal,
@@ -180,7 +182,7 @@ export default function NewOrderPage() {
             <div className="field">
               <label htmlFor="new-client-phone">Телефон</label>
               <input
-                required
+                required={!avitoChatId}
                 id="new-client-phone"
                 type="tel"
                 inputMode="tel"
