@@ -37,6 +37,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettlementsService } from '../settlements/settlements.service';
 
 const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
+  [OrderStatus.NO_ARRIVAL]: 'Не доезд',
   [OrderStatus.NOT_SCHEDULED]: 'Не назначено',
   [OrderStatus.WAITING]: 'Ожидание',
   [OrderStatus.ON_THE_WAY]: 'На адресе',
@@ -161,6 +162,7 @@ const ESCALATE_SKIP_STATUSES: OrderStatus[] = [
   OrderStatus.DONE,
   OrderStatus.REFUSAL,
   OrderStatus.CANCELLED_CC,
+  OrderStatus.NO_ARRIVAL,
 ];
 
 /** Активные заявки мастера (ещё в работе). */
@@ -1523,7 +1525,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const destination=await this.getOrderDestination(orderId);
     const chatId=destination?.chatId||order.master?.user.telegramId;
     if(!chatId)return null;
-    const title=order.status===OrderStatus.REFUSAL?'Отказ по заявке':'Заявка отменена';
+    const title=order.status===OrderStatus.REFUSAL?'Отказ по заявке':order.status===OrderStatus.NO_ARRIVAL?'Не доезд по заявке':'Заявка отменена';
     return this.sendMessage(chatId,[title+' · '+order.publicId,'Клиент: '+order.client.name,'Адрес: '+order.address].join('\n'));
   }
 

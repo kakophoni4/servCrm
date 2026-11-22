@@ -456,7 +456,7 @@ export default function OrderDetailPage() {
         body.isProfile = isProfile;
         body.comment = comment.trim() || null;
         body.adminComment = adminComment.trim() || null;
-        if (status === 'CANCELLED_CC' || status === 'REFUSAL') {
+        if (['CANCELLED_CC', 'REFUSAL', 'NO_ARRIVAL'].includes(status)) {
           body.cancelFault = cancelFault || null;
         }
       }
@@ -899,7 +899,7 @@ export default function OrderDetailPage() {
                     ))}
                   </select>
                 </div>
-                {status === 'CANCELLED_CC' || status === 'REFUSAL' ? (
+                {['CANCELLED_CC', 'REFUSAL', 'NO_ARRIVAL'].includes(status) ? (
                   <div className="field">
                     <label>Виновник отмены</label>
                     <select

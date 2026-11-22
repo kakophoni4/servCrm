@@ -55,7 +55,7 @@ describe('Assignment group', () => {
   });
   it('hides totals until closed, including service-center work with payment entered',async()=>{
     const {svc,prisma}=setup();const order=await prisma.order.findUnique();
-    for(const status of ['WAITING','NOT_SCHEDULED','ON_THE_WAY','IN_PROGRESS','IN_PROGRESS_SD','REFUSAL','CANCELLED_CC']){
+    for(const status of ['WAITING','NOT_SCHEDULED','ON_THE_WAY','IN_PROGRESS','IN_PROGRESS_SD','REFUSAL','CANCELLED_CC','NO_ARRIVAL']){
       prisma.order.findUnique.mockResolvedValue({...order,status,isServiceCenter:true,payment:{paid:10000,partsCost:3500,prepay:5000}});
       const card=await (svc as any).groupOrderCard('o');
       expect(card.text).not.toMatch(/Всего:|Чистыми:/);

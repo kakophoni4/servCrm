@@ -6,6 +6,7 @@ export const STATUS_LABELS: Record<string, string> = {
   IN_PROGRESS_SD: 'В работе СД',
   DONE: 'Готов',
   REFUSAL: 'Отказ',
+  NO_ARRIVAL: 'Не доезд',
   CANCELLED_CC: 'Отмена КЦ',
 };
 

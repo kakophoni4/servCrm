@@ -65,7 +65,7 @@ export class MasterPortalService {
  }
  async listPage(u:Actor,closed=false,page=1){
   const m=await this.master(u);if(!Number.isInteger(page)||page<1||page>100000)throw new BadRequestException('Некорректная страница');
-  const statuses=['DONE','REFUSAL','CANCELLED_CC'] as any;const where={masterId:m.id,isPersonal:false,status:closed?{in:statuses}:{notIn:statuses}};
+  const statuses=['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'] as any;const where={masterId:m.id,isPersonal:false,status:closed?{in:statuses}:{notIn:statuses}};
   const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,select:{id:true,publicId:true,status:true,address:true,scheduledAt:true,client:{select:{name:true}}},orderBy:[{scheduledAt:'desc'},{id:'desc'}],take:30,skip:(page-1)*30})]);
   return {items,total,page,totalPages:Math.max(1,Math.ceil(total/30))};
  }

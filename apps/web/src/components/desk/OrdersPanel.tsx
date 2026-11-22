@@ -44,7 +44,7 @@ type OrderRow = {
 function statusBadgeClass(status: string): string {
   if (status === 'WAITING') return `badge ${styles.waitingBadge}`;
   if (status === 'DONE') return 'badge badge-ok';
-  if (status === 'REFUSAL' || status === 'CANCELLED_CC') return 'badge badge-muted';
+  if (['CANCELLED_CC', 'REFUSAL', 'NO_ARRIVAL'].includes(status)) return 'badge badge-muted';
   if (
     status === 'IN_PROGRESS' ||
     status === 'IN_PROGRESS_SD' ||
@@ -123,7 +123,7 @@ export function OrdersPanel() {
           <div className={styles.mobileOrders}>
             {visible.map(o => {
               const urgent = isOverdueUnassigned(o, now);
-              return <Link key={o.id} href={`/orders/${o.id}`} style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC'].includes(o.status)?{opacity:0.55}:undefined} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
+              return <Link key={o.id} href={`/orders/${o.id}`} style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'].includes(o.status)?{opacity:0.55}:undefined} className={`${styles.orderCard}${urgent ? ` ${styles.urgentCard}` : ''}`}>
                 <div className={styles.orderHeading}>
                   <strong>{o.client.name}</strong>
                   <span className={statusBadgeClass(o.status)}>{orderStatusLabel(o.status,o.isServiceCenter)}</span>
@@ -169,7 +169,7 @@ export function OrdersPanel() {
                   return (
                     <tr
                       key={o.id}
-                      style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC'].includes(o.status)?{opacity:0.55}:undefined}
+                      style={['today','tomorrow'].includes(view)&&['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'].includes(o.status)?{opacity:0.55}:undefined}
                       className={
                         urgent ? 'row-link row-urgent' : 'row-link'
                       }

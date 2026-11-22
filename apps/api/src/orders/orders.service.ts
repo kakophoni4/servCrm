@@ -35,6 +35,7 @@ const DISPATCHER_STATUSES: OrderStatus[] = [
   OrderStatus.NOT_SCHEDULED,
   OrderStatus.WAITING,
   OrderStatus.CANCELLED_CC,
+  OrderStatus.NO_ARRIVAL,
 ];
 
 @Injectable()
@@ -66,7 +67,7 @@ export class OrdersService {
     const allowed=await this.branch.allowedCityIds(userId,role);
     const where:Prisma.OrderWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
     if(filter==='today')where.scheduledAt=moscowToday();
-    if(filter==='active'||filter==='unassigned')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC']};
+    if(filter==='active'||filter==='unassigned')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
     if(filter==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
     if(filter==='sd')where.status='IN_PROGRESS_SD';
     if(filter==='unassigned'){where.masterId=null;where.isPersonal=false;where.isServiceCenter=false;}
@@ -74,12 +75,12 @@ export class OrdersService {
     if(filter==='personal')where.isPersonal=true;
     if(filter==='center')where.isServiceCenter=true;
     if(filter==='closed')where.status='DONE';
-    if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC']};
+    if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
     if(q.tech)where.typeTech=q.tech==='Другое'?{notIn:['ХД','СМ','ПММ','ТВ','ПК','']}:q.tech;
     if(search){const text={contains:search,mode:'insensitive' as const};const digits=search.replace(/\D/g,'');where.OR=[{publicId:text},{address:text},{client:{name:text}},{master:{user:{fullName:text}}}];if(digits.length>=3)where.OR.push({client:{phoneNormalized:{contains:digits}}});}
     if(['today','tomorrow'].includes(filter)){
       return this.prisma.$transaction(async tx=>{
-        const terminal:OrderStatus[]=['DONE','REFUSAL','CANCELLED_CC'];
+        const terminal:OrderStatus[]=['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'];
         const activeWhere={...where,status:{notIn:terminal}},closedWhere={...where,status:{in:terminal}};
         const [total,activeCount]=await Promise.all([tx.order.count({where}),tx.order.count({where:activeWhere})]);
         const skip=(page-1)*limit;
@@ -362,6 +363,7 @@ export class OrdersService {
             OrderStatus.DONE,
             OrderStatus.REFUSAL,
             OrderStatus.CANCELLED_CC,
+            OrderStatus.NO_ARRIVAL,
           ],
         },
         cityId: this.branch.cityWhere(cityIds),
@@ -482,7 +484,10 @@ export class OrdersService {
     const centerChanged = dto.isServiceCenter !== undefined && dto.isServiceCenter !== existing.isServiceCenter;
     const nextPersonal = dto.isPersonal ?? existing.isPersonal;
     if(nextPersonal && nextServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
-    if((dto.isPersonal||dto.isServiceCenter)&&existing.status===OrderStatus.NOT_SCHEDULED)status=OrderStatus.WAITING;
+    if ((dto.isPersonal || dto.isServiceCenter) && existing.status === OrderStatus.NOT_SCHEDULED
+      && (status === undefined || status === OrderStatus.NOT_SCHEDULED)) {
+      status = OrderStatus.WAITING;
+    }
     const nextStatus = status ?? existing.status;
     if (nextPersonal) dto.masterId = null;
     const nextMasterId =
@@ -703,7 +708,7 @@ export class OrdersService {
       try{const sent=await this.bot.notifyOrderRescheduled(id);telegramDelivery=sent?.ok?'sent':'failed';}catch{telegramDelivery='failed';}
     }
 
-    if(existing.status!==nextStatus && (nextStatus===OrderStatus.REFUSAL || nextStatus===OrderStatus.CANCELLED_CC)){
+    if(existing.status!==nextStatus && (nextStatus===OrderStatus.REFUSAL || nextStatus===OrderStatus.CANCELLED_CC || nextStatus===OrderStatus.NO_ARRIVAL)){
       await this.bot.notifyOrderCancelled(id).catch(()=>undefined);
     }
 

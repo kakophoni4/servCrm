@@ -389,6 +389,7 @@ describe('OrdersService', () => {
       OrderStatus.WAITING,
       OrderStatus.NOT_SCHEDULED,
       OrderStatus.CANCELLED_CC,
+      OrderStatus.NO_ARRIVAL,
     ])('allows dispatcher to set status %s', async (status) => {
       const dto: UpdateOrderDto = { status };
 

@@ -48,7 +48,7 @@ export class MastersService {
     const stats=await this.prisma.$queryRaw<{id:string;averageCheck:number;completedOrders:bigint;activeCount:bigint;sdCount:bigint}[]>(Prisma.sql`
       SELECT m.id,COALESCE(AVG(COALESCE(p.paid,0)) FILTER(WHERE o.status='DONE' AND NOT o.is_personal),0)::float AS "averageCheck",
       COUNT(o.id) FILTER(WHERE o.status='DONE' AND NOT o.is_personal) AS "completedOrders",
-      COUNT(o.id) FILTER(WHERE o.status NOT IN ('DONE','REFUSAL','CANCELLED_CC','IN_PROGRESS_SD')) AS "activeCount",
+      COUNT(o.id) FILTER(WHERE o.status NOT IN ('DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL','IN_PROGRESS_SD')) AS "activeCount",
       COUNT(o.id) FILTER(WHERE o.status='IN_PROGRESS_SD') AS "sdCount"
       FROM masters m JOIN users u ON u.id=m.user_id LEFT JOIN orders o ON o.master_id=m.id LEFT JOIN order_payments p ON p.order_id=o.id
       WHERE m.status='ACTIVE' ${scoped} ${searched} ${tech}
@@ -61,7 +61,7 @@ export class MastersService {
   async jobs(id:string,userId:string,role:Role,q:PageQuery) {
     const {page,limit}=pageInput(q);const allowed=await this.branch.allowedCityIds(userId,role);
     if(!await this.prisma.master.findFirst({where:{id,cityId:this.branch.cityWhere(allowed)}}))throw new NotFoundException('Мастер не найден');
-    const where:Prisma.OrderWhereInput={masterId:id,status:{notIn:['DONE','REFUSAL','CANCELLED_CC']}};
+    const where:Prisma.OrderWhereInput={masterId:id,status:{notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']}};
     const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,select:{id:true,publicId:true,masterId:true,status:true,address:true,scheduledAt:true,sdDueAt:true,client:{select:{name:true}}},orderBy:[{scheduledAt:'asc'},{id:'asc'}]})]);return pageResult(items,total,page,limit);
   }
 
@@ -166,7 +166,7 @@ export class MastersService {
         where: {
           masterId: id,
           status: {
-            notIn: ['DONE', 'REFUSAL', 'CANCELLED_CC'],
+            notIn: ['DONE', 'REFUSAL', 'CANCELLED_CC', 'NO_ARRIVAL'],
           },
         },
         data: { masterId: null },

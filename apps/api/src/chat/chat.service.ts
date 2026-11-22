@@ -25,6 +25,7 @@ const TERMINAL: OrderStatus[] = [
   OrderStatus.DONE,
   OrderStatus.REFUSAL,
   OrderStatus.CANCELLED_CC,
+  OrderStatus.NO_ARRIVAL,
 ];
 
 @Injectable()

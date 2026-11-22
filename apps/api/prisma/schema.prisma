@@ -45,6 +45,7 @@ enum OrderStatus {
   IN_PROGRESS_SD
   DONE
   REFUSAL
+  NO_ARRIVAL
   CANCELLED_CC
 }
 

@@ -234,7 +234,7 @@ export class ReportsService {
     const [orders, cityRows] = await Promise.all([
       this.prisma.order.findMany({
         where: {
-          status: { in: [OrderStatus.CANCELLED_CC, OrderStatus.REFUSAL] },
+          status: { in: [OrderStatus.CANCELLED_CC, OrderStatus.REFUSAL, OrderStatus.NO_ARRIVAL] },
           updatedAt: { gte: start, lte: end },
           cityId: cityFilter,
         },
@@ -261,6 +261,7 @@ export class ReportsService {
       our: number;
       refusal: number;
       cancelledCc: number;
+      noArrival: number;
       byMasterFault: number;
       byAdminFault: number;
     };
@@ -273,6 +274,7 @@ export class ReportsService {
       our: 0,
       refusal: 0,
       cancelledCc: 0,
+      noArrival: 0,
       byMasterFault: 0,
       byAdminFault: 0,
     });
@@ -286,6 +288,7 @@ export class ReportsService {
       row.total += 1;
       if (o.sourceKind === SourceKind.PARTNER) row.partner += 1;
       if (o.sourceKind === SourceKind.OUR) row.our += 1;
+      if (o.status === OrderStatus.NO_ARRIVAL) row.noArrival += 1;
       if (o.status === OrderStatus.REFUSAL) row.refusal += 1;
       if (o.status === OrderStatus.CANCELLED_CC) row.cancelledCc += 1;
       if (o.cancelFault === 'master') row.byMasterFault += 1;
@@ -317,6 +320,7 @@ export class ReportsService {
       totals.total += row.total;
       totals.partner += row.partner;
       totals.our += row.our;
+      totals.noArrival += row.noArrival;
       totals.refusal += row.refusal;
       totals.cancelledCc += row.cancelledCc;
       totals.byMasterFault += row.byMasterFault;

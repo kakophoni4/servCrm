@@ -360,7 +360,7 @@ export class UsersService {
             where: {
               masterId: master.id,
               status: {
-                notIn: ['DONE', 'REFUSAL', 'CANCELLED_CC'],
+                notIn: ['DONE', 'REFUSAL', 'CANCELLED_CC', 'NO_ARRIVAL'],
               },
             },
             data: { masterId: null },
