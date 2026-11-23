@@ -1,6 +1,6 @@
 export type GroupFlow = {
   orderId: string; masterId: string | null; telegramId: string; chatId: string;
-  messageId: number; kind: 'close' | 'sd'; expires: number; version: string;
+  messageId: number; kind: 'close' | 'sd' | 'extend'; expires: number; version: string;
   inputMessageId?: number;
   documentsOnly?: boolean;
   summary?: string;
@@ -40,4 +40,12 @@ export function sdDeadline(days:number, now=new Date()) {
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
   const value=(key:string)=>Number(parts.find(p=>p.type===key)!.value);
   return new Date(Date.UTC(value('year'),value('month')-1,value('day')+days,19,59,59,999));
+}
+
+export function parseExtension(text: string) {
+  const match = /^(\d{1,3})(?:\s+(?:дней|дня|день))?\s+([\s\S]+)$/iu.exec(text.trim());
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 365 || !match[2].trim() || match[2].length > 500 || /^(дней|день|дня)$/iu.test(match[2].trim())) {
+    throw new Error('Укажите количество дней (1-365) и причину переноса.');
+  }
+  return {days:Number(match[1]), reason:match[2].trim()};
 }

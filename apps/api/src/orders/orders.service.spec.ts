@@ -1,3 +1,4 @@
+import {redactStaffMoney} from '../common/staff-access.interceptor';
 import {
   BadRequestException,
   ForbiddenException,
@@ -587,6 +588,7 @@ describe('OrdersService', () => {
       const sourceOrder = {
         id: orderId,
         publicId: '072610001',
+        comment: 'Не морозит',
         client: { name: 'Пётр', phoneNormalized: '79007654321' },
         sourceKind: SourceKind.PARTNER,
         sourceOur: null,
@@ -599,9 +601,9 @@ describe('OrdersService', () => {
         branchComment: 'коммент',
         partner: null,
         ageCategory: null,
-        master: null,
+        master: {id:'master-1',user:{fullName:'Мастер',passwordHash:'SECRET'},passportEnc:'PRIVATE'},
         city: null,
-        payment: {},
+        payment: {paid:'12000',partsCost:'1000',masterSalary:'5500',ownerNet:'2750'},
         claims: [],
         documents: [],
       };
@@ -631,30 +633,29 @@ describe('OrdersService', () => {
           typeTech: 'холодильник',
           cityId: 'A',
           branchComment: 'коммент',
-          comment: expect.stringContaining('072610001'),
+          comment: 'Не морозит',
         }),
         userId,
         Role.DISPATCHER,
+        expect.objectContaining({sourceOrderId: orderId, sourceSnapshot: expect.objectContaining({comment: 'Не морозит',publicId: '072610001',payment: {paid:'12000',partsCost:'1000',masterSalary:'5500',ownerNet:'2750'}})}),
       );
 
+      const snapshot = createSpy.mock.calls[0][3]?.sourceSnapshot;
+      expect(snapshot?.master).toEqual({id:'master-1',user:{fullName:'Мастер'}});
+      expect(snapshot?.client).toEqual({name:'Пётр',phoneNormalized:'79007654321'});
+      expect(JSON.stringify(snapshot)).not.toContain('SECRET');
+      expect(JSON.stringify(snapshot)).not.toContain('PRIVATE');
+      expect(redactStaffMoney({sourceSnapshot:snapshot}).sourceSnapshot.payment).toBeUndefined();
       createSpy.mockRestore();
     });
   });
 
   describe('markWarranty', () => {
-    it('updates order type to WARRANTY and sets isWarranty', async () => {
-      const updated = { id: orderId, type: OrderType.WARRANTY, isWarranty: true };
-      prisma.order.update.mockResolvedValue(updated);
-
-      const result = await service.markWarranty(orderId);
-
-      expect(prisma.order.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: orderId },
-          data: { type: OrderType.WARRANTY, isWarranty: true },
-        }),
-      );
-      expect(result).toEqual(updated);
+    it('creates a linked warranty without updating the original', async () => {
+      const repeat = jest.spyOn(service, 'createRepeat').mockResolvedValue({id:'warranty-new'} as never);
+      expect(await service.markWarranty(orderId,userId,Role.OWNER)).toEqual({id:'warranty-new'});
+      expect(repeat).toHaveBeenCalledWith(orderId,userId,Role.OWNER,OrderType.WARRANTY);
+      expect(prisma.order.update).not.toHaveBeenCalled();
     });
   });
 });

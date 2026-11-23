@@ -74,6 +74,8 @@ type DocPreview = {
 };
 
 type Order = {
+  sourceOrderId?: string | null;
+  sourceSnapshot?: {publicId: string; comment?: string; address?: string; typeTech?: string; payment?: Record<string, string | number>} | null;
  sourceKind?:string;
  avitoChatId?:string|null;
  warrantyMonths?:number|null;sdComment?:string|null;
@@ -715,8 +717,8 @@ export default function OrderDetailPage() {
   async function makeWarranty() {
     setError('');
     try {
-      await api(`/orders/${id}/warranty`, { method: 'POST' });
-      await load();
+      const created = await api<{id: string}>(`/orders/${id}/warranty`, { method: 'POST' });
+      router.push(`/orders/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка');
     }
@@ -1092,6 +1094,12 @@ export default function OrderDetailPage() {
           ) : null}
 
           {order.avitoChatId&&<div className="panel"><a className="btn secondary" href={'/avito?chat='+encodeURIComponent(order.avitoChatId)}>Перейти к клиенту в Авито</a><button type="button" className="btn secondary" onClick={async()=>{const phone=window.prompt('Номер телефона клиента',order.client.phoneNormalized||'');if(phone===null)return;try{await api('/orders/'+id,{method:'PATCH',body:JSON.stringify({clientPhone:phone})});await load()}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}}}>Добавить / изменить телефон</button></div>}
+          {order.sourceSnapshot && <section className="panel">
+            <h2>Исходная заявка <Link href={`/orders/${order.sourceOrderId}`}>{order.sourceSnapshot.publicId}</Link></h2>
+            {order.sourceSnapshot.comment && <p style={{whiteSpace:'pre-wrap'}}>{order.sourceSnapshot.comment}</p>}
+            <p>{order.sourceSnapshot.typeTech} · {order.sourceSnapshot.address}</p>
+            {order.sourceSnapshot.payment && <dl>{Object.entries({paid:'Оплачено',partsCost:'Запчасти',masterSalary:'Мастеру',toCompany:'Моя доля',reinvestAmount:'На Авито',ownerNet:'Мне'}).map(([key,label])=><div key={key}><dt>{label}</dt><dd>{Number(order.sourceSnapshot?.payment?.[key] ?? 0).toLocaleString('ru-RU')} ₽</dd></div>)}</dl>}
+          </section>}
           {(order.sdComment||order.warrantyMonths!=null)&&<div className="panel">{order.sdComment&&<p style={{whiteSpace:'pre-wrap'}}>СД: {order.sdComment}</p>}{order.warrantyMonths!=null&&<p>Гарантия: {order.warrantyMonths} мес.</p>}</div>}
           {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}

@@ -21,7 +21,7 @@ import {
   Role,
   UserStatus,
 } from '@prisma/client';
-import { GroupFlow, parseClosingReply, parseSdReply, sdDeadline } from './group-flow';
+import { GroupFlow, parseExtension, parseClosingReply, parseSdReply, sdDeadline } from './group-flow';
 import { extname } from 'path';
 import { randomBytes, createHash } from 'crypto';
 import { ChatService } from '../chat/chat.service';
@@ -970,8 +970,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private async groupFlowPrompt(flow: GroupFlow, replyTo?: number, error?: string) {
     const prompt = flow.kind==='close'
       ? 'Закрытие заявки:\n11000 1000\n6\nПервая строка - всего с клиента и расходы. Вторая - гарантия в месяцах, 0 если без гарантии.'
+      : flow.kind==='extend' ? 'На сколько дней перенести текущий срок и почему? Например: 3 дня ждём запчасть.'
       : 'Укажите предоплату, срок и комментарий:\n5000 пред\n5-7 дней\nСогласовано 12000, замена подсветки';
-    const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">Введите суммы</a>\n${error ? error+'\n' : ''}${prompt}`,{
+    const result = await this.sendMessage(flow.chatId,`<a href="tg://user?id=${flow.telegramId}">${flow.kind==='extend'?'Перенести срок':'Введите суммы'}</a>\n${error ? error+'\n' : ''}${prompt}`,{
       parse_mode:'HTML',reply_markup:{force_reply:true,selective:true},
       ...(replyTo ? {reply_parameters:{message_id:replyTo}} : {}),
     });
@@ -979,11 +980,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     await this.settings.set(`bot.flow.reply.${flow.chatId}.${result.result.message_id}`,JSON.stringify(flow));
   }
 
-  private async beginGroupFlow(cq:TgCallbackQuery, kind:'close'|'sd') {
+  private async beginGroupFlow(cq:TgCallbackQuery, kind:'close'|'sd'|'extend') {
     const id=(cq.data || '').split(':')[1];
     const card=await this.groupOrderCard(id);
     await this.groupActor(card.order,String(cq.from!.id));
-    if(kind==='sd' ? card.order.status!==OrderStatus.IN_PROGRESS : ![OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(card.order.status as any)) throw new BadRequestException('Статус заявки изменился');
+    if(kind==='extend' ? card.order.status!==OrderStatus.IN_PROGRESS_SD || !card.order.sdDueAt : kind==='sd' ? card.order.status!==OrderStatus.IN_PROGRESS : ![OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(card.order.status as any)) throw new BadRequestException('Статус заявки изменился');
     await this.clearFlowPrompts({orderId:id,chatId:String(cq.message!.chat!.id),telegramId:String(cq.from!.id)});
     await this.groupFlowPrompt({orderId:id,masterId:card.order.masterId,telegramId:String(cq.from!.id),chatId:String(cq.message!.chat!.id),messageId:cq.message!.message_id!,kind,expires:Date.now()+24*60*60*1000,version:card.order.updatedAt.toISOString()});
   }
@@ -1122,6 +1123,15 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
         summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру (${Math.round(base.masterPct*10000)/100}%): ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
         if(amounts.warrantyMonths!==undefined)summary+='\nГарантия: '+amounts.warrantyMonths+' мес.';
+      } else if(flow.kind==='extend') {
+        if(card.order.status!==OrderStatus.IN_PROGRESS_SD || !card.order.sdDueAt)throw new BadRequestException('У заявки нет действующего срока СД');
+        let extension:ReturnType<typeof parseExtension>;
+        try{extension=parseExtension(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await consumePrompt();return true;}
+        const due=sdDeadline(extension.days,card.order.sdDueAt);
+        flow.sdDue=due.toISOString();
+        flow.sdFrom=card.order.sdDueFrom?sdDeadline(extension.days,card.order.sdDueFrom).toISOString():undefined;
+        flow.sdComment=extension.reason;
+        summary='Перенести срок заявки '+card.order.publicId+' на '+due.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})+'?\nПричина: '+extension.reason;
       } else {
         let terms:ReturnType<typeof parseSdReply>;
         try{terms=parseSdReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await consumePrompt();return true;}
@@ -1174,12 +1184,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const current=await tx.order.findUnique({where:{id:flow.orderId},include:{payment:true}});
         if(!current || current.masterId!==flow.masterId || current.updatedAt.toISOString()!==flow.version)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         if(flow.kind==='close' && current.sourceKind!=='PARTNER' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
-        const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
+        const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:flow.kind==='extend'?[OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
           ?{...(flow.warrantyMonths!==undefined?{warrantyMonths:flow.warrantyMonths}:{}),isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          :flow.kind==='extend'?{sdDueAt:new Date(flow.sdDue!),sdDueFrom:flow.sdFrom?new Date(flow.sdFrom):null,sdComment:[current.sdComment,'Перенос до '+new Date(flow.sdDue!).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})+': '+flow.sdComment].filter(Boolean).join('\n')}
           :{sdComment:flow.sdComment||null,status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
         if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
+        if(flow.kind==='extend')return;
         const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
         await tx.orderPayment.upsert({where:{orderId:flow.orderId},create:{orderId:flow.orderId,...payment},update:payment});
         if(flow.kind==='close') {
@@ -1205,7 +1217,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       } else {
         await this.clearFlowPrompts(flow);
         if(cq.message?.message_id)await this.deleteMessage(flow.chatId,cq.message.message_id).catch(()=>undefined);
-        await answer('Срок и предоплата сохранены');
+        await answer(flow.kind==='extend'?'Срок перенесён':'Срок и предоплата сохранены');
       }
     }catch(e){await answer(String(e).includes('Not enough stock:')?'Не хватает запчастей на складе. Попросите владельца проверить остатки в CRM.':e instanceof BadRequestException || e instanceof NotFoundException?e.message:'Не удалось сохранить. Попробуйте ещё раз');}
   }
@@ -1228,8 +1240,22 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
     const paid = Number(order.payment?.paid || 0);
     const partsCost = Number(order.payment?.partsCost || 0);
+    const kind = order.type==='WARRANTY'?'Гарантия':order.type==='REPEAT'?'Повтор':'Заявка';
+    const snapshot = order.sourceSnapshot;
+    const original: string[] = [];
+    if (kind!=='Заявка' && snapshot && typeof snapshot==='object' && !Array.isArray(snapshot)) {
+      original.push('Исходная заявка: '+snapshot.publicId);
+      if(snapshot.comment)original.push('Исходное описание: '+String(snapshot.comment).slice(0,500));
+      if(snapshot.typeTech)original.push('Исходная техника: '+snapshot.typeTech);
+      const payment=snapshot.payment;
+      if(payment && typeof payment==='object' && !Array.isArray(payment)){
+        const paid=Number(payment.paid ?? 0), expenses=Number(payment.partsCost ?? 0);
+        original.push('Оплачено по исходной: '+paid+' ₽','Чистыми по исходной: '+Math.round((paid-expenses)*100)/100+' ₽');
+      }
+    }
     const text = [
-      'Заявка '+order.publicId,
+      kind+' '+order.publicId,
+      ...original,
       'ФИО: '+order.client.name,
       order.client.phoneNormalized&&masterContactVisible(order,accepted?order.masterId:null)?'Телефон: '+(order.client.phoneNormalized||'').replace(/^\+?7/, '+7'):'',
       'Адрес: '+order.address,
@@ -1262,8 +1288,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(order.status===OrderStatus.IN_PROGRESS)buttons.push({text:'СД',callback_data:`gs:${order.id}:IN_PROGRESS_SD`});
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }
+    if(order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt)buttons.unshift({text:'Перенести срок',callback_data:'ge:'+order.id});
     if(order.status===OrderStatus.DONE)buttons.push({text:'Прикрепить документы',callback_data:'gu:'+order.id});
-    const entities = [...text.matchAll(/^(Заявка|ФИО:|Телефон:|Адрес:|Время:|Техника:|Исполнитель:|Мастер:|Статус:|Примечание:|Комментарий:|На Авито:|Владельцу:|Всего:|Чистыми:|Срок:)/gm)].map(match => ({type:'bold',offset:match.index!,length:match[0].length}));
+    const entities = [...text.matchAll(/^(Заявка|Гарантия|Повтор|Исходная заявка:|ФИО:|Телефон:|Адрес:|Время:|Техника:|Исполнитель:|Мастер:|Статус:|Примечание:|Комментарий:|На Авито:|Владельцу:|Всего:|Чистыми:|Срок:)/gm)].map(match => ({type:'bold',offset:match.index!,length:match[0].length}));
     return {order,text,entities,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
   }
 
@@ -1274,7 +1301,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   private async refreshGroupCard(msg:TgMessage) {
     const original=msg.reply_to_message;
-    const publicId=/^Заявка (\S+)\n/.exec(original?.text || '')?.[1];
+    const publicId=/^(?:Заявка|Гарантия|Повтор) (\S+)\n/.exec(original?.text || '')?.[1];
     if(!original?.message_id || !publicId || !msg.from?.id || !msg.chat?.id)throw new BadRequestException('Отправьте /refresh ответом на карточку заявки');
     const me=await this.telegram<{ok:boolean;result?:{id:number}}>('getMe',{});
     if(!me?.ok || !me.result || original.from?.id!==me.result.id)throw new BadRequestException('Выберите карточку, отправленную этим ботом');
@@ -1306,12 +1333,13 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (/^(gf|gx|gd):/.test(cq.data || '')) { await this.confirmGroupFlow(cq); return; }
     const answer = (text?:string) => this.telegram('answerCallbackQuery',{callback_query_id:cq.id,...(text?{text,show_alert:true}:{})});
     try {
-      const match = /^(ga|gs):([a-z0-9-]+)(?::([A-Z_]+))?$/.exec(cq.data || '');
+      const match = /^(ga|gs|ge):([a-z0-9-]+)(?::([A-Z_]+))?$/.exec(cq.data || '');
       if (!match || !cq.from?.id) throw new BadRequestException('Некорректное действие');
       const group = await this.getOrderDestination(match[2]);
       if (!group || String(cq.message?.chat?.id)!==group.chatId) throw new BadRequestException('Эта группа больше не подключена к заявке');
       const card = await this.groupOrderCard(match[2]);
       const user = await this.groupActor(card.order,String(cq.from.id));
+      if(match[1]==='ge'){await this.beginGroupFlow(cq,'extend');await answer();return;}
       if (match[1]==='ga') {
         if (!(card.order.isServiceCenter?[OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED,OrderStatus.ON_THE_WAY]:[OrderStatus.WAITING,OrderStatus.NOT_SCHEDULED]).includes(card.order.status as any)) throw new BadRequestException('Статус уже изменился');
         const changed = await this.prisma.order.updateMany({where:{id:card.order.id,masterId:card.order.masterId,status:card.order.status,...(card.order.isServiceCenter?{updatedAt:card.order.updatedAt}:{notifyAckedAt:null})},data:{notifyAckedAt:new Date(),...(card.order.isServiceCenter?{status:OrderStatus.IN_PROGRESS}:{})}});
@@ -2791,7 +2819,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
     if (/^(wh|ww|wb):/.test(cq.data || '')) { await this.handleScheduleCallback(cq); return; }
-    if (/^(ga|gs|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
+    if (/^(ga|gs|ge|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =
       cq.message?.chat?.id != null ? String(cq.message.chat.id) : null;
     const telegramId = cq.from?.id != null ? String(cq.from.id) : null;

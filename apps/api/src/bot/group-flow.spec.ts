@@ -19,6 +19,26 @@ describe('Group reply workflow',()=>{
   const token=()=>[...values.keys()].find(k=>k.startsWith('bot.flow.confirm.'))!.replace('bot.flow.confirm.','');
   return {svc,values,order,prisma,send,telegram,terms,click,reply,token};
  }
+ it('extends a repair from its current deadline once, preserves money, and refreshes the card',async()=>{
+  const x=setup();
+  Object.assign(x.order,{status:'IN_PROGRESS_SD',sdDueAt:new Date('2026-11-30T19:59:59.999Z'),sdComment:'Согласовано'});
+  await x.click('ge:o');await x.reply('3 дня ждём деталь');
+  const action='gf:'+x.token();await x.click(action);await x.click(action);
+  expect(x.order.sdDueAt.toISOString()).toBe('2026-12-03T19:59:59.999Z');
+  expect(x.order.sdComment).toContain('Согласовано');expect(x.order.sdComment).toContain('ждём деталь');
+  expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect(x.prisma.order.updateMany).toHaveBeenCalledTimes(1);
+  expect(x.telegram).toHaveBeenCalledWith('editMessageText',expect.objectContaining({text:expect.stringContaining('03.12.2026')}));
+ });
+ it('requires a reason before extending',async()=>{
+  const x=setup();Object.assign(x.order,{status:'IN_PROGRESS_SD',sdDueAt:new Date()});
+  await x.click('ge:o');await x.reply('3 дня');expect(x.prisma.order.updateMany).not.toHaveBeenCalled();
+  expect([...x.values.keys()].some(k=>k.startsWith('bot.flow.confirm.'))).toBe(false);
+ });
+ it.each(['WARRANTY','REPEAT'])('shows original amounts, equipment and problem on %s cards',async type=>{
+  const x=setup();Object.assign(x.order,{type,sourceSnapshot:{publicId:'old',comment:'Шумит',typeTech:'ХД',payment:{paid:'11000',partsCost:'1000'}}});
+  const card=await (x.svc as any).groupOrderCard('o');expect(card.text.split('\n')[0]).toBe((type==='WARRANTY'?'Гарантия':'Повтор')+' 123');
+  for(const value of ['Исходная заявка: old','Шумит','Исходная техника: ХД','11000 ₽','10000 ₽'])expect(card.text).toContain(value);
+ });
  it('removes only the answered prompt after confirmation is delivered',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');expect(x.telegram).toHaveBeenCalledWith('deleteMessage',{chat_id:'-123',message_id:10});expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();});
  it('keeps the prompt if confirmation delivery fails',async()=>{const x=setup();await x.click('gs:o:DONE');x.send.mockResolvedValueOnce({ok:false});await x.reply('11000 1000');expect(x.values.has('bot.flow.reply.-123.10')).toBe(true);expect(x.telegram).not.toHaveBeenCalledWith('deleteMessage',expect.anything());});
  it('parses exactly two amounts and rejects malformed money',()=>{expect(parseClosingReply('11000 1000')).toEqual({paid:11000,partsCost:1000});expect(parseClosingReply('11000,50 1000.25').paid).toBe(11000.5);for(const value of ['-1 0','100 20 30','11 000 1000','abc','99999999999 0'])expect(()=>parseClosingReply(value)).toThrow();});

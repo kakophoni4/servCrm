@@ -182,7 +182,7 @@ export class OrdersService {
     return order;
   }
 
-  async create(dto: CreateOrderDto, userId: string, role: Role) {
+  async create(dto: CreateOrderDto, userId: string, role: Role, origin?: {sourceOrderId: string; sourceSnapshot: Prisma.InputJsonObject}) {
     if(dto.isPersonal && dto.isServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
     if (!dto.isServiceCenter && !dto.address?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     if (dto.sourceKind === SourceKind.OUR && !dto.sourceOur) {
@@ -266,6 +266,7 @@ export class OrdersService {
 
       const order = await tx.order.create({
         data: {
+          ...origin,
           publicId,
           seqPrefix: prefix,
           seq,
@@ -749,7 +750,7 @@ export class OrdersService {
   }
 
   /** Повтор = новая заявка на того же клиента. */
-  async createRepeat(id: string, userId: string, role: Role) {
+  async createRepeat(id: string, userId: string, role: Role, type: OrderType = OrderType.REPEAT) {
     const source = await this.get(id);
     const scheduledAt =
       source.scheduledAt?.toISOString() ??
@@ -758,7 +759,7 @@ export class OrdersService {
       {
         clientName: source.client.name,
         clientPhone: source.client.phoneNormalized||'',avitoChatId:source.avitoChatId||undefined,avitoItemId:source.avitoItemId||undefined,
-        type: OrderType.REPEAT,
+        type,
         isServiceCenter: source.isServiceCenter,
         isPersonal: source.isPersonal,
         sourceKind: source.sourceKind,
@@ -767,7 +768,7 @@ export class OrdersService {
         scheduledAt,
         address: source.address,
         ageCategoryId: source.ageCategoryId ?? undefined,
-        comment: `Повтор к заявке ${source.publicId}`,
+        comment: source.comment ?? undefined,
         isProfile: source.isProfile,
         typeTech: source.typeTech ?? undefined,
         cityId: source.cityId ?? undefined,
@@ -775,15 +776,25 @@ export class OrdersService {
       },
       userId,
       role,
+      {sourceOrderId: source.id, sourceSnapshot: JSON.parse(JSON.stringify({
+        publicId: source.publicId, comment: source.comment, address: source.address,
+        typeTech: source.typeTech, scheduledAt: source.scheduledAt,
+        client: {name: source.client.name, phoneNormalized: source.client.phoneNormalized},
+        master: source.master ? {id: source.master.id, user: {fullName: source.master.user.fullName}} : null,
+        payment: source.payment ? {
+          paid: source.payment.paid, partsCost: source.payment.partsCost,
+          prepay: source.payment.prepay, masterPct: source.payment.masterPct,
+          masterSalary: source.payment.masterSalary, toCompany: source.payment.toCompany,
+          reinvestPct: source.payment.reinvestPct, reinvestAmount: source.payment.reinvestAmount,
+          ownerNet: source.payment.ownerNet,
+        } : null,
+        status: source.status, completedAt: source.completedAt,
+      }))},
     );
   }
 
-  /** Гарантия = доп.статус на текущей заявке (+ тип WARRANTY). */
-  async markWarranty(id: string) {
-    return this.prisma.order.update({
-      where: { id },
-      data: { type: OrderType.WARRANTY, isWarranty: true },
-      include: this.orderInclude,
-    });
+  /** Гарантия создаёт отдельную заявку, сохраняя исходную без изменений. */
+  async markWarranty(id: string, userId: string, role: Role) {
+    return this.createRepeat(id, userId, role, OrderType.WARRANTY);
   }
 }

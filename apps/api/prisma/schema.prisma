@@ -278,6 +278,8 @@ model Client {
 }
 
 model Order {
+  sourceOrderId String? @map("source_order_id")
+  sourceSnapshot Json? @map("source_snapshot")
   avitoChatId String? @map("avito_chat_id")
   avitoItemId String? @map("avito_item_id")
   warrantyMonths Int? @map("warranty_months")

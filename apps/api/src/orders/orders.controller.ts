@@ -112,7 +112,7 @@ export class OrdersController {
   @Post(':id/warranty')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('orders.write')
-  warranty(@Param('id') id: string) {
-    return this.orders.markWarranty(id);
+  warranty(@Param('id') id: string, @CurrentUser() user: { userId: string; role: Role }) {
+    return this.orders.markWarranty(id, user.userId, user.role);
   }
 }
