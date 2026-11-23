@@ -183,6 +183,19 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto, userId: string, role: Role, origin?: {sourceOrderId: string; sourceSnapshot: Prisma.InputJsonObject}) {
+    if (dto.sourceOrderId && !origin) {
+      const source = await this.get(dto.sourceOrderId);
+      const allowed = await this.branch.allowedCityIds(userId, role);
+      if (allowed !== null && (!source.cityId || !allowed.includes(source.cityId))) throw new ForbiddenException('Заявка вне вашего филиала');
+      if (!source.client.phoneNormalized || source.client.phoneNormalized !== normalizePhone(dto.clientPhone ?? '')) throw new BadRequestException('Исходная заявка принадлежит другому клиенту');
+      origin = {sourceOrderId:source.id,sourceSnapshot:this.sourceSnapshot(source)};
+    }
+    if(dto.masterId){
+      if(dto.isPersonal)throw new BadRequestException('Для личной заявки мастер не нужен');
+      const master=await this.prisma.master.findUnique({where:{id:dto.masterId},include:{user:true}});
+      const allowed=await this.branch.allowedCityIds(userId,role);
+      if(!master||master.status!=='ACTIVE'||master.user.status!=='ACTIVE'||(allowed!==null&&(!master.cityId||!allowed.includes(master.cityId))))throw new BadRequestException('Мастер недоступен');
+    }
     if(dto.isPersonal && dto.isServiceCenter)throw new BadRequestException('Выберите либо личную заявку, либо СЦ');
     if (!dto.isServiceCenter && !dto.address?.trim()) throw new BadRequestException('Для выездной заявки укажите адрес');
     if (dto.sourceKind === SourceKind.OUR && !dto.sourceOur) {
@@ -267,6 +280,7 @@ export class OrdersService {
       const order = await tx.order.create({
         data: {
           ...origin,
+          masterId: dto.masterId,
           publicId,
           seqPrefix: prefix,
           seq,
@@ -308,6 +322,7 @@ export class OrdersService {
     if(created.isPersonal || created.isServiceCenter){
       try{const sent=await this.bot.sendOrderToGroup(created.id);return {...created,telegramDelivery:sent.sent?'sent':'failed'};}catch{return {...created,telegramDelivery:'failed'};}
     }
+    if(dto.masterId){try{await this.bot.notifyMasterOrder(dto.masterId,created.id,true);}catch{}}
     return created;
   }
 
@@ -749,6 +764,32 @@ export class OrdersService {
     return telegramDelivery ? {...result,telegramDelivery,telegramGroupDelivery} : result;
   }
 
+  private sourceSnapshot(source: Awaited<ReturnType<OrdersService['get']>>): Prisma.InputJsonObject {
+    return JSON.parse(JSON.stringify({
+        publicId: source.publicId, comment: source.comment, address: source.address,
+        typeTech: source.typeTech, scheduledAt: source.scheduledAt,
+        client: {name: source.client.name, phoneNormalized: source.client.phoneNormalized},
+        master: source.master ? {id: source.master.id, user: {fullName: source.master.user.fullName}} : null,
+        payment: source.payment ? {
+          paid: source.payment.paid, partsCost: source.payment.partsCost,
+          prepay: source.payment.prepay, masterPct: source.payment.masterPct,
+          masterSalary: source.payment.masterSalary, toCompany: source.payment.toCompany,
+          reinvestPct: source.payment.reinvestPct, reinvestAmount: source.payment.reinvestAmount,
+          ownerNet: source.payment.ownerNet,
+        } : null,
+        status: source.status, completedAt: source.completedAt,
+      }));
+  }
+
+  async clientHistory(phone: string, userId: string, role: Role) {
+    const normalized = normalizePhone(phone);
+    if (normalized.length !== 11) return [];
+    const allowed = await this.branch.allowedCityIds(userId, role);
+    return this.prisma.order.findMany({where:{client:{phoneNormalized:normalized},cityId:this.branch.cityWhere(allowed)},
+      take:10,orderBy:{createdAt:'desc'},select:{id:true,publicId:true,address:true,typeTech:true,comment:true,status:true,createdAt:true,
+        master:{select:{id:true,status:true,user:{select:{fullName:true,status:true}}}},payment:{select:{paid:true}}}});
+  }
+
   /** Повтор = новая заявка на того же клиента. */
   async createRepeat(id: string, userId: string, role: Role, type: OrderType = OrderType.REPEAT) {
     const source = await this.get(id);
@@ -776,20 +817,7 @@ export class OrdersService {
       },
       userId,
       role,
-      {sourceOrderId: source.id, sourceSnapshot: JSON.parse(JSON.stringify({
-        publicId: source.publicId, comment: source.comment, address: source.address,
-        typeTech: source.typeTech, scheduledAt: source.scheduledAt,
-        client: {name: source.client.name, phoneNormalized: source.client.phoneNormalized},
-        master: source.master ? {id: source.master.id, user: {fullName: source.master.user.fullName}} : null,
-        payment: source.payment ? {
-          paid: source.payment.paid, partsCost: source.payment.partsCost,
-          prepay: source.payment.prepay, masterPct: source.payment.masterPct,
-          masterSalary: source.payment.masterSalary, toCompany: source.payment.toCompany,
-          reinvestPct: source.payment.reinvestPct, reinvestAmount: source.payment.reinvestAmount,
-          ownerNet: source.payment.ownerNet,
-        } : null,
-        status: source.status, completedAt: source.completedAt,
-      }))},
+      {sourceOrderId: source.id, sourceSnapshot: this.sourceSnapshot(source)},
     );
   }
 

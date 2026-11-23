@@ -583,6 +583,19 @@ describe('OrdersService', () => {
     });
   });
 
+  describe('linked creation', () => {
+    it('rejects a prior order belonging to another client', async () => {
+      jest.spyOn(service,'get').mockResolvedValue({id:'prior',cityId:'A',client:{phoneNormalized:'79001112233'}} as never);
+      branch.allowedCityIds.mockResolvedValue(null);
+      await expect(service.create({sourceOrderId:'prior',clientPhone:'79998887766'} as never,userId,Role.OWNER)).rejects.toThrow('другому клиенту');
+    });
+    it('rejects a prior order outside the allowed branch', async () => {
+      jest.spyOn(service,'get').mockResolvedValue({id:'prior',cityId:'B',client:{phoneNormalized:'79001112233'}} as never);
+      branch.allowedCityIds.mockResolvedValue(['A']);
+      await expect(service.create({sourceOrderId:'prior',clientPhone:'79001112233'} as never,userId,Role.DISPATCHER)).rejects.toThrow('филиала');
+    });
+  });
+
   describe('createRepeat', () => {
     it('calls create with REPEAT type and data from source order', async () => {
       const sourceOrder = {

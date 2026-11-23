@@ -1,3 +1,4 @@
+import {WeeklySchedule} from './weekly-schedule';
 import {masterContactVisible} from '../common/utils/master-contact';
 import {
   BadRequestException,
@@ -198,6 +199,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly ephemeralMsgs = new Map<string, number[]>();
   private fileRetryTimer: ReturnType<typeof setInterval> | null = null;
   private fileRetryRun: Promise<void> | null = null;
+  private scheduleTimer: ReturnType<typeof setInterval> | null = null;
+  private scheduleRunning = false;
+  private weeklySchedule(){return new WeeklySchedule(this.prisma,(c,t,e)=>this.sendMessage(c,t,e),p=>this.telegram('editMessageText',p),id=>this.getMasterGroup(id),(id,c,u)=>this.scheduleActor(id,c,u));}
+  private async scheduleTick(){if(this.scheduleRunning)return;this.scheduleRunning=true;try{if(await this.settings.isBotEnabled())await this.weeklySchedule().remind()}catch{this.logger.warn('Schedule reminder failed')}finally{this.scheduleRunning=false}}
   private escalateTimer: ReturnType<typeof setInterval> | null = null;
   /** Long-polling getUpdates вместо webhook (удобно без домена/HTTPS). */
   private pollStop = false;
@@ -215,6 +220,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    this.scheduleTimer=setInterval(()=>{void this.scheduleTick()},60000);
     this.escalateTimer = setInterval(() => {
       void this.processEscalations().catch((e) =>
         this.logger.error(`escalation poll: ${String(e)}`),
@@ -226,6 +232,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    if(this.scheduleTimer)clearInterval(this.scheduleTimer);
     this.pollStop = true;
     if (this.escalateTimer) clearInterval(this.escalateTimer);
     if (this.fileRetryTimer) clearInterval(this.fileRetryTimer);
@@ -1111,7 +1118,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(flow.kind==='close') {
         let amounts:ReturnType<typeof parseClosingReply>;
         try{amounts=parseClosingReply(msg.text);}catch(e){await this.groupFlowPrompt(flow,msg.message_id,(e as Error).message);await consumePrompt();return true;}
-        if(amounts.partsCost>amounts.paid || amounts.paid<Number(card.order.payment?.prepay || 0)) {
+        const advance = Number(card.order.payment?.prepay || 0);
+        const refundAdvance = amounts.paid === 0 && amounts.partsCost === 0 && advance > 0;
+        if(amounts.partsCost>amounts.paid || (!refundAdvance && amounts.paid<advance)) {
           await this.groupFlowPrompt(flow,msg.message_id,amounts.partsCost>amounts.paid?'Расходы не могут превышать оплату':'Общая оплата не может быть меньше предоплаты');
           await consumePrompt();return true;
         }
@@ -1121,7 +1130,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         const reinvestPct=card.order.sourceKind==='PARTNER'?0:card.order.isServiceCenter || ownWork?0.3:terms.reinvestPct;
         const reinvestAmount=Math.round(base.toCompany*reinvestPct*100)/100;
         Object.assign(flow,amounts,{calc:{...base,reinvestPct,reinvestAmount,ownerNet:Math.round((base.toCompany-reinvestAmount)*100)/100}});
-        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\nИз них предоплата: ${Number(card.order.payment?.prepay || 0)} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру (${Math.round(base.masterPct*10000)/100}%): ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
+        summary=`Закрыть заявку ${card.order.publicId}?\nПолучено всего: ${amounts.paid} ₽\n${refundAdvance ? 'Возвращена вся предоплата' : 'Из них предоплата'}: ${advance} ₽\nРасходы: ${amounts.partsCost} ₽\nМастеру (${Math.round(base.masterPct*10000)/100}%): ${base.masterSalary} ₽` + (ownWork ? `\nНа Авито: ${reinvestAmount} ₽\nВладельцу: ${flow.calc!.ownerNet} ₽` : '');
         if(amounts.warrantyMonths!==undefined)summary+='\nГарантия: '+amounts.warrantyMonths+' мес.';
       } else if(flow.kind==='extend') {
         if(card.order.status!==OrderStatus.IN_PROGRESS_SD || !card.order.sdDueAt)throw new BadRequestException('У заявки нет действующего срока СД');
@@ -1186,13 +1195,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         if(flow.kind==='close' && current.sourceKind!=='PARTNER' && (current.isPersonal || !current.masterId) && flow.calc?.reinvestPct!==0.3)throw new BadRequestException('Расчёт изменился на 30/70. Нажмите «Закрыть» и введите суммы заново');
         const allowed=flow.kind==='close'?[OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD]:flow.kind==='extend'?[OrderStatus.IN_PROGRESS_SD]:[OrderStatus.IN_PROGRESS];
         if(!allowed.includes(current.status as any))throw new BadRequestException('Статус уже изменился');
+        const refundedAdvance = flow.kind === 'close' && flow.paid === 0 && flow.partsCost === 0 ? Number(current.payment?.prepay || 0) : 0;
         const changed=await tx.order.updateMany({where:{id:flow.orderId,masterId:flow.masterId,status:current.status,updatedAt:current.updatedAt},data:flow.kind==='close'
-          ?{...(flow.warrantyMonths!==undefined?{warrantyMonths:flow.warrantyMonths}:{}),isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
+          ?{...(refundedAdvance ? {sdComment:[current.sdComment,'Предоплата возвращена полностью: '+refundedAdvance+' ₽'].filter(Boolean).join('\n')} : {}),...(flow.warrantyMonths!==undefined?{warrantyMonths:flow.warrantyMonths}:{}),isPersonal:!current.isServiceCenter && (current.isPersonal || !current.masterId),status:OrderStatus.DONE,completedAt:current.completedAt || new Date(),docsViaAdmin:false,notifyAckedAt:new Date()}
           :flow.kind==='extend'?{sdDueAt:new Date(flow.sdDue!),sdDueFrom:flow.sdFrom?new Date(flow.sdFrom):null,sdComment:[current.sdComment,'Перенос до '+new Date(flow.sdDue!).toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})+': '+flow.sdComment].filter(Boolean).join('\n')}
           :{sdComment:flow.sdComment||null,status:OrderStatus.IN_PROGRESS_SD,sdStartedAt:new Date(flow.sdStart!),sdDueFrom:new Date(flow.sdFrom!),sdDueAt:new Date(flow.sdDue!),notifyAckedAt:new Date()}});
         if(changed.count!==1)throw new BadRequestException('Заявка изменилась. Введите данные заново');
         if(flow.kind==='extend')return;
-        const payment=flow.kind==='close'?{paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
+        const payment=flow.kind==='close'?{...(refundedAdvance ? {prepay:0} : {}),paid:flow.paid!,partsCost:flow.partsCost!,partsYesNo:flow.partsCost!>0,...flow.calc!}:{prepay:flow.prepay!};
         await tx.orderPayment.upsert({where:{orderId:flow.orderId},create:{orderId:flow.orderId,...payment},update:payment});
         if(flow.kind==='close') {
           if(flow.docPromptId){
@@ -2766,21 +2776,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendScheduleCard(masterId:string,chatId:string,messageId?:number) {
-    const master=await this.prisma.master.findUnique({where:{id:masterId},include:{user:true,workSchedule:true}});
-    if(!master || master.status!=='ACTIVE' || master.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');
-    const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
-    const today=new Date(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Samara',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())+'T12:00:00Z');
-    const rows=names.map((name,i)=>{
-      const date=new Date(today);date.setUTCDate(date.getUTCDate()+((i+1-(date.getUTCDay()||7)+7)%7));
-      name+=' '+date.toLocaleDateString('ru-RU',{timeZone:'UTC',day:'2-digit',month:'2-digit'});
-      const current=master.workSchedule.find(d=>d.weekday===i+1);
-      return [{text:`${name}: ${current ? current.isWorking?'Рабочий':'Выходной':'Не задан'}`,callback_data:`wh:${masterId}:${i+1}`}];
-    });
-    const text=`График: ${master.user.fullName}
-Постоянный график на каждую неделю. Нажмите день, чтобы выбрать рабочий или выходной.`;
-    const payload={chat_id:chatId,text,reply_markup:{inline_keyboard:rows}};
-    if(messageId)await this.telegram('editMessageText',{...payload,message_id:messageId});
-    else await this.sendMessage(chatId,text,{reply_markup:payload.reply_markup});
+    return this.weeklySchedule().open(masterId,chatId,messageId);
   }
 
   private async scheduleActor(masterId:string,chat:TgChat,telegramId:string) {
@@ -2818,6 +2814,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
+    if (/^(wd|wc):/.test(cq.data || '')) {try{await this.weeklySchedule().callback(cq);await this.telegram('answerCallbackQuery',{callback_query_id:cq.id})}catch(e){await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:e instanceof BadRequestException?e.message:'Не удалось сохранить график',show_alert:true})}return;}
     if (/^(wh|ww|wb):/.test(cq.data || '')) { await this.handleScheduleCallback(cq); return; }
     if (/^(ga|gs|ge|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }
     const chatId =

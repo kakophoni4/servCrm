@@ -10,6 +10,8 @@ import {
 import { OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class CreateOrderDto {
+ @IsOptional() @IsString() sourceOrderId?:string;
+ @IsOptional() @IsString() masterId?:string;
  @IsOptional() @IsString() avitoChatId?:string;
  @IsOptional() @IsString() avitoItemId?:string;
  @IsOptional() @IsBoolean() isPersonal?: boolean;

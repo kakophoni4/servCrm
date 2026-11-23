@@ -1,0 +1,25 @@
+import {BadRequestException} from '@nestjs/common';
+import {randomBytes} from 'crypto';
+export function sundayWindow(now=new Date()){const local=new Date(now.getTime()+4*3600000);if(local.getUTCDay()!==0||local.getUTCHours()<18)return null;return local.toISOString().slice(0,10);}
+const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+function mondayOfSchedule(now = new Date()) {
+ const date = new Date(now.getTime() + 4 * 3600000);
+ date.setUTCDate(date.getUTCDate() + (date.getUTCDay() === 0 ? 1 : 1 - date.getUTCDay()));
+ return date.toISOString().slice(0,10);
+}
+function dayLabel(name:string,index:number,monday:string) {
+ const day = new Date(monday + 'T12:00:00Z');
+ day.setUTCDate(day.getUTCDate() + index);
+ return name + ' ' + day.toLocaleDateString('ru-RU',{timeZone:'UTC',day:'2-digit',month:'2-digit'});
+}
+export function scheduleMarkup(token:string,mask:number,monday=mondayOfSchedule()){return {inline_keyboard:[...names.map((name,i)=>[{text:`${mask&(1<<i)?'✅ ':''}${dayLabel(name,i,monday)}`,callback_data:`wd:${token}:${mask}:${mask^(1<<i)}`}]),[{text:'Подтвердить график',callback_data:`wc:${token}:${mask}`}]]};}
+export class WeeklySchedule {
+ constructor(private db:any,private send:(chatId:string,text:string,extra:any)=>Promise<any>,private edit:(payload:any)=>Promise<any>,private group:(id:string)=>Promise<any>,private authorize:(id:string,chat:any,sender:string)=>Promise<void>){}
+ async open(masterId:string,chatId:string,messageId?:number){const m=await this.db.master.findUnique({where:{id:masterId},include:{user:true,workSchedule:true}});if(!m||m.status!=='ACTIVE'||m.user.status!=='ACTIVE')throw new BadRequestException('Мастер не активен');const token=randomBytes(12).toString('hex');const mask=m.workSchedule.reduce((v:number,d:any)=>!d.isWorking?v|(1<<(d.weekday-1)):v,0);const draft={masterId,chatId,mask,monday:mondayOfSchedule(),expires:Date.now()+14*86400000,name:m.user.fullName};await this.db.appSetting.create({data:{key:'bot.schedule.draft.'+token,value:JSON.stringify(draft)}});const text=`График: ${m.user.fullName}\nВыберите выходные. ✅ - выходной, остальные дни рабочие. Затем подтвердите график.`;if(messageId)await this.edit({chat_id:chatId,message_id:messageId,text,reply_markup:scheduleMarkup(token,mask,draft.monday)});else await this.send(chatId,text,{reply_markup:scheduleMarkup(token,mask,draft.monday)});}
+ async callback(cq:any){const m=/^(wd|wc):([a-f0-9]{24}):(\d{1,3})(?::(\d{1,3}))?$/.exec(cq.data||'');if(!m||!cq.message?.chat||!cq.from?.id)throw new BadRequestException('Откройте график заново');const [,action,token,expected,change]=m;const key='bot.schedule.draft.'+token,row=await this.db.appSetting.findUnique({where:{key}});if(!row)throw new BadRequestException('График уже сохранён. Напишите /график для изменения');const d=JSON.parse(row.value);if(d.expires<Date.now()||d.chatId!==String(cq.message.chat.id))throw new BadRequestException('Откройте график заново');await this.authorize(d.masterId,cq.message.chat,String(cq.from.id));if(d.mask!==Number(expected))throw new BadRequestException('График изменился. Используйте обновлённые кнопки');
+ if(action==='wd'){const next=Number(change),diff=d.mask^next;if(!Number.isInteger(next)||next<0||next>127||diff===0||(diff&(diff-1))!==0)throw new BadRequestException('Выберите день');const updated=await this.db.appSetting.updateMany({where:{key,value:row.value},data:{value:JSON.stringify({...d,mask:next})}});if(updated.count!==1)throw new BadRequestException('График изменился');await this.edit({chat_id:d.chatId,message_id:cq.message.message_id,text:`График: ${d.name}\nВыберите выходные. ✅ - выходной, остальные дни рабочие. Затем подтвердите график.`,reply_markup:scheduleMarkup(token,next,d.monday)});}
+ else {await this.db.$transaction(async(tx:any)=>{const used=await tx.appSetting.deleteMany({where:{key,value:row.value}});if(used.count!==1)throw new BadRequestException('График уже сохранён');for(let weekday=1;weekday<=7;weekday++)await tx.masterWeekday.upsert({where:{masterId_weekday:{masterId:d.masterId,weekday}},create:{masterId:d.masterId,weekday,isWorking:!(d.mask&(1<<(weekday-1)))},update:{isWorking:!(d.mask&(1<<(weekday-1)))}})});await this.edit({chat_id:d.chatId,message_id:cq.message.message_id,text:`График сохранён: ${d.name}\n`+names.map((name,i)=>`${d.mask&(1<<i)?'✅ Выходной':'Рабочий'}: ${name}`).join('\n'),reply_markup:{inline_keyboard:[]}});}
+ }
+ async remind(now=new Date()){const week=sundayWindow(now);if(!week)return;const rows=await this.db.master.findMany({where:{status:'ACTIVE',user:{status:'ACTIVE'}},select:{id:true}});for(const m of rows){const group=await this.group(m.id);if(!group?.chatId)continue;const key=`bot.schedule.week.${week}.${m.id}`;try{await this.db.appSetting.create({data:{key,value:'claimed'}})}catch(e:any){if(e.code==='P2002')continue;throw e}try{await this.open(m.id,group.chatId);await this.db.appSetting.update({where:{key},data:{value:'sent'}})}catch{ // Retain the claim: an ambiguous Telegram timeout must not duplicate a delivered prompt.
+ }}}
+}

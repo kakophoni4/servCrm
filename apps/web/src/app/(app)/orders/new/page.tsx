@@ -12,6 +12,8 @@ import { DateTimeField } from '@/components/DateTimeField';
 import { api, getStoredUser } from '@/lib/api';
 import { digitsPhone, formatRuPhoneInput } from '@/lib/phone';
 
+type PriorOrder = {id:string;publicId:string;address:string;typeTech?:string;comment?:string;createdAt:string;payment?:{paid:string|number};master?:{id:string;status:string;user:{fullName:string;status:string}}};
+
 type Dict = { id: string; name?: string; label?: string };
 type ClientHit = {
   id: string;
@@ -28,6 +30,12 @@ export default function NewOrderPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [avitoChatId, setAvitoChatId] = useState('');
+  const [history,setHistory]=useState<PriorOrder[]>([]);
+  const [priorId,setPriorId]=useState('');
+  const [sameAddress,setSameAddress]=useState(false);
+  const [previousMaster,setPreviousMaster]=useState(false);
+  const [warranty,setWarranty]=useState(false);
+  const prior=history.find(o=>o.id===priorId);
   const [clientHint, setClientHint] = useState('');
   const phoneLookupSeq = useRef(0);
 
@@ -85,19 +93,19 @@ export default function NewOrderPage() {
   }
 
   async function lookupClientByPhone(phoneRaw: string) {
+    const seq = ++phoneLookupSeq.current;
     const digits = digitsPhone(phoneRaw);
     if (digits.length < 11) {
       setClientHint('');
       return;
     }
-    const seq = ++phoneLookupSeq.current;
     try {
       const hits = await api<ClientHit[]>(
         `/clients?phone=${encodeURIComponent(digits)}`,
       );
       if (seq !== phoneLookupSeq.current) return;
       const exact =
-        hits.find((c) => c.phoneNormalized === digits) ?? hits[0] ?? null;
+        hits.find((c) => c.phoneNormalized === digits) ?? null;
       if (!exact) {
         setClientHint('Новый клиент');
         return;
@@ -107,6 +115,9 @@ export default function NewOrderPage() {
         clientName: exact.name,
         type: f.type === 'WARRANTY' ? 'WARRANTY' : 'REPEAT',
       }));
+      const rows=await api<PriorOrder[]>(`/orders/client-history?phone=${encodeURIComponent(digits)}`);
+      if(seq!==phoneLookupSeq.current)return;
+      setHistory(rows);setPriorId(rows[0]?.id||'');
       const n = exact._count?.orders ?? 0;
       setClientHint(
         n > 0 ? `Клиент уже есть · ${n} заявок` : 'Клиент уже есть',
@@ -146,14 +157,16 @@ export default function NewOrderPage() {
         clientPhone: phoneDigits.length>=11?phoneDigits:'',
         avitoChatId: avitoChatId || undefined,
         avitoItemId:form.avitoItemId||undefined,
-        type: form.type,
+        type: warranty && prior ? 'WARRANTY' : form.type,
+        sourceOrderId: prior?.id,
+        masterId: previousMaster && !form.isPersonal ? prior?.master?.id : undefined,
         isPersonal: form.isPersonal,
         isServiceCenter: form.isServiceCenter,
         sourceKind: form.sourceKind,
         sourceOur: form.sourceKind === 'OUR' ? form.sourceOur : undefined,
         partnerId: form.sourceKind === 'PARTNER' ? form.partnerId : undefined,
         scheduledAt: scheduledIso,
-        address: form.address,
+        address: sameAddress && prior ? prior.address : form.address,
         ageCategoryId: form.ageCategoryId || undefined,
         comment: form.comment || undefined,
         isProfile: form.isProfile,
@@ -191,6 +204,8 @@ export default function NewOrderPage() {
                 onChange={(e) => {
                   const next = formatRuPhoneInput(e.target.value);
                   set('clientPhone', next);
+                  phoneLookupSeq.current++;setHistory([]);setPriorId('');setSameAddress(false);setPreviousMaster(false);setWarranty(false);
+                  set('type','NEW');
                   if (digitsPhone(next).length < 11) setClientHint('');
                 }}
                 onBlur={() => void lookupClientByPhone(form.clientPhone)}
@@ -214,6 +229,16 @@ export default function NewOrderPage() {
           </div>
         </section>
 
+        {history.length>0 && <section className="order-new-section">
+          <h2 className="order-new-section-title">Прошлые заявки</h2>
+          <div className="field"><label htmlFor="prior-order">Заявка</label><select id="prior-order" value={priorId} onChange={e=>{setPriorId(e.target.value);setPreviousMaster(false);}}>{history.map(o=><option key={o.id} value={o.id}>{o.publicId} · {new Date(o.createdAt).toLocaleDateString('ru-RU')} · {o.typeTech||'Техника не указана'}</option>)}</select></div>
+          {prior && <><p style={{overflowWrap:'anywhere'}}>{prior.address||'Без адреса'}</p><p>{prior.master?.user.fullName||'Без мастера'}{prior.payment ? ` · Оплачено ${Number(prior.payment.paid).toLocaleString('ru-RU')} ₽`:''}</p>
+          {prior.comment && <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{prior.comment}</p>}
+          {!form.isServiceCenter && prior.address && <label className="order-new-center"><input type="checkbox" checked={sameAddress} onChange={e=>setSameAddress(e.target.checked)}/> Тот же адрес</label>}
+          {!form.isPersonal && prior.master?.status==='ACTIVE' && prior.master.user.status==='ACTIVE' && <label className="order-new-center"><input type="checkbox" checked={previousMaster} onChange={e=>setPreviousMaster(e.target.checked)}/> Назначить {prior.master.user.fullName}</label>}
+          <label className="order-new-center"><input type="checkbox" checked={warranty} onChange={e=>setWarranty(e.target.checked)}/> Гарантия по этой заявке</label></>}
+        </section>}
+
         <section className="order-new-section">
           <h2 className="order-new-section-title">Заявка</h2>
           <label className="order-new-center"><input type="checkbox" checked={form.isServiceCenter} onChange={e=>setForm(f=>({...f,isServiceCenter:e.target.checked,...(e.target.checked?{isPersonal:false}:{})}))}/> Привезут в СЦ</label>
@@ -224,7 +249,8 @@ export default function NewOrderPage() {
                 required
                 id="new-address"
                 autoComplete="street-address"
-                value={form.address}
+                value={sameAddress && prior ? prior.address : form.address}
+                disabled={sameAddress && Boolean(prior)}
                 onChange={(e) => set('address', e.target.value)}
                 placeholder="Улица, дом, квартира"
               />

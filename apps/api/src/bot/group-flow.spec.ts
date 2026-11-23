@@ -43,6 +43,19 @@ describe('Group reply workflow',()=>{
  it('keeps the prompt if confirmation delivery fails',async()=>{const x=setup();await x.click('gs:o:DONE');x.send.mockResolvedValueOnce({ok:false});await x.reply('11000 1000');expect(x.values.has('bot.flow.reply.-123.10')).toBe(true);expect(x.telegram).not.toHaveBeenCalledWith('deleteMessage',expect.anything());});
  it('parses exactly two amounts and rejects malformed money',()=>{expect(parseClosingReply('11000 1000')).toEqual({paid:11000,partsCost:1000});expect(parseClosingReply('11000,50 1000.25').paid).toBe(11000.5);for(const value of ['-1 0','100 20 30','11 000 1000','abc','99999999999 0'])expect(()=>parseClosingReply(value)).toThrow();});
  it('parses SD amount and variable day range',()=>{expect(parseSdReply('5000 пред\nСрок 5-7 дней')).toEqual({prepay:5000,minDays:5,maxDays:7});expect(parseSdReply('0 пред\nСрок 3 дня').maxDays).toBe(3);for(const value of ['5000 7-5','5000 0-7','5000 5-999'])expect(()=>parseSdReply(value)).toThrow();expect(sdDeadline(7,new Date('2026-11-16T22:00:00Z')).toISOString()).toBe('2026-11-24T19:59:59.999Z');});
+ it('refunds a service deposit once on confirmed zero closure',async()=>{
+   const x=setup();
+   x.order.status='IN_PROGRESS_SD';
+   await x.click('gs:o:DONE');
+   await x.reply('0 0\n0');
+   expect(x.order.payment.prepay).toBe(5000);
+   const action='gf:'+x.token();
+   await x.click(action);
+   expect(x.order.payment).toMatchObject({paid:0,prepay:0,partsCost:0,masterSalary:0,ownerNet:0});
+   expect(x.order.sdComment).toContain('5000');
+   await x.click(action);
+   expect(x.prisma.cashTx.create).toHaveBeenCalledTimes(1);
+ });
  it('does not write payment until confirmation and counts advance only once',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect(x.terms).toHaveBeenCalledWith(10000,'ХД','m');const token=x.token();await x.click('gf:'+token);expect(x.order.status).toBe('DONE');expect(x.order.payment).toMatchObject({paid:11000,prepay:5000,partsCost:1000,masterSalary:5000,reinvestAmount:2500,ownerNet:2500});expect(x.prisma.cashTx.create).toHaveBeenCalledTimes(1);await x.click('gf:'+token);expect(x.prisma.cashTx.create).toHaveBeenCalledTimes(1);});
  it('ignores replies from another master and unrelated reply targets',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000',999);await x.reply('11000 1000',456,999);expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();expect([...x.values.keys()].some(k=>k.startsWith('bot.flow.confirm.'))).toBe(false);});
  it('rejects a confirmation by another person',async()=>{const x=setup();await x.click('gs:o:DONE');await x.reply('11000 1000');await x.click('gf:'+x.token(),999);expect(x.prisma.orderPayment.upsert).not.toHaveBeenCalled();});

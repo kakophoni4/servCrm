@@ -71,6 +71,11 @@ export class OrdersController {
     return this.orders.search(user.userId, user.role, q ?? '');
   }
 
+  @Get('client-history')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('orders.read')
+  clientHistory(@Query('phone') phone: string, @CurrentUser() user: {userId:string;role:Role}) {return this.orders.clientHistory(phone ?? '',user.userId,user.role);}
+
   @Get(':id')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('orders.read')
