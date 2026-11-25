@@ -17,6 +17,11 @@ export class ClientsService {
     private readonly branch: BranchScopeService,
   ) {}
 
+  async updatePhone(id:string,input:string){
+    const phone=normalizePhone(input);if(!/^7\d{10}$/.test(phone))throw new BadRequestException('Укажите полный номер телефона');
+    try{return await this.prisma.client.update({where:{id},data:{phoneNormalized:phone},select:{phoneNormalized:true}})}catch(e){if(e instanceof Prisma.PrismaClientKnownRequestError){if(e.code==='P2002')throw new BadRequestException('Этот номер уже указан у другого клиента');if(e.code==='P2025')throw new NotFoundException('Клиент не найден')}throw e;}
+  }
+
   async remove(id:string) {
     try {
       return await this.prisma.$transaction(async tx=>{

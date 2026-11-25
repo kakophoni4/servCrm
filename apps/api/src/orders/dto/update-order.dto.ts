@@ -1,4 +1,6 @@
 import {
+  IsInt,
+  Max,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -11,6 +13,7 @@ import {
 import { OrderStatus, OrderType, SourceKind, SourceOur } from '@prisma/client';
 
 export class UpdateOrderDto {
+ @IsOptional() @IsInt() @Min(0) @Max(120) warrantyMonths?:number|null;
  @IsOptional() @IsString() avitoChatId?:string;
  @IsOptional() @IsString() avitoItemId?:string;
  @IsOptional() @IsString() clientPhone?:string;

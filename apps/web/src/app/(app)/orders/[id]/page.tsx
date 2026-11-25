@@ -213,6 +213,7 @@ export default function OrderDetailPage() {
   const masterSchedule=useWorkSchedule(scheduledAt?scheduledAt.slice(0,10):moscowDate());
   const [paid, setPaid] = useState('0');
   const [partsCost, setPartsCost] = useState('');
+  const [warrantyMonths,setWarrantyMonths]=useState('');
   const [cancelFault, setCancelFault] = useState<'master' | 'admin' | ''>('');
   const [isProfile, setIsProfile] = useState(true);
   const [comment, setComment] = useState('');
@@ -245,6 +246,7 @@ export default function OrderDetailPage() {
     const keepParts = opts?.preserveMoney ? partsCost : null;
     const data = await api<Order>(`/orders/${id}`);
     setOrder(data);
+    setWarrantyMonths(data.warrantyMonths==null?'':String(data.warrantyMonths));
     setIsPersonal(data.isPersonal);
     setIsServiceCenter(data.isServiceCenter);
     setStatus(data.status);
@@ -291,6 +293,7 @@ export default function OrderDetailPage() {
       // Обновить блок «К сдаче» / ЗП, не трогая поля ввода
       const data = await api<Order>(`/orders/${id}`);
       setOrder(data);
+    setWarrantyMonths(data.warrantyMonths==null?'':String(data.warrantyMonths));
       return true;
     } catch (err) {
       setError(
@@ -444,6 +447,7 @@ export default function OrderDetailPage() {
     setError('');
     try {
       const body: Record<string, unknown> = {};
+      if(user?.role==='OWNER'||user?.permissions?.includes('staff.assistant'))body.warrantyMonths=warrantyMonths===''?null:Number(warrantyMonths);
       if (admin) {
         body.status = status;
         body.isPersonal = isPersonal;
@@ -1100,6 +1104,7 @@ export default function OrderDetailPage() {
             <p>{order.sourceSnapshot.typeTech} · {order.sourceSnapshot.address}</p>
             {order.sourceSnapshot.payment && <dl>{Object.entries({paid:'Оплачено',partsCost:'Запчасти',masterSalary:'Мастеру',toCompany:'Моя доля',reinvestAmount:'На Авито',ownerNet:'Мне'}).map(([key,label])=><div key={key}><dt>{label}</dt><dd>{Number(order.sourceSnapshot?.payment?.[key] ?? 0).toLocaleString('ru-RU')} ₽</dd></div>)}</dl>}
           </section>}
+          {(user?.role==='OWNER'||user?.permissions?.includes('staff.assistant'))&&<div className="panel"><label className="field">Гарантия, мес.<input form="order-edit-form" type="number" min="0" max="120" step="1" value={warrantyMonths} onChange={e=>setWarrantyMonths(e.target.value)}/></label></div>}
           {(order.sdComment||order.warrantyMonths!=null)&&<div className="panel">{order.sdComment&&<p style={{whiteSpace:'pre-wrap'}}>СД: {order.sdComment}</p>}{order.warrantyMonths!=null&&<p>Гарантия: {order.warrantyMonths} мес.</p>}</div>}
           {admin&&!logistic&&<OrderAudio id={order.id} documents={order.documents||[]} onSaved={async()=>{const documents=await api<OrderDocument[]>(`/orders/${id}/documents`);setOrder(prev=>prev?{...prev,documents}:prev)}} canWrite={true} canDelete={admin}/>}
           {user?.role==='OWNER'&&<OrderParts id={order.id} status={order.status}/>}

@@ -137,3 +137,13 @@
 .unassignedAlert::before{content:'';width:7px;height:7px;background:#dc883a;border-radius:50%;flex-shrink:0}
 @keyframes unassignedPulse{0%,100%{box-shadow:0 0 0 0 transparent;background:color-mix(in srgb,#e49344 12%,var(--panel))}50%{box-shadow:0 0 0 3px color-mix(in srgb,#e49344 22%,transparent);background:color-mix(in srgb,#e49344 30%,var(--panel))}}
 @media(prefers-reduced-motion:reduce){.unassignedAlert{animation:none;background:color-mix(in srgb,#e49344 24%,var(--panel))}}
+
+.combinedFilters { display:grid; gap:12px; margin-bottom:16px; }
+.combinedFilters > input { width:100%; min-width:0; }
+.filterGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; align-items:end; }
+.filterGrid label { display:grid; gap:6px; min-width:0; font-size:14px; color:var(--muted); }
+.filterGrid select { width:100%; min-width:0; min-height:44px; font-size:16px; }
+.filterGrid .assignmentFilter { display:flex; align-items:center; gap:8px; min-height:44px; color:var(--text); }
+.assignmentFilter input { width:18px; height:18px; flex:0 0 auto; }
+.resetFilters { justify-self:start; border:0; background:transparent; color:var(--muted); font:inherit; font-size:14px; min-height:44px; padding:0 4px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+@media(max-width:620px) { .filterGrid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }.combinedFilters { gap:10px; }.combinedFilters .orderFilters button { flex:1; min-height:44px; } }

@@ -40,9 +40,10 @@ import {PrismaService} from '../prisma/prisma.service';
   const items=await this.db.$queryRaw`SELECT u.part_id AS "partId",u.quantity,u.applied,p.name,p.category FROM stock_usage u JOIN stock_parts p ON p.id=u.part_id WHERE u.order_id=${id} ORDER BY p.category,p.name`;
   return {...order,items};
  }
- async save(id:string,items:{partId:string;quantity:number}[]){
+ async save(id:string,items:{partId:string;quantity:number}[],guard?:(tx:any,order:any)=>Promise<void>){
   try{await this.db.$transaction(async tx=>{
-   const orders:any[]=await tx.$queryRaw`SELECT status FROM orders WHERE id=${id} FOR UPDATE`;if(!orders.length)throw new NotFoundException('Заявка не найдена');
+   const orders:any[]=await tx.$queryRaw`SELECT status,is_personal AS "isPersonal",is_service_center AS "isServiceCenter",master_id AS "masterId",updated_at AS "updatedAt" FROM orders WHERE id=${id} FOR UPDATE`;if(!orders.length)throw new NotFoundException('Заявка не найдена');
+   if(guard)await guard(tx,orders[0]);
    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73184199)`;
    await tx.$executeRaw`UPDATE stock_usage SET quantity=0 WHERE order_id=${id}`;
    for(const item of items){

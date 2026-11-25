@@ -1,3 +1,4 @@
+import {StockPicker} from './stock-picker';
 import {WeeklySchedule} from './weekly-schedule';
 import {masterContactVisible} from '../common/utils/master-contact';
 import {
@@ -150,6 +151,15 @@ type PaySession = {
   /** После сохранения сумм продолжить этот статус (обычно DONE) */
   resumeStatus?: OrderStatus;
 };
+
+function activeOrderSections<T extends {status: OrderStatus; type: string; isWarranty: boolean}>(orders: T[], lines: (order:T)=>string[]) {
+  const groups = new Map<string,T[]>([['Назначены и в работе',[]],['СД',[]],['Гарантии',[]]]);
+  for (const order of orders) {
+    const section = order.isWarranty || order.type === 'WARRANTY' ? 'Гарантии' : order.status === OrderStatus.IN_PROGRESS_SD ? 'СД' : 'Назначены и в работе';
+    groups.get(section)!.push(order);
+  }
+  return Array.from(groups).flatMap(([title, rows]) => rows.length ? [title+' · '+rows.length, '', ...rows.flatMap(lines)] : []);
+}
 
 function orderStatusText(order: {status: OrderStatus; isServiceCenter?: boolean}) {
   if (order.isServiceCenter && (order.status === OrderStatus.WAITING || order.status === OrderStatus.NOT_SCHEDULED)) return 'Привезёт';
@@ -648,6 +658,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       rowExtra.push({ text: 'Суммы', callback_data: `ps:${order.id}` });
       rowExtra.push({ text: '+ Документ', callback_data: `xd:${order.id}` });
     }
+    if(order.status===OrderStatus.DONE)rowExtra.push({text:'Запчасти со склада',callback_data:'ip:'+order.id});
+    const stockState=await this.settings.get('bot.stock.confirmed.'+order.id);
+    if(order.status===OrderStatus.DONE)lines.push('Запчасти: '+(stockState==='none'?'без запчастей':stockState==='parts'?'списаны':'не указаны'));
     const rowNav = [{ text: '« К списку', callback_data: 'ml' }];
 
     const inline_keyboard = [
@@ -1248,6 +1261,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const order = await this.prisma.order.findUnique({where:{id:orderId},include:{client:true,master:{include:{user:true}},payment:true,documents:{where:{pendingReview:false},select:{id:true}}}});
     if (!order) throw new NotFoundException('Заявка не найдена');
     const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
+    const stockState=await this.settings.get('bot.stock.confirmed.'+order.id);
     const paid = Number(order.payment?.paid || 0);
     const partsCost = Number(order.payment?.partsCost || 0);
     const kind = order.type==='WARRANTY'?'Гарантия':order.type==='REPEAT'?'Повтор':'Заявка';
@@ -1283,6 +1297,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
+      order.status===OrderStatus.DONE && !order.isServiceCenter && (order.isPersonal||!order.masterId) ? 'Запчасти: '+(stockState==='parts'?'списаны':stockState==='none'?'без запчастей':'не указаны') : '',
       order.status===OrderStatus.DONE ? 'Всего: '+paid+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Чистыми: '+(paid-partsCost)+' ₽' : '',
       order.status===OrderStatus.DONE ? (order.documents?.length?'Чек прикреплён ✅':'Чек отсутствует ❌') : '',
@@ -1299,6 +1314,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if([OrderStatus.IN_PROGRESS,OrderStatus.IN_PROGRESS_SD].includes(order.status as any))buttons.push({text:'Закрыть',callback_data:`gs:${order.id}:DONE`});
     }
     if(order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt)buttons.unshift({text:'Перенести срок',callback_data:'ge:'+order.id});
+    if(order.status===OrderStatus.DONE&&!order.isServiceCenter&&(order.isPersonal||!order.masterId))buttons.push({text:'Запчасти со склада',callback_data:'ip:'+order.id});
     if(order.status===OrderStatus.DONE)buttons.push({text:'Прикрепить документы',callback_data:'gu:'+order.id});
     const entities = [...text.matchAll(/^(Заявка|Гарантия|Повтор|Исходная заявка:|ФИО:|Телефон:|Адрес:|Время:|Техника:|Исполнитель:|Мастер:|Статус:|Примечание:|Комментарий:|На Авито:|Владельцу:|Всего:|Чистыми:|Срок:)/gm)].map(match => ({type:'bold',offset:match.index!,length:match[0].length}));
     return {order,text,entities,reply_markup:{inline_keyboard:buttons.length?[buttons]:[]}};
@@ -1964,8 +1980,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const acceptedRows=await this.prisma.appSetting.findMany({where:{key:{in:orders.map(o=>'bot.orders.accepted.'+o.id)}}});
     const acceptedValues=new Map(acceptedRows.map(r=>[r.key,r.value]));
     const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+(o.client.phoneNormalized||'').replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+orderStatusText(o),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
-    const regular=orders.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=orders.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
-    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])].join('\n').trim();
+    return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...activeOrderSections(orders,lines)].join('\n').trim();
   }
 
   async ownerOverviewReport(statistics:boolean,scope:'personal'|'center'='personal') {
@@ -1975,8 +1990,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),scope==='center'?'СЦ':'Личные','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
     const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,o.client.phoneNormalized?'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''):'Телефон не указан','Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+orderStatusText(o),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const section=(title:string,items:typeof orders)=>{
-      const regular=items.filter(o=>o.status!==OrderStatus.IN_PROGRESS_SD),sd=items.filter(o=>o.status===OrderStatus.IN_PROGRESS_SD);
-      return [title+' · '+items.length,'',...(!items.length?['Нет актуальных заявок','']:[]),...(regular.length?['Назначены и в работе · '+regular.length,'',...regular.flatMap(lines)]:[]),...(sd.length?['СД · '+sd.length,'',...sd.flatMap(lines)]:[])];
+      return [title+' · '+items.length,'',...(!items.length?['Нет актуальных заявок','']:[]),...activeOrderSections(items,lines)];
     };
     return ['Актуальные заявки','Всего: '+orders.length,'',...(scope==='personal'?section('Личные',orders):section('СЦ',orders))].join('\n').trim();
   }
@@ -2814,6 +2828,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCallbackQuery(cq: TgCallbackQuery) {
+    if(/^(ip|is):/.test(cq.data||'')){try{await new StockPicker(this.prisma,(method,data)=>this.telegram(method,data),(order,id)=>this.groupActor(order,id),id=>this.refreshSavedDocumentCards(id),async()=>(await this.getOrderGroup('owner'))?.chatId).callback(cq);await this.telegram('answerCallbackQuery',{callback_query_id:cq.id});}catch(e){await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:e instanceof BadRequestException?e.message:'Не удалось сохранить запчасти',show_alert:true});}return;}
+
     if (/^(wd|wc):/.test(cq.data || '')) {try{await this.weeklySchedule().callback(cq);await this.telegram('answerCallbackQuery',{callback_query_id:cq.id})}catch(e){await this.telegram('answerCallbackQuery',{callback_query_id:cq.id,text:e instanceof BadRequestException?e.message:'Не удалось сохранить график',show_alert:true})}return;}
     if (/^(wh|ww|wb):/.test(cq.data || '')) { await this.handleScheduleCallback(cq); return; }
     if (/^(ga|gs|ge|gf|gx|gd|gu):/.test(cq.data || '')) { await this.handleGroupAction(cq); return; }

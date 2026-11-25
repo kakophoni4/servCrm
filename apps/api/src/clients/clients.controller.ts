@@ -1,3 +1,4 @@
+import {IsString,MaxLength} from 'class-validator';
 import {PageQuery} from '../orders/paging';
 import {
   Body,
@@ -18,10 +19,16 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ClientsService } from './clients.service';
 
+class UpdatePhoneDto { @IsString() @MaxLength(40) phone!:string; }
+
 @Controller('clients')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
+
+  @Patch(':id/phone')
+  @Roles(Role.OWNER)
+  phone(@Param('id') id:string,@Body() dto:UpdatePhoneDto){return this.clients.updatePhone(id,dto.phone);}
 
   @Delete(':id')
   @Roles(Role.OWNER)

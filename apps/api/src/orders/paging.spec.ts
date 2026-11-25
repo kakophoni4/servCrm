@@ -15,3 +15,22 @@ describe('server paging',()=>{
  it('paginates active day orders before terminal ones without duplicates',async()=>{const rows=Array.from({length:70},(_,i)=>({id:String(i).padStart(3,'0'),status:i%2?'CANCELLED_CC':'WAITING'}));const matching=(where:any)=>rows.filter(r=>where.status?.in?where.status.in.includes(r.status):where.status?.notIn?!where.status.notIn.includes(r.status):true);const db:any={order:{count:async({where}:any)=>matching(where).length,findMany:async({where,skip,take}:any)=>matching(where).slice(skip,skip+take)}};db.$transaction=async(f:any)=>f(db);const svc=new OrdersService(db,{} as any,{} as any,{} as any,branch,{} as any);const result:any[]=[];for(let page=1;page<=3;page++)result.push(...(await svc.paged('u','OWNER',{filter:'today',page:String(page)})).items);expect(result).toHaveLength(70);expect(new Set(result.map(r=>r.id)).size).toBe(70);expect(result.slice(0,35).every(r=>r.status==='WAITING')).toBe(true);expect(result.slice(35).every(r=>r.status==='CANCELLED_CC')).toBe(true)});
 });
 
+
+describe('combined order filters',()=>{
+ const branch:any={allowedCityIds:async()=>['a'],resolveCityIds:(a:any)=>a,cityWhere:(a:any)=>({in:a})};
+ it.each(['active','closed','sd','waiting','cancelled'])('keeps selected %s state when filtering service-center orders for today',async(state)=>{
+  const order={count:jest.fn<Promise<number>,[any]>().mockResolvedValue(1),findMany:jest.fn<Promise<any[]>,[any]>().mockResolvedValue([{id:'one'}])};
+  const db:any={order,$transaction:(calls:any)=>Promise.all(calls)};
+  const svc=new OrdersService(db,{} as any,{} as any,{} as any,branch,{} as any);
+  const r=await svc.paged('u','OWNER',{date:'today',kind:'center',state,assignment:'unassigned',tech:'ТВ',page:'2'});
+  const args=order.findMany.mock.calls[0][0];
+  expect(args.where).toMatchObject({cityId:{in:['a']},isServiceCenter:true,masterId:null,typeTech:'ТВ',scheduledAt:moscowToday()});
+  expect(args.where.status).toEqual(({active:{notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']},closed:'DONE',sd:'IN_PROGRESS_SD',waiting:'WAITING',cancelled:{in:['REFUSAL','CANCELLED_CC','NO_ARRIVAL']}} as any)[state]);
+  expect(order.count.mock.calls[0][0].where).toEqual(args.where);
+  expect(args.skip).toBe(30);expect(r.total).toBe(1);
+ });
+ it('rejects invalid independent filters',async()=>{
+  const svc=new OrdersService({} as any,{} as any,{} as any,{} as any,branch,{} as any);
+  for(const q of [{date:'yesterday'},{kind:'oops'},{state:'oops'},{assignment:'oops'}])await expect(svc.paged('u','OWNER',q)).rejects.toThrow();
+ });
+});

@@ -1,4 +1,4 @@
-import {PageQuery,pageInput,pageResult,moscowToday} from './paging';
+import {PageQuery,pageInput,pageResult,moscowToday,orderFilters} from './paging';
 import {
   BadRequestException,
   ForbiddenException,
@@ -62,23 +62,27 @@ export class OrdersService {
   } satisfies Prisma.OrderInclude;
 
   async paged(userId:string,role:Role,q:PageQuery) {
-    const {page,limit,search}=pageInput(q),filter=q.filter||'all';
-    if(!['today','tomorrow','sd','partner','all','unassigned','active','personal','center','closed','cancelled'].includes(filter))throw new BadRequestException('Неизвестный фильтр');
+    const {page,limit,search}=pageInput(q);
+    const filters=orderFilters(q);
     const allowed=await this.branch.allowedCityIds(userId,role);
     const where:Prisma.OrderWhereInput={cityId:this.branch.cityWhere(this.branch.resolveCityIds(allowed,q.cityId))};
-    if(filter==='today')where.scheduledAt=moscowToday();
-    if(filter==='active'||filter==='unassigned')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
-    if(filter==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
-    if(filter==='sd')where.status='IN_PROGRESS_SD';
-    if(filter==='unassigned'){where.masterId=null;where.isPersonal=false;where.isServiceCenter=false;}
-    if(filter==='partner')where.sourceKind='PARTNER';
-    if(filter==='personal')where.isPersonal=true;
-    if(filter==='center')where.isServiceCenter=true;
-    if(filter==='closed')where.status='DONE';
-    if(filter==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
+    if(filters.date==='today')where.scheduledAt=moscowToday();
+    if(filters.date==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
+    if(filters.state==='active')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
+    if(filters.state==='waiting')where.status='WAITING';
+    if(filters.state==='sd')where.status='IN_PROGRESS_SD';
+    if(filters.state==='closed')where.status='DONE';
+    if(filters.state==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
+    if(filters.assignment==='unassigned'){
+      where.masterId=null;
+      if(q.assignment===undefined){where.isPersonal=false;where.isServiceCenter=false;}
+    }
+    if(filters.kind==='partner')where.sourceKind='PARTNER';
+    if(filters.kind==='personal')where.isPersonal=true;
+    if(filters.kind==='center')where.isServiceCenter=true;
     if(q.tech)where.typeTech=q.tech==='Другое'?{notIn:['ХД','СМ','ПММ','ТВ','ПК','']}:q.tech;
     if(search){const text={contains:search,mode:'insensitive' as const};const digits=search.replace(/\D/g,'');where.OR=[{publicId:text},{address:text},{client:{name:text}},{master:{user:{fullName:text}}}];if(digits.length>=3)where.OR.push({client:{phoneNormalized:{contains:digits}}});}
-    if(['today','tomorrow'].includes(filter)){
+    if(filters.date!=='all'&&filters.state==='all'){
       return this.prisma.$transaction(async tx=>{
         const terminal:OrderStatus[]=['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'];
         const activeWhere={...where,status:{notIn:terminal}},closedWhere={...where,status:{in:terminal}};
@@ -90,7 +94,7 @@ export class OrdersService {
         return pageResult([...active,...closed],total,page,limit);
       },{isolationLevel:'RepeatableRead'});
     }
-    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:['today','tomorrow'].includes(filter)?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
+    const [total,items]=await this.prisma.$transaction([this.prisma.order.count({where}),this.prisma.order.findMany({where,skip:(page-1)*limit,take:limit,include:{client:true,master:{select:{id:true,user:{select:{fullName:true}}}},payment:true},orderBy:filters.date!=='all'?[{scheduledAt:'asc'},{id:'asc'}]:[{createdAt:'desc'},{id:'desc'}]})],{isolationLevel:'RepeatableRead'});
     return pageResult(items,total,page,limit);
   }
 
@@ -412,9 +416,11 @@ export class OrdersService {
     const existing = await this.prisma.order.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Заявка не найдена');
 
+    if((dto.warrantyMonths!==undefined||dto.clientPhone!==undefined)&&role!==Role.OWNER){const actor=await this.prisma.user.findUnique({where:{id:userId},select:{permissions:true}});if(!actor?.permissions.includes('staff.assistant'))throw new ForbiddenException('Изменение доступно владельцу или помощнику');}
     const isAdmin = ADMIN_ROLES.includes(role);
     if(dto.address!==undefined&&dto.address!==existing.address&&role!==Role.OWNER){const actor=await this.prisma.user.findUnique({where:{id:userId},select:{permissions:true}});if(!actor?.permissions.includes('staff.assistant'))throw new ForbiddenException('Адрес меняет владелец или помощник');}
-    if(dto.clientPhone!==undefined){const phone=normalizePhone(dto.clientPhone);if(phone.length!==11)throw new BadRequestException('Укажите полный номер телефона');await this.prisma.client.update({where:{id:existing.clientId},data:{phoneNormalized:phone}});}
+    const clientPhone=dto.clientPhone===undefined?undefined:normalizePhone(dto.clientPhone);
+    if(clientPhone!==undefined&&!/^7\d{10}$/.test(clientPhone))throw new BadRequestException('Укажите полный номер телефона');
 
     if (dto.masterId !== undefined && !isAdmin) {
       throw new ForbiddenException('Назначать мастера может только админ');
@@ -554,6 +560,7 @@ export class OrdersService {
       status,
       isClaim: dto.isClaim,
       isWarranty: dto.isWarranty,
+      warrantyMonths: dto.warrantyMonths,
       isRepeat: dto.isRepeat,
       isProfile: dto.isProfile,
       typeTech: dto.typeTech,
@@ -602,6 +609,7 @@ export class OrdersService {
       (dto.masterId || null) !== existing.masterId;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      if(clientPhone!==undefined)await tx.client.update({where:{id:existing.clientId},data:{phoneNormalized:clientPhone}});
       await tx.order.update({
         where: { id },
         data,
@@ -695,7 +703,7 @@ export class OrdersService {
         where: { id },
         include: this.orderInclude,
       });
-    }).catch(e=>{if(String(e).includes('Not enough stock:'))throw new BadRequestException('На складе недостаточно выбранных запчастей. Проверьте остатки или состав заявки.');throw e;});
+    }).catch(e=>{if(e instanceof Prisma.PrismaClientKnownRequestError&&e.code==='P2002')throw new BadRequestException('Этот номер уже указан у другого клиента');if(String(e).includes('Not enough stock:'))throw new BadRequestException('На складе недостаточно выбранных запчастей. Проверьте остатки или состав заявки.');throw e;});
 
     if (masterChanged && existing.masterId) {
       await this.bot

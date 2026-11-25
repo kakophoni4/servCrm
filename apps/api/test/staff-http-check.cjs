@@ -19,6 +19,11 @@ const {AppModule}=require('../dist/app.module');const p=new PrismaClient(),ids=[
  async function call(method,path,token,body){const r=await fetch(base+'/api'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()}}
  const login=async login=>{const r=await call('POST','/auth/login',null,{login,password});assert.equal(r.status,200);return r.data.accessToken};
  const ownerToken=await login(tag);
+ const changedPhone=await call('PATCH','/clients/'+client.id+'/phone',ownerToken,{phone:'8 (999) 123-45-67'});assert.equal(changedPhone.status,200);assert.equal(changedPhone.data.phoneNormalized,'79991234567');
+ assert.equal((await call('PATCH','/clients/'+client.id+'/phone',ownerToken,{phone:'123'})).status,400);
+ const warranty=await call('PATCH','/orders/'+order.id,ownerToken,{warrantyMonths:12});assert.equal(warranty.status,200);assert.equal(warranty.data.warrantyMonths,12);
+ for(const value of [-1,1.5,121])assert.equal((await call('PATCH','/orders/'+order.id,ownerToken,{warrantyMonths:value})).status,400);
+ assert.equal((await call('PATCH','/orders/'+order.id,ownerToken,{warrantyMonths:null})).data.warrantyMonths,null);
  assert.equal((await call('POST','/avito/chats/test/messages',ownerToken,{text:' '})).status,400);
  assert.equal((await call('GET','/avito/chats?offset=-1',ownerToken)).status,400);
  assert.equal((await call('GET','/inventory',ownerToken)).status,200);
@@ -26,7 +31,10 @@ const {AppModule}=require('../dist/app.module');const p=new PrismaClient(),ids=[
  assert.equal((await call('PUT','/inventory/orders/'+order.id,ownerToken,{items:[]})).status,200);
  for(const profile of ['logistic','assistant']){
  const created=await call('POST','/staff',ownerToken,{login:tag+profile,fullName:profile,password,profile});assert.equal(created.status,201,JSON.stringify(created.data));ids.push(created.data.id);
- const token=await login(tag+profile);assert.equal((await call('GET','/auth/me',token)).data.permissions.includes('staff.'+profile),true);
+ const token=await login(tag+profile);
+ assert.equal((await call('PATCH','/clients/'+client.id+'/phone',token,{phone:'79991234568'})).status,403);
+ assert.equal((await call('PATCH','/orders/'+order.id,token,{warrantyMonths:12})).status,profile==='assistant'?200:403);
+assert.equal((await call('GET','/auth/me',token)).data.permissions.includes('staff.'+profile),true);
  for(const path of ['/avito/profile','/avito/chats','/avito/stats?from=2026-11-01&to=2026-11-18','/inventory','/inventory/history','/inventory/orders/'+order.id,'/staff','/settings/bot','/salary-categories','/settlements/cash','/users'])assert.equal((await call('GET',path,token)).status,403,path);
  assert.equal((await call('POST','/avito/chats/test/messages',token,{text:'test'})).status,403);
  assert.equal((await call('POST','/staff',token,{login:'bad',fullName:'bad',password,profile})).status,403);

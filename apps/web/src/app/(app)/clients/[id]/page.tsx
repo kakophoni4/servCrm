@@ -5,7 +5,7 @@ import styles from '@/components/desk/DeskLists.module.css';
 import { formatRuPhoneDisplay, phoneHref } from '@/lib/phone';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getStoredUser } from '@/lib/api';
 import { STATUS_LABELS, TYPE_LABELS } from '@/lib/labels';
 
 type Client = {
@@ -32,6 +32,7 @@ export default function ClientCardPage() {
   const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
   const [error, setError] = useState('');
+  const [phoneEdit,setPhoneEdit]=useState(false),[phone,setPhone]=useState(''),[phoneBusy,setPhoneBusy]=useState(false);
 
   useEffect(() => {
     api<Client>(`/clients/${id}`)
@@ -65,6 +66,8 @@ export default function ClientCardPage() {
           <a href={phoneHref(client.phoneNormalized)}>{formatRuPhoneDisplay(client.phoneNormalized)}</a>
         </p>
 
+        {getStoredUser()?.role==='OWNER'&&(!phoneEdit?<button className="btn secondary" onClick={()=>{setPhone(client.phoneNormalized||'');setPhoneEdit(true);setError('')}}>Изменить телефон</button>:<form onSubmit={async e=>{e.preventDefault();if(phoneBusy)return;setPhoneBusy(true);setError('');try{const result=await api<{phoneNormalized:string}>('/clients/'+id+'/phone',{method:'PATCH',body:JSON.stringify({phone})});setClient({...client,phoneNormalized:result.phoneNormalized});setPhoneEdit(false)}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}finally{setPhoneBusy(false)}}}><label className="field">Телефон<input type="tel" required maxLength={40} disabled={phoneBusy} value={phone} onChange={e=>setPhone(e.target.value)}/></label><button className="btn" disabled={phoneBusy}>Сохранить</button> <button type="button" className="btn secondary" disabled={phoneBusy} onClick={()=>setPhoneEdit(false)}>Отмена</button></form>)}
+        {error&&<p className="error" role="alert">{error}</p>}
         {client.branchComment ? (
           <p>Комментарий: {client.branchComment}</p>
         ) : null}
