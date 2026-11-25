@@ -658,7 +658,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       rowExtra.push({ text: 'Суммы', callback_data: `ps:${order.id}` });
       rowExtra.push({ text: '+ Документ', callback_data: `xd:${order.id}` });
     }
-    if(order.status===OrderStatus.DONE)rowExtra.push({text:'Запчасти со склада',callback_data:'ip:'+order.id});
+    if(order.status===OrderStatus.DONE&&stored&&!stored.isServiceCenter&&(stored.isPersonal||!stored.masterId))rowExtra.push({text:'Запчасти со склада',callback_data:'ip:'+order.id});
     const stockState=await this.settings.get('bot.stock.confirmed.'+order.id);
     if(order.status===OrderStatus.DONE)lines.push('Запчасти: '+(stockState==='none'?'без запчастей':stockState==='parts'?'списаны':'не указаны'));
     const rowNav = [{ text: '« К списку', callback_data: 'ml' }];
@@ -1262,6 +1262,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if (!order) throw new NotFoundException('Заявка не найдена');
     const accepted = await this.settings.get('bot.orders.accepted.'+order.id) === (order.masterId || 'owner');
     const stockState=await this.settings.get('bot.stock.confirmed.'+order.id);
+    const stockLines=order.status===OrderStatus.DONE&&!order.isServiceCenter&&(order.isPersonal||!order.masterId)?await this.prisma.$queryRaw<{name:string;quantity:number}[]>`SELECT p.name,u.quantity FROM stock_usage u JOIN stock_parts p ON p.id=u.part_id WHERE u.order_id=${order.id} AND u.quantity>0 ORDER BY p.category,p.name`:[];
     const paid = Number(order.payment?.paid || 0);
     const partsCost = Number(order.payment?.partsCost || 0);
     const kind = order.type==='WARRANTY'?'Гарантия':order.type==='REPEAT'?'Повтор':'Заявка';
@@ -1297,7 +1298,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       order.status===OrderStatus.IN_PROGRESS_SD ? '🟠 СД · предоплата: '+Number(order.payment?.prepay || 0)+' ₽' : '',
       order.status===OrderStatus.IN_PROGRESS_SD && order.sdDueAt ? (order.sdDueAt.getTime()<Date.now()?'🔴 Срок истёк · ':'Срок: ')+(order.sdDueFrom?.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) || '')+' - '+order.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}) : '',
       order.isPersonal && order.payment && order.status===OrderStatus.DONE ? 'На Авито: '+Number(order.payment.reinvestAmount)+' ₽\nВладельцу: '+Number(order.payment.ownerNet)+' ₽' : '',
-      order.status===OrderStatus.DONE && !order.isServiceCenter && (order.isPersonal||!order.masterId) ? 'Запчасти: '+(stockState==='parts'?'списаны':stockState==='none'?'без запчастей':'не указаны') : '',
+      order.status===OrderStatus.DONE && !order.isServiceCenter && (order.isPersonal||!order.masterId) ? (stockLines.length?'✅ Запчасти:\n'+stockLines.map(p=>p.name+' × '+p.quantity+' шт.').join('\n'):stockState==='none'?'✅ Без запчастей':'❌ Запчасти не указаны') : '',
       order.status===OrderStatus.DONE ? 'Всего: '+paid+' ₽' : '',
       order.status===OrderStatus.DONE ? 'Чистыми: '+(paid-partsCost)+' ₽' : '',
       order.status===OrderStatus.DONE ? (order.documents?.length?'Чек прикреплён ✅':'Чек отсутствует ❌') : '',
@@ -2076,6 +2077,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const msg = update.message;
     if (!msg?.chat?.id) return;
 
+    try{if(await new StockPicker(this.prisma,(method,data)=>this.telegram(method,data),(order,id)=>this.groupActor(order,id),id=>this.refreshSavedDocumentCards(id),async()=>(await this.getOrderGroup('owner'))?.chatId).reply(msg))return;}catch(e){await this.sendMessage(String(msg.chat.id),e instanceof BadRequestException?e.message:'Не удалось сохранить количество');return;}
     const chatId = String(msg.chat.id);
     const telegramId =
       msg.from?.id != null ? String(msg.from.id) : chatId;

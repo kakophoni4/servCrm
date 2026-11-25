@@ -25,6 +25,11 @@ import { OrdersService } from './orders.service';
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
+  @Get('filter-masters')
+  @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
+  @RequirePermissions('orders.read')
+  filterMasters(@CurrentUser() user:{userId:string;role:Role}) { return this.orders.filterMasters(user.userId,user.role); }
+
   @Get('paged')
   @Roles(Role.DISPATCHER, Role.ADMIN, Role.DIRECTOR, Role.OWNER)
   @RequirePermissions('orders.read')

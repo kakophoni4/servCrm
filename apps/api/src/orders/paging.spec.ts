@@ -34,3 +34,25 @@ describe('combined order filters',()=>{
   for(const q of [{date:'yesterday'},{kind:'oops'},{state:'oops'},{assignment:'oops'}])await expect(svc.paged('u','OWNER',q)).rejects.toThrow();
  });
 });
+
+describe('master selection in order filters',()=>{
+ const branch:any={allowedCityIds:async()=>['allowed-city'],resolveCityIds:(a:any)=>a,cityWhere:(a:any)=>({in:a})};
+ it('intersects a selected master with scope, category, status and pagination',async()=>{
+  const order={count:jest.fn<Promise<number>,[any]>().mockResolvedValue(42),findMany:jest.fn<Promise<any[]>,[any]>().mockResolvedValue([])};
+  const db:any={order,$transaction:(calls:any)=>Promise.all(calls)};
+  const svc=new OrdersService(db,{} as any,{} as any,{} as any,branch,{} as any);
+  const result=await svc.paged('u','DISPATCHER',{masterId:'master-a',kind:'center',state:'active',date:'today',page:'2'});
+  const args=order.findMany.mock.calls[0][0];
+  expect(args.where).toMatchObject({cityId:{in:['allowed-city']},masterId:'master-a',isServiceCenter:true,status:{notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']}});
+  expect(order.count.mock.calls[0][0].where).toEqual(args.where);expect(args.skip).toBe(30);expect(result.totalPages).toBe(2);
+ });
+ it('returns only active scoped master ids and names',async()=>{
+  const master={findMany:jest.fn<Promise<any[]>,[any]>().mockResolvedValue([])};
+  await new OrdersService({master} as any,{} as any,{} as any,{} as any,branch,{} as any).filterMasters('u','DISPATCHER');
+  expect(master.findMany.mock.calls[0][0]).toMatchObject({where:{status:'ACTIVE',cityId:{in:['allowed-city']}},select:{id:true,user:{select:{fullName:true}}}});
+ });
+ it('rejects malformed and conflicting master selections',async()=>{
+  const svc=new OrdersService({} as any,{} as any,{} as any,{} as any,branch,{} as any);
+  for(const q of [{masterId:''},{masterId:'x'.repeat(101)},{masterId:['x'] as any},{masterId:'x',assignment:'unassigned'},{masterId:'x',filter:'unassigned'}])await expect(svc.paged('u','OWNER',q)).rejects.toThrow();
+ });
+});

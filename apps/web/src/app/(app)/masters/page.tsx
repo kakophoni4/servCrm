@@ -34,6 +34,17 @@ export default function MastersPage(){
    if(unpaid)ctx.set('unpaid','1');
    return '/orders/'+encodeURIComponent(id)+'?returnTo='+encodeURIComponent('/masters?'+ctx);
  }
+ function rememberList(event: React.MouseEvent<HTMLDivElement>){
+   const link=event.target instanceof Element?event.target.closest('a'):null;
+   if(!link || event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
+   const target=new URL(link.href).searchParams.get('returnTo');
+   if(!target?.startsWith('/masters?'))return;
+   const origin=new URL(target,location.origin);
+   const card=document.getElementById('master-'+origin.searchParams.get('master'));
+   if(card?.querySelector('[data-master-unpaid][open]'))origin.searchParams.set('unpaid','1');
+   origin.searchParams.set('scroll',String(window.scrollY));
+   history.replaceState(history.state,'',origin.pathname+origin.search);
+ }
  const [cash,setCash]=useState<CashBalance[]>([]);
  const [showForm,setShowForm]=useState(false);
  const [groups,setGroups]=useState<Record<string,{chatId:string;title:string}|null>>({});
@@ -57,8 +68,18 @@ export default function MastersPage(){
    restoredMaster.current=master;
    setOpenMaster(master);
    void loadJobs(master,Math.max(1,Number(returnContext?.get('jobs'))||1));
-   document.getElementById('master-'+master)?.scrollIntoView({block:'start'});
+   if(!returnContext?.has('scroll'))document.getElementById('master-'+master)?.scrollIntoView({block:'start'});
  },[returnContext,masters]);
+ const restoredScroll=useRef(false);
+ useEffect(()=>{
+   const master=returnContext?.get('master');
+   if(restoredScroll.current||!master||!returnContext?.has('scroll')||!jobsMeta[master]||jobsBusy)return;
+   const frame=requestAnimationFrame(()=>{
+     window.scrollTo(0,Number(returnContext.get('scroll'))||0);
+     restoredScroll.current=true;
+   });
+   return ()=>cancelAnimationFrame(frame);
+ },[returnContext,jobsMeta,jobsBusy]);
  async function loadGroup(id:string){try{const g=await api<{chatId:string;title:string}|null>(`/bot/masters/${id}/group`);setGroups(v=>({...v,[id]:g}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}}
  async function connect(id:string){setError('');try{const result=await api<{url:string}>('/bot/masters/'+id+'/link',{method:'POST'});setLinks(v=>({...v,[id]:result.url}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}}
  async function connectGroup(id:string){setGroupBusy(id);setError('');try{const r=await api<{command:string}>(`/bot/masters/${id}/group/link`,{method:'POST'});setCommands(v=>({...v,[id]:r.command}))}catch(e){setError(e instanceof Error?e.message:'Ошибка подключения')}finally{setGroupBusy('')}}
@@ -81,7 +102,7 @@ export default function MastersPage(){
  {error&&<p className="error" role="alert">{error}</p>}
  <div className={styles.sectionHead}><h2>В списке <span className={styles.count}>{total}</span></h2><button className="btn secondary" onClick={()=>load().catch(e=>setError(e.message))}>Обновить</button></div>
  {!loading&&!masters.length&&!error&&<div className={`panel ${styles.empty}`}>Мастеров пока нет</div>}
- <div className={`${styles.cards} ${layout.grid}`}>{masters.map((m,index)=>{const working=schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking;const previous=index>0?schedule.days.find(d=>d.masterId===masters[index-1].id&&d.date===moscowDate())?.isWorking:null;const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'].includes(o.status));return <section id={'master-'+m.id} style={{scrollMarginTop:70,borderTop:working!==previous?'3px solid var(--line)':undefined}} className={`panel ${styles.card} ${styles.masterCard} ${layout.card}`} key={m.id}>
+ <div onClickCapture={rememberList} className={`${styles.cards} ${layout.grid}`}>{masters.map((m,index)=>{const working=schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking;const previous=index>0?schedule.days.find(d=>d.masterId===masters[index-1].id&&d.date===moscowDate())?.isWorking:null;const active=orders.filter(o=>o.masterId===m.id&&!['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL'].includes(o.status));return <section id={'master-'+m.id} style={{scrollMarginTop:70,borderTop:working!==previous?'3px solid var(--line)':undefined}} className={`panel ${styles.card} ${styles.masterCard} ${layout.card}`} key={m.id}>
  <div className={`${styles.masterHead} ${layout.identity}`}><span className={styles.avatar} aria-hidden="true">{m.user.fullName.trim().slice(0,1).toUpperCase()}</span><div><h3>{m.user.fullName}</h3>{m.user.phone&&<a href={phoneHref(m.user.phone)}>{formatRuPhoneDisplay(m.user.phone)}</a>}</div><span className={styles.count}>{m.activeCount} в работе · СД {m.sdCount}</span></div>
  <div style={{color:schedule.days.find(d=>d.masterId===m.id&&d.date===moscowDate())?.isWorking===false?"var(--muted)":"var(--ink)"}}>{working===true?'✅ В смене':working===false?'❌ Выходной':'График не задан'} · {m.activity||'Статус не указан'}</div>
  {!logistic&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:8}}><span>Средний чек <strong>{(m.averageCheck||0).toLocaleString('ru-RU',{maximumFractionDigits:0})} ₽</strong></span><span className="muted">Закрыто {m.completedOrders||0}</span></div>}

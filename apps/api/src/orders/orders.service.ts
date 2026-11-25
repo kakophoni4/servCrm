@@ -61,6 +61,15 @@ export class OrdersService {
     documents: true,
   } satisfies Prisma.OrderInclude;
 
+  async filterMasters(userId:string,role:Role) {
+    const allowed=await this.branch.allowedCityIds(userId,role);
+    return this.prisma.master.findMany({
+      where:{status:'ACTIVE',cityId:this.branch.cityWhere(allowed)},
+      select:{id:true,user:{select:{fullName:true}}},
+      orderBy:[{user:{fullName:'asc'}},{id:'asc'}],
+    });
+  }
+
   async paged(userId:string,role:Role,q:PageQuery) {
     const {page,limit,search}=pageInput(q);
     const filters=orderFilters(q);
@@ -77,6 +86,7 @@ export class OrdersService {
       where.masterId=null;
       if(q.assignment===undefined){where.isPersonal=false;where.isServiceCenter=false;}
     }
+    if(q.masterId)where.masterId=q.masterId;
     if(filters.kind==='partner')where.sourceKind='PARTNER';
     if(filters.kind==='personal')where.isPersonal=true;
     if(filters.kind==='center')where.isServiceCenter=true;

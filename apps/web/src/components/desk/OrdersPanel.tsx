@@ -73,7 +73,9 @@ export function OrdersPanel() {
   const [view,setView]=useState('today');
   const [kind,setKind]=useState('all');
   const [state,setState]=useState('all');
-  const [unassigned,setUnassigned]=useState(false);
+  const [master,setMaster]=useState('all');
+  const [masters,setMasters]=useState<{id:string;user:{fullName:string}}[]>([]);
+  const [mastersError,setMastersError]=useState('');
   const [query,setQuery]=useState('');
   const [tech,setTech]=useState('');
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -89,12 +91,21 @@ export function OrdersPanel() {
   );
 
   useEffect(()=>{
+    if(!canRead)return;
+    const controller=new AbortController();
+    api<{id:string;user:{fullName:string}}[]>('/orders/filter-masters',{signal:controller.signal})
+      .then(rows=>{if(!controller.signal.aborted){setMasters(rows);setMastersError('')}})
+      .catch(()=>{if(!controller.signal.aborted)setMastersError('Не удалось загрузить список мастеров')});
+    return()=>controller.abort();
+  },[canRead]);
+
+  useEffect(()=>{
     if(!canRead){setLoading(false);return}
     const c=new AbortController();let running=false;
     setLoading(true);setError('');setOrders([]);
     async function load(){
       if(running||c.signal.aborted)return;running=true;
-      const q=new URLSearchParams({q:query,date:view,kind,state,assignment:unassigned?'unassigned':'all',tech,page:String(page),limit:'30'});
+      const q=new URLSearchParams({q:query,date:view,kind,state,assignment:master==='unassigned'?'unassigned':'all',...(master!=='all'&&master!=='unassigned'?{masterId:master}:{}),tech,page:String(page),limit:'30'});
       try {const r=await api<{items:OrderRow[];total:number;totalPages:number}>(`/orders/paged?${q}`,{signal:c.signal});if(!c.signal.aborted){setOrders(r.items);setTotal(r.total);setTotalPages(r.totalPages);setNow(Date.now());setError('');if(page>r.totalPages&&r.totalPages>0)setPage(r.totalPages)}}
       catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:'Не удалось обновить заявки')}
       finally{running=false;if(!c.signal.aborted)setLoading(false)}
@@ -103,7 +114,7 @@ export function OrdersPanel() {
     const resume=()=>{if(!document.hidden){setNow(Date.now());void load()}};
     document.addEventListener('visibilitychange',resume);
     return()=>{clearTimeout(timer);clearInterval(refresh);document.removeEventListener('visibilitychange',resume);c.abort()}
-  },[canRead,query,view,kind,state,unassigned,tech,page]);
+  },[canRead,query,view,kind,state,master,tech,page]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10_000);
@@ -119,7 +130,7 @@ export function OrdersPanel() {
     <section className={`desk-panel ${styles.list} ${styles.orders}`}>
       <div className="desk-panel-body">
         <div className={styles.combinedFilters}>
-          <input aria-label="Поиск заявок" placeholder="Имя, телефон, адрес или номер" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/>
+          <label className={styles.orderSearch}>Поиск заявок<span className={styles.orderSearchField}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" placeholder="Имя, телефон, адрес или номер" value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}}/></span></label>
           <div className={styles.orderFilters} role="group" aria-label="Дата заявок">
             {[['today','Сегодня'],['tomorrow','Завтра'],['all','Все даты']].map(([value,label])=><button key={value} type="button" aria-pressed={view===value} onClick={()=>{setView(value);setPage(1)}}>{label}</button>)}
           </div>
@@ -127,10 +138,11 @@ export function OrdersPanel() {
             <label>Заявки<select value={kind} onChange={e=>{setKind(e.target.value);setPage(1)}}><option value="all">Все заявки</option><option value="personal">Личные</option><option value="partner">Партнёрские</option><option value="center">СЦ</option></select></label>
             <label>Статус<select value={state} onChange={e=>{setState(e.target.value);setPage(1)}}><option value="all">Все статусы</option><option value="active">В работе</option><option value="waiting">Ожидают</option><option value="sd">СД</option><option value="closed">Закрытые</option><option value="cancelled">Отменённые</option></select></label>
             <label>Техника<select value={tech} onChange={e=>{setTech(e.target.value);setPage(1)}}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></label>
-            <label className={styles.assignmentFilter}><input type="checkbox" checked={unassigned} onChange={e=>{setUnassigned(e.target.checked);setPage(1)}}/>Без мастера</label>
+            <label>Мастер<select value={master} onChange={e=>{setMaster(e.target.value);setPage(1)}}><option value="all">Все мастера</option><option value="unassigned">Без мастера</option>{masters.map(m=><option key={m.id} value={m.id}>{m.user.fullName}</option>)}</select></label>
           </div>
-          {(view!=='all'||kind!=='all'||state!=='all'||tech||unassigned||query)&&<button type="button" className={styles.resetFilters} onClick={()=>{setView('all');setKind('all');setState('all');setTech('');setUnassigned(false);setQuery('');setPage(1)}}>Сбросить фильтры</button>}
+          {(view!=='all'||kind!=='all'||state!=='all'||tech||master!=='all'||query)&&<button type="button" className={styles.resetFilters} onClick={()=>{setView('all');setKind('all');setState('all');setTech('');setMaster('all');setQuery('');setPage(1)}}>Сбросить фильтры</button>}
         </div>
+        {mastersError&&<p className="error">{mastersError}</p>}
         {loading ? <p className="muted">Загрузка…</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error ? (
