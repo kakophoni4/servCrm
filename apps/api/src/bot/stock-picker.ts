@@ -1,6 +1,18 @@
 import {BadRequestException} from '@nestjs/common';
 import {randomBytes} from 'crypto';
 import {InventoryService} from '../inventory/inventory.service';
+export function stockPickerPage(catalog:any[],items:{partId:string;quantity:number}[],requestedPage:number,confirmNone:boolean,token:string){
+ const selected=new Map(items.map(item=>[item.partId,item.quantity]));
+ const pages:{index:number;text:string}[][]=[[]];let used=0;
+ catalog.forEach((part,index)=>{const quantity=selected.get(part.id)||0;const text=`${index+1}. ${part.category?part.category+' · ':''}${part.name}\nОстаток: ${part.quantity} шт. · Выбрано: ${quantity} шт.`;if(pages[pages.length-1].length&&(pages[pages.length-1].length>=8||used+text.length>3000)){pages.push([]);used=0;}pages[pages.length-1].push({index,text});used+=text.length+2;});
+ const page=Math.min(Math.max(0,Number.isFinite(requestedPage)?Math.floor(requestedPage):0),pages.length-1);
+ const rows=pages[page].map(({index})=>{const quantity=selected.get(catalog[index].id)||0;return [{text:`− ${index+1}`,callback_data:`is:${token}:minus:${index}`},{text:`№ ${index+1} · ${quantity} шт.`,callback_data:`is:${token}:input:${index}`},{text:`+ ${index+1}`,callback_data:`is:${token}:plus:${index}`}];});
+ if(pages.length>1)rows.push([{text:'←',callback_data:`is:${token}:page:${Math.max(0,page-1)}`},{text:'→',callback_data:`is:${token}:page:${Math.min(pages.length-1,page+1)}`}]);
+ rows.push([{text:confirmNone?'Подтвердить: без запчастей':'Подтвердить списание',callback_data:`is:${token}:save`}],[{text:'Без запчастей',callback_data:`is:${token}:none`},{text:'Отмена',callback_data:`is:${token}:cancel`}]);
+ const count=items.reduce((sum,item)=>sum+item.quantity,0);
+ const text=['Запчасти по заявке',confirmNone?'Без запчастей':`Выбрано: ${items.length} поз. · ${count} шт.`,`Страница ${page+1}/${pages.length}`,'',pages[page].map(row=>row.text).join('\n\n')||'Склад пуст'].join('\n');
+ return {page,text,reply_markup:{inline_keyboard:rows}};
+}
 export class StockPicker {
  constructor(private db:any,private send:(method:string,data:any)=>Promise<any>,private authorize:(order:any,id:string)=>Promise<any>,private refresh:(id:string)=>Promise<any>,private ownerChat?:()=>Promise<string|undefined>){}
  async reply(msg:any){
@@ -26,9 +38,7 @@ export class StockPicker {
    }else if(op==='page')flow.page=Math.max(0,Number(index)||0);
    else {const partId=flow.catalog?.[Number(index)];if(!partId)throw new BadRequestException('Обновите список');let item=flow.items.find((x:any)=>x.partId===partId);if(op==='set'){const quantity=Number(data.split(':')[4]);if(!Number.isSafeInteger(quantity)||quantity<0||quantity>1000000)throw new BadRequestException('Некорректное количество');flow.items=flow.items.filter((x:any)=>x.partId!==partId);if(quantity)flow.items.push({partId,quantity});}else if(op==='plus'){if(!item){item={partId,quantity:0};flow.items.push(item)}item.quantity++;if(item.quantity>1000000)throw new BadRequestException('Слишком большое количество');}else if(op==='minus'&&item){item.quantity--;flow.items=flow.items.filter((x:any)=>x.quantity>0);}else throw new BadRequestException('Неизвестное действие');flow.confirmNone=false;}
   }
-  const catalog=(await inv.list()) as any[];flow.catalog=catalog.map(p=>p.id);flow.page=Math.min(flow.page,Math.max(0,Math.ceil(catalog.length/8)-1));const token=key.slice('bot.stock.'.length),rows:any[]=[];const selected=flow.items.map((x:any)=>(catalog.find(p=>p.id===x.partId)?.name||'Запчасть')+' × '+x.quantity);
-  for(let i=flow.page*8;i<Math.min(catalog.length,(flow.page+1)*8);i++){const p=catalog[i],q=flow.items.find((x:any)=>x.partId===p.id)?.quantity||0;rows.push([{text:'−',callback_data:`is:${token}:minus:${i}`},{text:`${p.category? p.category+' · ':''}${p.name} (${p.quantity}) · ${q} шт.`.slice(0,60),callback_data:`is:${token}:input:${i}`},{text:'+',callback_data:`is:${token}:plus:${i}`}]);}
-  rows.push([{text:'←',callback_data:`is:${token}:page:${Math.max(0,flow.page-1)}`},{text:'→',callback_data:`is:${token}:page:${flow.page+1}`}],[{text:flow.confirmNone?'Подтвердить: без запчастей':'Подтвердить списание',callback_data:`is:${token}:save`}],[{text:'Без запчастей',callback_data:`is:${token}:none`},{text:'Отмена',callback_data:`is:${token}:cancel`}]);
-  const next=JSON.stringify(flow);const changed=await this.db.appSetting.updateMany({where:{key,value:raw},data:{value:next}});if(changed.count!==1)throw new BadRequestException('Список изменился. Повторите действие');const text='Запчасти по заявке'+(flow.confirmNone?' · без запчастей':'')+'\n'+(selected.join('\n')||'Ничего не выбрано')+'\nСтраница '+(flow.page+1)+'/'+Math.max(1,Math.ceil(catalog.length/8));await this.send(data.startsWith('ip:')?'sendMessage':'editMessageText',{chat_id:chat,...(!data.startsWith('ip:')?{message_id:cq.message.message_id}:{}),text,reply_markup:{inline_keyboard:rows}});
+  const catalog=(await inv.list()) as any[];flow.catalog=catalog.map(p=>p.id);const rendered=stockPickerPage(catalog,flow.items,flow.page,!!flow.confirmNone,key.slice('bot.stock.'.length));flow.page=rendered.page;
+  const next=JSON.stringify(flow);const changed=await this.db.appSetting.updateMany({where:{key,value:raw},data:{value:next}});if(changed.count!==1)throw new BadRequestException('Список изменился. Повторите действие');await this.send(data.startsWith('ip:')?'sendMessage':'editMessageText',{chat_id:chat,...(!data.startsWith('ip:')?{message_id:cq.message.message_id}:{}),text:rendered.text,reply_markup:rendered.reply_markup});
  }
 }

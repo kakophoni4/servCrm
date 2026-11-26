@@ -1,3 +1,4 @@
+import {deadlineLine, overviewChunks} from './overview-format';
 import {StockPicker} from './stock-picker';
 import {WeeklySchedule} from './weekly-schedule';
 import {masterContactVisible} from '../common/utils/master-contact';
@@ -958,7 +959,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if(saved.orderId!==orderId || String(saved.chatId)!==group.chatId)continue;
       await this.telegram('editMessageText',{chat_id:group.chatId,message_id:saved.messageId,text:card.text,entities:card.entities,reply_markup:card.reply_markup}).catch(()=>undefined);
     }
-    return this.sendMessage(group.chatId,'Заявка '+card.order.publicId+(when?' перенесена на '+when.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):': время визита снято'));
+    return this.sendMessage(group.chatId,'Заявка '+card.order.publicId+(when?' перенесена на '+when.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):': время визита снято')+'\nАдрес: '+(card.order.address || (card.order.isServiceCenter?'Привезут в СЦ':'не указан')));
   }
 
   private async ownerOrPartner(telegramId:string) {
@@ -1980,7 +1981,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     if(!orders.length)return 'Актуальные заявки · '+master.user.fullName+'\nНет актуальных заявок';
     const acceptedRows=await this.prisma.appSetting.findMany({where:{key:{in:orders.map(o=>'bot.orders.accepted.'+o.id)}}});
     const acceptedValues=new Map(acceptedRows.map(r=>[r.key,r.value]));
-    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+(o.client.phoneNormalized||'').replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+orderStatusText(o),...(o.status===OrderStatus.IN_PROGRESS_SD?['Срок СД: '+(o.sdDueAt?o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'}):'не указан')+(o.sdDueAt&&o.sdDueAt<new Date()?' · просрочено':'')]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,...(masterContactVisible(o,acceptedValues.get('bot.orders.accepted.'+o.id))?['Телефон: +'+(o.client.phoneNormalized||'').replace(/^\+/, '')]:[]),'Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Техника: '+(o.typeTech||'-'),'Статус: '+orderStatusText(o),...(o.status===OrderStatus.IN_PROGRESS_SD?[deadlineLine(o.sdDueAt)]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     return ['Актуальные заявки · '+master.user.fullName,'Всего: '+orders.length,'',...activeOrderSections(orders,lines)].join('\n').trim();
   }
 
@@ -1989,7 +1990,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     const year=Number(p.find(p=>p.type==='year')!.value),month=Number(p.find(p=>p.type==='month')!.value);
     const orders=await this.prisma.order.findMany({where:{...(scope==='center'?{isServiceCenter:true}:{isPersonal:true,isServiceCenter:false}),...(statistics?{status:OrderStatus.DONE,completedAt:{gte:new Date(Date.UTC(year,month-1,1)-4*3600000),lt:new Date(Date.UTC(year,month,1)-4*3600000)}}:{status:{in:MASTER_ACTIVE_STATUSES}})},include:{client:true,payment:true},orderBy:[{scheduledAt:'asc'},{id:'asc'}]});
     if(statistics){const sum=(key:string)=>orders.reduce((n,o)=>n+Number((o.payment as any)?.[key]||0),0),money=(n:number)=>n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽';return ['Статистика · '+now.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara',month:'long',year:'numeric'}),scope==='center'?'СЦ':'Личные','Выполнено: '+orders.length,'Получено: '+money(sum('paid')),'Расходы: '+money(sum('partsCost')),'Средний чек: '+money(orders.length?sum('paid')/orders.length:0),'На Авито: '+money(sum('reinvestAmount')),'Владельцу: '+money(sum('ownerNet'))].join('\n');}
-    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,o.client.phoneNormalized?'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''):'Телефон не указан','Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+orderStatusText(o),...(o.sdDueAt?['Срок СД: '+o.sdDueAt.toLocaleDateString('ru-RU',{timeZone:'Europe/Samara'})]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
+    const lines=(o:typeof orders[number])=>['Заявка '+o.publicId,'Клиент: '+o.client.name,o.client.phoneNormalized?'Телефон: +'+o.client.phoneNormalized.replace(/^\+/,''):'Телефон не указан','Адрес: '+o.address,'Время: '+(o.scheduledAt?o.scheduledAt.toLocaleString('ru-RU',{timeZone:'Europe/Samara',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'не назначено'),'Статус: '+orderStatusText(o),...(o.status===OrderStatus.IN_PROGRESS_SD?[deadlineLine(o.sdDueAt)]:[]),...(o.comment?['Описание: '+o.comment]:[]),''];
     const section=(title:string,items:typeof orders)=>{
       return [title+' · '+items.length,'',...(!items.length?['Нет актуальных заявок','']:[]),...activeOrderSections(items,lines)];
     };
@@ -2018,13 +2019,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
     const reports=ownReport?[await this.ownerOverviewReport(statistics,centerGroup?.chatId===chatId?'center':'personal')]:await Promise.all(ids.map(id=>statistics?this.masterMonthlyReport(id):this.masterActiveReport(id)));
     for(const report of reports){
-      let chunk='';
-      for(const line of report.split('\n')){
-        if(!line.length){if(chunk)chunk+='\n';continue;}
-        if(chunk.length+line.length+1>3500&&chunk){await this.sendMessage(chatId,chunk);chunk='';}
-        for(let offset=0;offset<line.length;offset+=3500){const part=line.slice(offset,offset+3500);if(part.length===3500)await this.sendMessage(chatId,part);else chunk+=(chunk?'\n':'')+part;}
-      }
-      if(chunk)await this.sendMessage(chatId,chunk);
+      for(const chunk of overviewChunks(report,!statistics))
+        await this.sendMessage(chatId,chunk.text,{entities:chunk.entities});
     }
   }
 

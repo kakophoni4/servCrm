@@ -15,7 +15,7 @@ export function orderFilters(q:PageQuery) {
     state:q.state??(legacy==='unassigned'?'active':['active','sd','closed','cancelled'].includes(legacy)?legacy:'all'),
     assignment:q.assignment??(legacy==='unassigned'?'unassigned':'all'),
   };
-  const allowed={date:['all','today','tomorrow'],kind:['all','personal','partner','center'],state:['all','active','waiting','sd','closed','cancelled'],assignment:['all','unassigned']};
+  const allowed={date:['all','today','tomorrow'],kind:['all','personal','partner','center'],state:['all','active','not_assigned','waiting','sd','closed','cancelled'],assignment:['all','unassigned']};
   for(const key of Object.keys(allowed) as (keyof typeof allowed)[])if(!allowed[key].includes(values[key]))throw new BadRequestException('Неизвестный фильтр');
   return values;
 }

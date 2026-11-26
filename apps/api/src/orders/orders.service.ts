@@ -78,12 +78,14 @@ export class OrdersService {
     if(filters.date==='today')where.scheduledAt=moscowToday();
     if(filters.date==='tomorrow')where.scheduledAt=moscowToday(new Date(Date.now()+86400000));
     if(filters.state==='active')where.status={notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
+    if(filters.state==='not_assigned')where.status='NOT_SCHEDULED';
     if(filters.state==='waiting')where.status='WAITING';
     if(filters.state==='sd')where.status='IN_PROGRESS_SD';
     if(filters.state==='closed')where.status='DONE';
     if(filters.state==='cancelled')where.status={in:['REFUSAL','CANCELLED_CC','NO_ARRIVAL']};
     if(filters.assignment==='unassigned'){
       where.masterId=null;
+      where.AND=[{isPersonal:false,isServiceCenter:false,status:{notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']}}];
       if(q.assignment===undefined){where.isPersonal=false;where.isServiceCenter=false;}
     }
     if(q.masterId)where.masterId=q.masterId;

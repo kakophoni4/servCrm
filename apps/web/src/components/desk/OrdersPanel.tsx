@@ -70,6 +70,7 @@ function formatSchedule(iso: string): string {
 
 export function OrdersPanel() {
   const router = useRouter();
+  const [filtersReady,setFiltersReady]=useState(false);
   const [view,setView]=useState('today');
   const [kind,setKind]=useState('all');
   const [state,setState]=useState('all');
@@ -91,6 +92,26 @@ export function OrdersPanel() {
   );
 
   useEffect(()=>{
+    try {
+      const saved=JSON.parse(localStorage.getItem(`crm.orders.filters.v1:${user?.id||'guest'}`)||'null');
+      if(saved&&typeof saved==='object'){
+        if(['today','tomorrow','all'].includes(saved.view))setView(saved.view);
+        if(['all','personal','partner','center'].includes(saved.kind))setKind(saved.kind);
+        if(['all','active','not_assigned','waiting','sd','closed','cancelled'].includes(saved.state))setState(saved.state);
+        if(typeof saved.master==='string'&&saved.master.length>0&&saved.master.length<=100)setMaster(saved.master);
+        if(typeof saved.query==='string'&&saved.query.length<=200)setQuery(saved.query);
+        if(typeof saved.tech==='string'&&saved.tech.length<=100)setTech(saved.tech);
+        if(Number.isSafeInteger(saved.page)&&saved.page>0&&saved.page<=1000000)setPage(saved.page);
+      }
+    }catch{}
+    setFiltersReady(true);
+  },[]);
+  useEffect(()=>{
+    if(!filtersReady)return;
+    try{localStorage.setItem(`crm.orders.filters.v1:${user?.id||'guest'}`,JSON.stringify({view,kind,state,master,query,tech,page}))}catch{}
+  },[filtersReady,view,kind,state,master,query,tech,page]);
+
+  useEffect(()=>{
     if(!canRead)return;
     const controller=new AbortController();
     api<{id:string;user:{fullName:string}}[]>('/orders/filter-masters',{signal:controller.signal})
@@ -100,6 +121,7 @@ export function OrdersPanel() {
   },[canRead]);
 
   useEffect(()=>{
+    if(!filtersReady)return;
     if(!canRead){setLoading(false);return}
     const c=new AbortController();let running=false;
     setLoading(true);setError('');setOrders([]);
@@ -114,7 +136,7 @@ export function OrdersPanel() {
     const resume=()=>{if(!document.hidden){setNow(Date.now());void load()}};
     document.addEventListener('visibilitychange',resume);
     return()=>{clearTimeout(timer);clearInterval(refresh);document.removeEventListener('visibilitychange',resume);c.abort()}
-  },[canRead,query,view,kind,state,master,tech,page]);
+  },[filtersReady,canRead,query,view,kind,state,master,tech,page]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10_000);
@@ -136,7 +158,7 @@ export function OrdersPanel() {
           </div>
           <div className={styles.filterGrid}>
             <label>Заявки<select value={kind} onChange={e=>{setKind(e.target.value);setPage(1)}}><option value="all">Все заявки</option><option value="personal">Личные</option><option value="partner">Партнёрские</option><option value="center">СЦ</option></select></label>
-            <label>Статус<select value={state} onChange={e=>{setState(e.target.value);setPage(1)}}><option value="all">Все статусы</option><option value="active">В работе</option><option value="waiting">Ожидают</option><option value="sd">СД</option><option value="closed">Закрытые</option><option value="cancelled">Отменённые</option></select></label>
+            <label>Статус<select value={state} onChange={e=>{setState(e.target.value);setPage(1)}}><option value="all">Все статусы</option><option value="active">В работе</option><option value="not_assigned">Не назначено</option><option value="waiting">Ожидают</option><option value="sd">СД</option><option value="closed">Закрытые</option><option value="cancelled">Отменённые</option></select></label>
             <label>Техника<select value={tech} onChange={e=>{setTech(e.target.value);setPage(1)}}><option value="">Вся техника</option>{TECH.map(([code,name])=><option key={code} value={code}>{code} - {name}</option>)}</select></label>
             <label>Мастер<select value={master} onChange={e=>{setMaster(e.target.value);setPage(1)}}><option value="all">Все мастера</option><option value="unassigned">Без мастера</option>{masters.map(m=><option key={m.id} value={m.id}>{m.user.fullName}</option>)}</select></label>
           </div>

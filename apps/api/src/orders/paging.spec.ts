@@ -56,3 +56,19 @@ describe('master selection in order filters',()=>{
   for(const q of [{masterId:''},{masterId:'x'.repeat(101)},{masterId:['x'] as any},{masterId:'x',assignment:'unassigned'},{masterId:'x',filter:'unassigned'}])await expect(svc.paged('u','OWNER',q)).rejects.toThrow();
  });
 });
+
+describe('ordinary unassigned orders',()=>{
+ const branch:any={allowedCityIds:async()=>null,resolveCityIds:(a:any)=>a,cityWhere:()=>undefined};
+ it.each(['all','closed','not_assigned'])('never admits personal, service-center or terminal orders with state %s',async(state)=>{
+  const order={count:jest.fn<Promise<number>,[any]>().mockResolvedValue(0),findMany:jest.fn<Promise<any[]>,[any]>().mockResolvedValue([])};
+  const db:any={order,$transaction:(calls:any)=>Promise.all(calls)};
+  const svc=new OrdersService(db,{} as any,{} as any,{} as any,branch,{} as any);
+  await svc.paged('u','OWNER',{assignment:'unassigned',state});
+  const where=order.findMany.mock.calls[0][0].where;
+  expect(where.masterId).toBeNull();
+  expect(where.AND).toContainEqual({isPersonal:false,isServiceCenter:false,status:{notIn:['DONE','REFUSAL','CANCELLED_CC','NO_ARRIVAL']}});
+  if(state==='not_assigned')expect(where.status).toBe('NOT_SCHEDULED');
+  if(state==='closed')expect(where.status).toBe('DONE');
+  expect(order.count.mock.calls[0][0].where).toEqual(where);
+ });
+});
